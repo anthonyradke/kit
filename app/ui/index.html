@@ -7,43 +7,36 @@
   <link rel="stylesheet" href="style.css" />
 </head>
 <body>
-  <div class="app">
-    <aside class="sidebar">
-      <div class="brand">
-        <svg class="brand-mark" viewBox="0 0 40 24" aria-hidden="true">
-          <defs>
-            <linearGradient id="g" x1="0" y1="0" x2="1" y2="1">
-              <stop offset="0" stop-color="#7c5cff" /><stop offset="1" stop-color="#38bdf8" />
-            </linearGradient>
-          </defs>
-          <rect width="40" height="24" rx="12" fill="url(#g)" />
-          <circle cx="28" cy="12" r="8" fill="#fff" />
-        </svg>
-        <span>lightswitch</span>
-      </div>
+  <header class="titlebar" data-tauri-drag-region>
+    <div class="tb-brand" data-tauri-drag-region>
+      <svg class="tb-mark" viewBox="0 0 24 24" aria-hidden="true" data-tauri-drag-region>
+        <defs>
+          <linearGradient id="markGrad" x1="0" y1="0" x2="1" y2="1">
+            <stop offset="0" stop-color="#8b5cf6" /><stop offset="1" stop-color="#38bdf8" />
+          </linearGradient>
+        </defs>
+        <path d="M13.2 2 4 13.4h6.1L9.6 22 20 10.1h-6.4z" fill="url(#markGrad)" />
+      </svg>
+      <span data-tauri-drag-region>lightswitch</span>
+    </div>
+    <nav class="nav-tabs">
+      <button class="nav-tab" data-act="page" data-page="profile">Mouse</button>
+      <button class="nav-tab" data-act="page" data-page="macros">Macros</button>
+      <button class="nav-tab" data-act="page" data-page="settings">Settings</button>
+    </nav>
+    <div class="tb-spacer" data-tauri-drag-region></div>
+    <div class="tb-device" id="device" data-tauri-drag-region></div>
+    <div class="win-controls">
+      <button class="win-btn" data-act="win-min" title="Minimize">
+        <svg viewBox="0 0 12 12"><path d="M1 6h10" /></svg>
+      </button>
+      <button class="win-btn close" data-act="win-close" title="Close to tray">
+        <svg viewBox="0 0 12 12"><path d="M1.5 1.5l9 9M10.5 1.5l-9 9" /></svg>
+      </button>
+    </div>
+  </header>
 
-      <div class="section-label">
-        <span>Profiles</span>
-        <button class="icon-btn" data-act="profile-new" title="New profile">+</button>
-      </div>
-      <div id="profile-list" class="profile-list"></div>
-
-      <nav class="nav">
-        <button class="nav-item" data-act="page" data-page="macros">
-          <svg viewBox="0 0 24 24"><path d="M4 6h16M4 12h10M4 18h6" /><circle cx="18" cy="16" r="3" /></svg>
-          Macros
-        </button>
-        <button class="nav-item" data-act="page" data-page="settings">
-          <svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="3" /><path d="M12 2v3M12 19v3M4.2 4.2l2.1 2.1M17.7 17.7l2.1 2.1M2 12h3M19 12h3M4.2 19.8l2.1-2.1M17.7 6.3l2.1-2.1" /></svg>
-          Settings
-        </button>
-      </nav>
-
-      <div id="device" class="device-card"></div>
-    </aside>
-
-    <main id="main" class="main"></main>
-  </div>
+  <main id="main" class="main"></main>
   <div id="toast" class="toast"></div>
   <script src="app.js"></script>
 </body>

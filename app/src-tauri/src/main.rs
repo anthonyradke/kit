@@ -29,10 +29,14 @@ pub fn show_window(app: &AppHandle) {
     }
     let _ = WebviewWindowBuilder::new(app, "main", WebviewUrl::App("index.html".into()))
         .title("lightswitch")
-        .inner_size(1040.0, 700.0)
-        .min_inner_size(860.0, 580.0)
+        .inner_size(1180.0, 780.0)
+        .min_inner_size(940.0, 640.0)
+        // Frameless: the UI draws its own title bar (drag region + minimize/close).
+        .decorations(false)
+        .maximizable(false)
+        .shadow(true)
         .theme(Some(tauri::Theme::Dark))
-        .background_color(tauri::window::Color(14, 15, 19, 255))
+        .background_color(tauri::window::Color(8, 9, 12, 255))
         .build();
 }
 
