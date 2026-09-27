@@ -120,11 +120,22 @@ unsafe fn hook_thread() {
     PeekMessageW(&mut msg, std::ptr::null_mut(), 0, 0, PM_NOREMOVE);
     HOOK_THREAD.store(GetCurrentThreadId(), Ordering::SeqCst);
 
-    SetWindowsHookExW(WH_MOUSE_LL, Some(mouse_proc), module, 0);
+    let mut mouse = SetWindowsHookExW(WH_MOUSE_LL, Some(mouse_proc), module, 0);
     let mut keyboard: HHOOK = std::ptr::null_mut();
+    // Windows silently drops a low-level hook that once answered too slowly
+    // (common around sleep/wake), with no notification. Re-install it
+    // periodically; the new hook goes in before the old one comes out.
+    SetTimer(std::ptr::null_mut(), 0, 30_000, None);
 
     while GetMessageW(&mut msg, std::ptr::null_mut(), 0, 0) > 0 {
         match msg.message {
+            WM_TIMER => {
+                let fresh = SetWindowsHookExW(WH_MOUSE_LL, Some(mouse_proc), module, 0);
+                if !fresh.is_null() {
+                    UnhookWindowsHookEx(mouse);
+                    mouse = fresh;
+                }
+            }
             MSG_KEYBOARD_ON if keyboard.is_null() => {
                 keyboard = SetWindowsHookExW(WH_KEYBOARD_LL, Some(keyboard_proc), module, 0);
             }
