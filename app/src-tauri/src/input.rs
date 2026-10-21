@@ -9,7 +9,7 @@ use std::sync::atomic::{AtomicBool, AtomicU32, AtomicU8, Ordering};
 use std::sync::mpsc::Sender;
 use std::sync::{Mutex, OnceLock};
 
-use windows_sys::Win32::Foundation::{LPARAM, LRESULT, POINT, WPARAM};
+use windows_sys::Win32::Foundation::{HINSTANCE, HWND, LPARAM, LRESULT, POINT, WPARAM};
 use windows_sys::Win32::System::LibraryLoader::GetModuleHandleW;
 use windows_sys::Win32::System::SystemInformation::GetTickCount;
 use windows_sys::Win32::System::Threading::{GetCurrentProcessId, GetCurrentThreadId};
@@ -25,10 +25,21 @@ const MODE_COMBO: u8 = 2;
 
 const MSG_KEYBOARD_ON: u32 = WM_APP + 1;
 const MSG_KEYBOARD_OFF: u32 = WM_APP + 2;
+const MSG_REINSTALL: u32 = WM_APP + 3;
+
+/// How often the watchdog checks the hooks, and how long a hook may go without
+/// an event while input is happening before it counts as removed.
+const WATCHDOG_MS: u32 = 1_000;
+const STALE_MS: u32 = 2_000;
 
 /// Whether Back (0) / Forward (1) presses are swallowed and handled by us.
 static INTERCEPT: [AtomicBool; 2] = [AtomicBool::new(false), AtomicBool::new(false)];
 static MODE: AtomicU8 = AtomicU8::new(MODE_OFF);
+/// Side buttons whose press we swallowed and whose release has not come yet.
+static HELD: [AtomicBool; 2] = [AtomicBool::new(false), AtomicBool::new(false)];
+/// Tick count of the last event each hook saw, for the watchdog.
+static MOUSE_SEEN: AtomicU32 = AtomicU32::new(0);
+static KEY_SEEN: AtomicU32 = AtomicU32::new(0);
 static HOOK_THREAD: AtomicU32 = AtomicU32::new(0);
 static EXEC: OnceLock<Sender<exec::Msg>> = OnceLock::new();
 static RECORD: Mutex<Recording> = Mutex::new(Recording::new());
@@ -113,6 +124,57 @@ fn post(msg: u32) {
     }
 }
 
+/// A low-level hook owned by the hook thread. Windows can remove one without
+/// telling us, so it can be swapped for a fresh one in place.
+struct Hook {
+    name: &'static str,
+    kind: WINDOWS_HOOK_ID,
+    proc: HOOKPROC,
+    module: HINSTANCE,
+    handle: HHOOK,
+}
+
+impl Hook {
+    const fn new(name: &'static str, kind: WINDOWS_HOOK_ID, proc: HOOKPROC, module: HINSTANCE) -> Self {
+        Self { name, kind, proc, module, handle: std::ptr::null_mut() }
+    }
+
+    fn is_installed(&self) -> bool {
+        !self.handle.is_null()
+    }
+
+    unsafe fn install(&mut self) {
+        if self.handle.is_null() {
+            self.handle = SetWindowsHookExW(self.kind, self.proc, self.module, 0);
+            if self.handle.is_null() {
+                eprintln!("input: installing the {} hook failed", self.name);
+            }
+        }
+    }
+
+    /// Put in a fresh hook, then drop the old handle (already dead if Windows
+    /// removed it, so a failed unhook is expected).
+    unsafe fn reinstall(&mut self) {
+        let fresh = SetWindowsHookExW(self.kind, self.proc, self.module, 0);
+        if fresh.is_null() {
+            eprintln!("input: re-installing the {} hook failed", self.name);
+            return;
+        }
+        if !self.handle.is_null() {
+            UnhookWindowsHookEx(self.handle);
+        }
+        self.handle = fresh;
+        eprintln!("input: re-installed the {} hook", self.name);
+    }
+
+    unsafe fn remove(&mut self) {
+        if !self.handle.is_null() {
+            UnhookWindowsHookEx(self.handle);
+            self.handle = std::ptr::null_mut();
+        }
+    }
+}
+
 unsafe fn hook_thread() {
     let module = GetModuleHandleW(std::ptr::null());
     let mut msg: MSG = std::mem::zeroed();
@@ -120,32 +182,134 @@ unsafe fn hook_thread() {
     PeekMessageW(&mut msg, std::ptr::null_mut(), 0, 0, PM_NOREMOVE);
     HOOK_THREAD.store(GetCurrentThreadId(), Ordering::SeqCst);
 
-    let mut mouse = SetWindowsHookExW(WH_MOUSE_LL, Some(mouse_proc), module, 0);
-    let mut keyboard: HHOOK = std::ptr::null_mut();
-    // Windows silently drops a low-level hook that once answered too slowly
-    // (common around sleep/wake), with no notification. Re-install it
-    // periodically; the new hook goes in before the old one comes out.
-    SetTimer(std::ptr::null_mut(), 0, 30_000, None);
+    let mut mouse = Hook::new("mouse", WH_MOUSE_LL, Some(mouse_proc), module);
+    let mut keyboard = Hook::new("keyboard", WH_KEYBOARD_LL, Some(keyboard_proc), module);
+    MOUSE_SEEN.store(GetTickCount(), Ordering::Relaxed);
+    mouse.install();
+
+    // Windows silently removes a low-level hook that answered too slowly
+    // (common around sleep/wake). Hooks are re-installed on resume, and a
+    // watchdog re-installs one that has stopped seeing input that happened.
+    create_power_window(module);
+    if SetTimer(std::ptr::null_mut(), 0, WATCHDOG_MS, None) == 0 {
+        eprintln!("input: SetTimer failed; a dropped hook will not be noticed");
+    }
+    let mut cursor = cursor_pos();
 
     while GetMessageW(&mut msg, std::ptr::null_mut(), 0, 0) > 0 {
+        if !msg.hwnd.is_null() {
+            DispatchMessageW(&msg);
+            continue;
+        }
         match msg.message {
             WM_TIMER => {
-                let fresh = SetWindowsHookExW(WH_MOUSE_LL, Some(mouse_proc), module, 0);
-                if !fresh.is_null() {
-                    UnhookWindowsHookEx(mouse);
-                    mouse = fresh;
+                let now = GetTickCount();
+                let pos = cursor_pos();
+                let moved = pos.is_some() && pos.map(|p| (p.x, p.y)) != cursor.map(|p| (p.x, p.y));
+                cursor = pos;
+                if moved && stale(&MOUSE_SEEN, now) {
+                    mouse.reinstall();
+                    MOUSE_SEEN.store(now, Ordering::Relaxed);
+                    release_held();
+                }
+                // Input we never saw, from neither hook, while our own window
+                // (which low-level keyboard hooks skip) is not in front.
+                if keyboard.is_installed()
+                    && stale(&KEY_SEEN, now)
+                    && stale(&MOUSE_SEEN, now)
+                    && now.wrapping_sub(last_input()) < WATCHDOG_MS
+                    && !own_foreground()
+                {
+                    keyboard.reinstall();
+                    KEY_SEEN.store(now, Ordering::Relaxed);
                 }
             }
-            MSG_KEYBOARD_ON if keyboard.is_null() => {
-                keyboard = SetWindowsHookExW(WH_KEYBOARD_LL, Some(keyboard_proc), module, 0);
+            MSG_REINSTALL => {
+                mouse.reinstall();
+                if keyboard.is_installed() {
+                    keyboard.reinstall();
+                }
+                let now = GetTickCount();
+                MOUSE_SEEN.store(now, Ordering::Relaxed);
+                KEY_SEEN.store(now, Ordering::Relaxed);
+                release_held();
             }
-            MSG_KEYBOARD_OFF if !keyboard.is_null() => {
-                UnhookWindowsHookEx(keyboard);
-                keyboard = std::ptr::null_mut();
+            MSG_KEYBOARD_ON => {
+                KEY_SEEN.store(GetTickCount(), Ordering::Relaxed);
+                keyboard.install();
             }
+            MSG_KEYBOARD_OFF => keyboard.remove(),
             _ => {}
         }
     }
+}
+
+fn stale(seen: &AtomicU32, now: u32) -> bool {
+    now.wrapping_sub(seen.load(Ordering::Relaxed)) > STALE_MS
+}
+
+unsafe fn cursor_pos() -> Option<POINT> {
+    let mut pt = POINT { x: 0, y: 0 };
+    (GetCursorPos(&mut pt) != 0).then_some(pt)
+}
+
+unsafe fn last_input() -> u32 {
+    let mut info = LASTINPUTINFO { cbSize: std::mem::size_of::<LASTINPUTINFO>() as u32, dwTime: 0 };
+    GetLastInputInfo(&mut info);
+    info.dwTime
+}
+
+unsafe fn own_foreground() -> bool {
+    let mut pid = 0u32;
+    GetWindowThreadProcessId(GetForegroundWindow(), &mut pid);
+    pid == GetCurrentProcessId()
+}
+
+/// Release side buttons whose press we swallowed but whose release a dropped
+/// hook never saw, so a held key or repeating macro does not get stuck.
+fn release_held() {
+    for (side, held) in HELD.iter().enumerate() {
+        if held.swap(false, Ordering::Relaxed) {
+            if let Some(tx) = EXEC.get() {
+                let _ = tx.send(exec::Msg::Button { forward: side == 1, down: false });
+            }
+        }
+    }
+}
+
+/// A hidden top-level window, only there to receive WM_POWERBROADCAST
+/// (message-only windows do not get broadcasts).
+unsafe fn create_power_window(module: HINSTANCE) {
+    let class: Vec<u16> = "lightswitch-input\0".encode_utf16().collect();
+    let mut wc: WNDCLASSW = std::mem::zeroed();
+    wc.lpfnWndProc = Some(power_proc);
+    wc.hInstance = module;
+    wc.lpszClassName = class.as_ptr();
+    RegisterClassW(&wc);
+    let hwnd = CreateWindowExW(
+        WS_EX_TOOLWINDOW,
+        class.as_ptr(),
+        std::ptr::null(),
+        WS_POPUP,
+        0,
+        0,
+        0,
+        0,
+        std::ptr::null_mut(),
+        std::ptr::null_mut(),
+        module,
+        std::ptr::null(),
+    );
+    if hwnd.is_null() {
+        eprintln!("input: creating the power window failed; hooks will not be re-installed on resume");
+    }
+}
+
+unsafe extern "system" fn power_proc(hwnd: HWND, msg: u32, wparam: WPARAM, lparam: LPARAM) -> LRESULT {
+    if msg == WM_POWERBROADCAST && wparam as u32 == PBT_APMRESUMEAUTOMATIC {
+        post(MSG_REINSTALL);
+    }
+    DefWindowProcW(hwnd, msg, wparam, lparam)
 }
 
 fn hiword(v: u32) -> u16 {
@@ -154,6 +318,7 @@ fn hiword(v: u32) -> u16 {
 
 unsafe extern "system" fn mouse_proc(code: i32, wparam: WPARAM, lparam: LPARAM) -> LRESULT {
     if code == HC_ACTION as i32 {
+        MOUSE_SEEN.store(GetTickCount(), Ordering::Relaxed);
         let info = &*(lparam as *const MSLLHOOKSTRUCT);
         if info.flags & LLMHF_INJECTED == 0 {
             let msg = wparam as u32;
@@ -183,6 +348,7 @@ unsafe extern "system" fn mouse_proc(code: i32, wparam: WPARAM, lparam: LPARAM) 
                     };
                     if let Some(side) = side {
                         if INTERCEPT[side].load(Ordering::Relaxed) {
+                            HELD[side].store(down, Ordering::Relaxed);
                             if let Some(tx) = EXEC.get() {
                                 let _ = tx.send(exec::Msg::Button { forward: side == 1, down });
                             }
@@ -198,6 +364,7 @@ unsafe extern "system" fn mouse_proc(code: i32, wparam: WPARAM, lparam: LPARAM) 
 
 unsafe extern "system" fn keyboard_proc(code: i32, wparam: WPARAM, lparam: LPARAM) -> LRESULT {
     if code == HC_ACTION as i32 {
+        KEY_SEEN.store(GetTickCount(), Ordering::Relaxed);
         let info = &*(lparam as *const KBDLLHOOKSTRUCT);
         if info.flags & LLKHF_INJECTED == 0 {
             let down = matches!(wparam as u32, WM_KEYDOWN | WM_SYSKEYDOWN);
