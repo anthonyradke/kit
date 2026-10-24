@@ -1,0 +1,15 @@
+[workspace]
+resolver = "2"
+members = ["crates/arctis", "crates/probe", "crates/apo", "crates/sysaudio", "app/src-tauri"]
+
+[workspace.package]
+edition = "2021"
+license = "MIT"
+
+[profile.release]
+opt-level = "s"
+lto = true
+codegen-units = 1
+strip = true
+# Unwind (not abort) so a bug in the APO falls back to passthrough instead of
+# taking down audiodg.exe.
