@@ -207,6 +207,22 @@ impl Config {
             }
             m.repeat = m.repeat.clamp(1, 1000);
         }
+        // Bindings to a deleted profile or macro would silently do nothing.
+        // (An empty macro id is "Macro" chosen before any macro exists.)
+        let profile_ids: Vec<String> = self.profiles.iter().map(|p| p.id.clone()).collect();
+        let macro_ids: Vec<String> = self.macros.iter().map(|m| m.id.clone()).collect();
+        for p in &mut self.profiles {
+            for action in [&mut p.back, &mut p.forward] {
+                let stale = match action {
+                    Action::Profile { id } => !profile_ids.contains(id),
+                    Action::Macro { id } => !id.is_empty() && !macro_ids.contains(id),
+                    _ => false,
+                };
+                if stale {
+                    *action = Action::Default;
+                }
+            }
+        }
         if !self.profiles.iter().any(|p| p.id == self.active) {
             self.active = self.profiles[0].id.clone();
         }

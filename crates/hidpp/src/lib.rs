@@ -1,5 +1,6 @@
 //! Minimal HID++ 2.0 client for Logitech mice (Lightspeed receiver or USB cable).
 
+use std::collections::{HashMap, VecDeque};
 use std::time::{Duration, Instant};
 
 use hidapi::{HidApi, HidDevice};
@@ -14,6 +15,12 @@ const SW_ID: u8 = 0x0A;
 /// An idle wireless mouse is in power-saving mode and can take over a second
 /// to answer, so this is deliberately generous.
 const REQUEST_TIMEOUT: Duration = Duration::from_millis(2500);
+/// Timeout for slots other than receiver slot 1 while searching. A cabled
+/// mouse is awake and answers fast, and the spare receiver slots are usually
+/// empty, so waiting the full timeout on each made opening very slow.
+const PROBE_TIMEOUT: Duration = Duration::from_millis(400);
+/// Notifications kept while a request waits for its reply.
+const MAX_PENDING: usize = 32;
 /// Device index used when the mouse is plugged in by cable.
 pub const WIRED_INDEX: u8 = 0xFF;
 
@@ -51,6 +58,11 @@ pub struct Mouse {
     dev: HidDevice,
     index: u8,
     timeout: Duration,
+    /// Feature id -> runtime index (0 = not supported). Indexes never change
+    /// for a device, so each is looked up once.
+    features: HashMap<u16, u8>,
+    /// Notifications that arrived while waiting for a reply, for `read_event`.
+    pending: VecDeque<(u8, u8, [u8; 16])>,
     pub product: String,
 }
 
@@ -69,12 +81,22 @@ impl Mouse {
             found_interface = true;
             let product = info.product_string().unwrap_or("?").to_string();
             let dev = api.open_path(info.path())?;
-            let mut mouse = Mouse { dev, index: 0, timeout: REQUEST_TIMEOUT, product };
+            let mut mouse = Mouse {
+                dev,
+                index: 0,
+                timeout: REQUEST_TIMEOUT,
+                features: HashMap::new(),
+                pending: VecDeque::new(),
+                product,
+            };
             // Receiver slot 1 is the usual one and a cabled mouse answers on 0xFF;
             // try those before the rarely used slots 2..=6.
             for index in [1u8, WIRED_INDEX, 2, 3, 4, 5, 6] {
                 mouse.index = index;
+                mouse.timeout = if index == 1 { REQUEST_TIMEOUT } else { PROBE_TIMEOUT };
                 if mouse.ping().is_ok() {
+                    mouse.timeout = REQUEST_TIMEOUT;
+                    mouse.pending.clear();
                     return Ok(mouse);
                 }
             }
@@ -93,6 +115,7 @@ impl Mouse {
         buf[1] = self.index;
         buf[2] = feat_index;
         buf[3] = (function << 4) | SW_ID;
+        let params = &params[..params.len().min(LONG_LEN - 4)];
         buf[4..4 + params.len()].copy_from_slice(params);
         self.dev.write(&buf)?;
 
@@ -111,7 +134,13 @@ impl Mouse {
                 out.copy_from_slice(&resp[4..20]);
                 return Ok(out);
             }
-            // Anything else is an unrelated notification; keep waiting.
+            // Anything else is an unrelated notification (such as the mouse
+            // reconnecting): keep it for `read_event` and keep waiting.
+            if resp[0] == REPORT_LONG && self.pending.len() < MAX_PENDING {
+                let mut params = [0u8; 16];
+                params.copy_from_slice(&resp[4..20]);
+                self.pending.push_back((resp[2], resp[3], params));
+            }
         }
         Err(Error::Timeout)
     }
@@ -124,11 +153,18 @@ impl Mouse {
 
     /// Look up the runtime index of a feature, if the device has it.
     pub fn feature_index(&mut self, id: u16) -> Result<u8> {
-        let r = self.request(0, 0, &id.to_be_bytes())?;
-        if r[0] == 0 && id != feature::ROOT {
+        let index = match self.features.get(&id) {
+            Some(&index) => index,
+            None => {
+                let index = self.request(0, 0, &id.to_be_bytes())?[0];
+                self.features.insert(id, index);
+                index
+            }
+        };
+        if index == 0 && id != feature::ROOT {
             return Err(Error::Unsupported(id));
         }
-        Ok(r[0])
+        Ok(index)
     }
 
     /// All (index, feature id) pairs the device exposes.
@@ -214,6 +250,9 @@ impl Mouse {
     /// Wait up to `timeout_ms` for an unsolicited report addressed to this device.
     /// Returns (feature index, function/event byte, params).
     pub fn read_event(&mut self, timeout_ms: i32) -> Result<Option<(u8, u8, [u8; 16])>> {
+        if let Some(event) = self.pending.pop_front() {
+            return Ok(Some(event));
+        }
         let mut resp = [0u8; LONG_LEN];
         let n = self.dev.read_timeout(&mut resp, timeout_ms)?;
         if n < 5 || resp[0] != REPORT_LONG || resp[1] != self.index {

@@ -128,10 +128,14 @@ pub fn cycle_dpi(app: &AppHandle) {
 
 /// Replace the whole config (the UI saves this way) and apply what changed.
 pub fn update_config(app: &AppHandle, mut config: Config) {
-    config.normalize();
-    {
+    let menu_changed = {
         let shared = app.state::<Shared>();
         let mut core = shared.core.lock().unwrap();
+        // Only `activate` switches profiles. A save sent just before a hotkey
+        // or side button switched must not switch back.
+        config.active = core.config.active.clone();
+        config.normalize();
+        let menu_changed = tray_entries(&core.config) != tray_entries(&config);
         let old = core.config.active_profile().clone();
         let new = config.active_profile();
         if old.id != new.id || old.dpi_stages != new.dpi_stages || old.dpi_index != new.dpi_index {
@@ -142,8 +146,16 @@ pub fn update_config(app: &AppHandle, mut config: Config) {
         }
         core.config = config;
         save(&shared, &core.config);
-    }
+        menu_changed
+    };
     apply_active(app);
     hotkeys::register(app);
-    tray::refresh(app);
+    if menu_changed {
+        tray::refresh(app);
+    }
+}
+
+/// What the tray menu shows: the active profile and every profile's name.
+fn tray_entries(config: &Config) -> (&str, Vec<(&str, &str)>) {
+    (&config.active, config.profiles.iter().map(|p| (p.id.as_str(), p.name.as_str())).collect())
 }

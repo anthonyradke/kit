@@ -1,6 +1,7 @@
 //! Global keyboard shortcuts for switching profiles.
 
 use std::collections::HashMap;
+use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Mutex;
 
 use tauri::plugin::TauriPlugin;
@@ -9,12 +10,18 @@ use tauri_plugin_global_shortcut::{GlobalShortcutExt, Shortcut, ShortcutState};
 
 use crate::state::{self, Shared};
 
+#[derive(Clone, PartialEq)]
 enum Target {
     Profile(String),
     Next,
 }
 
 static BINDINGS: Mutex<Option<HashMap<u32, Target>>> = Mutex::new(None);
+/// What was last registered, so saves that don't touch hotkeys skip the work.
+static REGISTERED: Mutex<Option<Vec<(String, Target, String)>>> = Mutex::new(None);
+/// While the UI captures a new shortcut, every hotkey is off so pressing one
+/// that is already in use is captured instead of switching profiles.
+static PAUSED: AtomicBool = AtomicBool::new(false);
 
 pub fn plugin() -> TauriPlugin<Wry> {
     tauri_plugin_global_shortcut::Builder::new()
@@ -39,9 +46,23 @@ pub fn plugin() -> TauriPlugin<Wry> {
         .build()
 }
 
+pub fn pause(app: &AppHandle) {
+    PAUSED.store(true, Ordering::SeqCst);
+    let _ = app.global_shortcut().unregister_all();
+    *REGISTERED.lock().unwrap() = None;
+}
+
+pub fn resume(app: &AppHandle) {
+    PAUSED.store(false, Ordering::SeqCst);
+    register(app);
+}
+
 /// Re-register every hotkey from the current config, recording failures
 /// (bad syntax, already taken by another app) for the UI.
 pub fn register(app: &AppHandle) {
+    if PAUSED.load(Ordering::SeqCst) {
+        return;
+    }
     let shared = app.state::<Shared>();
     let wanted: Vec<(String, Target, String)> = {
         let core = shared.core.lock().unwrap();
@@ -56,6 +77,11 @@ pub fn register(app: &AppHandle) {
         }
         v
     };
+    let mut registered = REGISTERED.lock().unwrap();
+    if registered.as_ref() == Some(&wanted) {
+        return;
+    }
+    *registered = Some(wanted.clone());
 
     let gs = app.global_shortcut();
     let _ = gs.unregister_all();

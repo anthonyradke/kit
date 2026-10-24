@@ -36,11 +36,15 @@ pub struct Status {
 }
 
 const OPEN_RETRY: Duration = Duration::from_secs(2);
-const POLL_EVERY: Duration = Duration::from_secs(5);
+/// Wakes and reconnects are caught by the wireless status notification, so the
+/// poll is only a backstop for settings that drifted without one.
+const POLL_EVERY: Duration = Duration::from_secs(30);
 const BATTERY_EVERY: Duration = Duration::from_secs(60);
 const APPLY_RETRY: Duration = Duration::from_secs(2);
-/// How long we block on HID reads before checking for new commands.
-const EVENT_WAIT_MS: i32 = 30;
+/// How long we block on HID reads before checking for new commands. Short
+/// while the mouse is awake so a DPI shift lands quickly.
+const EVENT_WAIT_MS: i32 = 10;
+const EVENT_WAIT_ASLEEP_MS: i32 = 100;
 
 pub fn spawn(app: AppHandle, rx: Receiver<Cmd>) {
     std::thread::Builder::new()
@@ -56,7 +60,9 @@ struct Worker {
     wireless_index: Option<u8>,
     desired: Option<(u16, u16)>,
     temp_dpi: Option<u16>,
+    /// The target DPI has been sent.
     applied: bool,
+    /// Host mode and the report rate have been set since the last wake.
     rate_applied: bool,
     next_open: Instant,
     next_apply: Instant,
@@ -132,6 +138,7 @@ impl Worker {
             }
             Cmd::TempDpi(dpi) => self.temp_dpi = dpi,
         }
+        // Only the DPI is re-sent unless the rate changed or the mouse woke up.
         self.applied = false;
         self.next_apply = Instant::now();
     }
@@ -170,7 +177,7 @@ impl Worker {
 
     fn service(&mut self) {
         let now = Instant::now();
-        if !self.applied && now >= self.next_apply {
+        if (!self.applied || !self.rate_applied) && now >= self.next_apply {
             self.apply();
         }
         if Instant::now() >= self.next_poll {
@@ -189,21 +196,34 @@ impl Worker {
     fn apply(&mut self) {
         let Some((_, rate)) = self.desired else { return };
         let target = self.target_dpi().unwrap_or(800);
-        let rate_applied = self.rate_applied;
+        let full = !self.rate_applied;
         let result = self.with_mouse(|m| {
-            m.ensure_host_mode()?;
-            let dpi = m.set_dpi(target)?;
-            if !rate_applied && m.report_rate()? != rate {
-                m.set_report_rate(rate)?;
+            if full {
+                m.ensure_host_mode()?;
             }
-            Ok((dpi, m.report_rate()?))
+            let dpi = m.set_dpi(target)?;
+            let hz = if full {
+                if m.report_rate()? != rate {
+                    m.set_report_rate(rate)?;
+                }
+                Some(m.report_rate()?)
+            } else {
+                None
+            };
+            Ok((dpi, hz))
         });
         match result {
             Some((dpi, hz)) => {
                 self.applied = true;
-                self.rate_applied = true;
+                // `with_mouse` may have just noticed a wake; then the full
+                // apply is still owed even though this one was DPI only.
+                if full {
+                    self.rate_applied = true;
+                }
                 self.status.dpi = Some(dpi);
-                self.status.rate = Some(hz);
+                if hz.is_some() {
+                    self.status.rate = hz;
+                }
             }
             None => self.next_apply = Instant::now() + APPLY_RETRY,
         }
@@ -212,9 +232,8 @@ impl Worker {
     fn poll(&mut self) {
         self.next_poll = Instant::now() + POLL_EVERY;
         if let Some(dpi) = self.with_mouse(|m| m.dpi()) {
-            let was_asleep = !self.status.connected;
             self.status.dpi = Some(dpi);
-            if was_asleep || self.target_dpi().is_some_and(|t| t != dpi) {
+            if self.target_dpi().is_some_and(|t| t != dpi) {
                 self.on_wake();
             }
         }
@@ -229,8 +248,9 @@ impl Worker {
     }
 
     fn wait_for_event(&mut self) {
+        let wait = if self.status.connected { EVENT_WAIT_MS } else { EVENT_WAIT_ASLEEP_MS };
         let Some(m) = self.mouse.as_mut() else { return };
-        match m.read_event(EVENT_WAIT_MS) {
+        match m.read_event(wait) {
             // The wireless status feature announces the mouse (re)connecting.
             Ok(Some((index, _, _))) if Some(index) == self.wireless_index => {
                 self.status.connected = true;
@@ -246,7 +266,12 @@ impl Worker {
         let m = self.mouse.as_mut()?;
         match f(m) {
             Ok(v) => {
-                self.status.connected = true;
+                // Answering after a timeout means it slept and may have lost
+                // host mode, so treat it as a wake.
+                if !self.status.connected {
+                    self.status.connected = true;
+                    self.on_wake();
+                }
                 self.status.error = None;
                 Some(v)
             }
@@ -255,9 +280,14 @@ impl Worker {
                 self.drop_mouse();
                 None
             }
-            Err(e) => {
-                // Timeouts and HID++ errors: the mouse is asleep or out of range.
+            Err(e @ Error::Timeout) => {
+                // The mouse is asleep or out of range.
                 self.status.connected = false;
+                self.status.error = Some(e.to_string());
+                None
+            }
+            Err(e) => {
+                // The mouse answered, it just refused the request.
                 self.status.error = Some(e.to_string());
                 None
             }

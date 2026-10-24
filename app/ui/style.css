@@ -246,9 +246,9 @@ kbd {
 
 /* right-hand settings panel */
 .panel { background: var(--panel); overflow-y: auto; min-height: 0; }
-.sec { padding: 20px 26px 22px; }
+.sec { padding: 16px 26px 18px; }
 .sec + .sec { border-top: 1px solid var(--hair); }
-.sec-head { display: flex; align-items: center; justify-content: space-between; gap: 12px; margin-bottom: 12px; min-height: 22px; }
+.sec-head { display: flex; align-items: center; justify-content: space-between; gap: 12px; margin-bottom: 10px; min-height: 22px; }
 .big-num { font: 300 30px/1 var(--display); color: #fff; letter-spacing: -.02em; font-variant-numeric: tabular-nums; }
 .big-num small { margin-left: 6px; font: 600 10.5px "Segoe UI", system-ui; letter-spacing: .16em; color: var(--dim); }
 
@@ -262,7 +262,7 @@ kbd {
 }
 .knob:hover { border-color: #9aa0b1; }
 .knob.on { background: #fff; border-color: var(--v-soft); box-shadow: 0 0 0 4px rgba(139, 92, 246, .22), 0 0 16px rgba(139, 92, 246, .95); }
-.track-scale { position: relative; height: 16px; margin: 2px 6px 12px; color: var(--faint); font-size: 10.5px; font-variant-numeric: tabular-nums; }
+.track-scale { position: relative; height: 16px; margin: 2px 6px 8px; color: var(--faint); font-size: 10.5px; font-variant-numeric: tabular-nums; }
 .track-scale span { position: absolute; transform: translateX(-50%); }
 
 .stages { display: flex; flex-wrap: wrap; gap: 2px; margin: 0 -8px; }
@@ -284,13 +284,13 @@ kbd {
 
 .opts { display: grid; grid-template-columns: 1fr 1fr; gap: 1px 6px; margin: 0 -10px; }
 .opt {
-  position: relative; padding: 7px 10px; border-radius: 7px; text-align: left;
+  position: relative; padding: 6px 10px; border-radius: 7px; text-align: left;
   color: var(--muted); font-size: 12.5px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; transition: all .15s;
 }
 .opt:hover { color: var(--text); background: rgba(255, 255, 255, .035); }
 .opt.on { color: #fff; background: linear-gradient(90deg, rgba(139, 92, 246, .18), rgba(56, 189, 248, .03)); }
-.opt.on::before { content: ""; position: absolute; left: 0; top: 7px; bottom: 7px; width: 2px; border-radius: 2px; background: var(--grad); box-shadow: var(--glow); }
-.opt-extra { margin-top: 14px; min-height: 32px; display: flex; align-items: center; }
+.opt.on::before { content: ""; position: absolute; left: 0; top: 6px; bottom: 6px; width: 2px; border-radius: 2px; background: var(--grad); box-shadow: var(--glow); }
+.opt-extra { margin-top: 10px; min-height: 32px; display: flex; align-items: center; }
 .opt-extra > * { flex: 1; }
 
 /* ---------- macros ---------- */

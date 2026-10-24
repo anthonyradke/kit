@@ -10,7 +10,7 @@ mod tray;
 
 use std::time::Duration;
 
-use tauri::{AppHandle, Manager, RunEvent, WebviewUrl, WebviewWindowBuilder};
+use tauri::{AppHandle, Manager, RunEvent, WebviewUrl, WebviewWindowBuilder, WindowEvent};
 use tauri_plugin_autostart::{MacosLauncher, ManagerExt};
 
 use config::{Config, KeyRef, Step};
@@ -94,6 +94,17 @@ fn cancel_capture() {
     input::cancel_capture();
 }
 
+/// Turn global hotkeys off while the UI captures a new one.
+#[tauri::command]
+fn pause_hotkeys(app: AppHandle) {
+    hotkeys::pause(&app);
+}
+
+#[tauri::command]
+fn resume_hotkeys(app: AppHandle) {
+    hotkeys::resume(&app);
+}
+
 #[tauri::command]
 fn get_autostart(app: AppHandle) -> bool {
     app.autolaunch().is_enabled().unwrap_or(false)
@@ -122,6 +133,15 @@ fn main() {
             }
             Ok(())
         })
+        .on_window_event(|window, event| {
+            // A closed window can't stop what it started: a recording or key
+            // capture would keep side buttons unhandled, a shortcut capture
+            // would leave hotkeys off.
+            if let WindowEvent::Destroyed = event {
+                input::reset();
+                hotkeys::resume(window.app_handle());
+            }
+        })
         .invoke_handler(tauri::generate_handler![
             get_state,
             save_config,
@@ -132,6 +152,8 @@ fn main() {
             capture_keys,
             ui_key,
             cancel_capture,
+            pause_hotkeys,
+            resume_hotkeys,
             get_autostart,
             set_autostart,
         ])

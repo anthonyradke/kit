@@ -6,6 +6,7 @@ const appWindow = window.__TAURI__.window.getCurrentWindow();
 
 const RATES = [125, 250, 500, 1000];
 const MAX_STAGES = 5;
+const MAX_DELAY = 600000; // 10 minutes
 const ACTION_TYPES = [
   ["default", "Default"],
   ["disabled", "Disabled"],
@@ -29,7 +30,7 @@ let autostart = false;
 const view = { page: "profile", profileId: null, macroId: null, side: "back" };
 let hotkeyCapture = null; // "profile" | "next" while listening for a hotkey
 let keyCapture = null; // { kind: "back" | "forward" | "step" } while the backend captures keys
-let recording = null; // { start, timer }
+let recording = null; // { start, timer, macroId }
 let confirmDelete = null;
 
 const $ = (sel) => document.querySelector(sel);
@@ -38,6 +39,8 @@ const cfg = () => S.config;
 const profile = () => cfg().profiles.find((p) => p.id === view.profileId) || cfg().profiles[0];
 const currentMacro = () => cfg().macros.find((m) => m.id === view.macroId);
 const newId = () => Date.now().toString(16) + Math.random().toString(16).slice(2, 8);
+// Whole numbers only: the backend rejects fractions, and one bad field would fail every save.
+const clampInt = (v, lo, hi) => Math.min(hi, Math.max(lo, Math.round(Number(v) || 0)));
 const clampDpi = (v) => Math.round(Math.min(25600, Math.max(100, Number(v) || 800)) / 50) * 50;
 
 const icons = {
@@ -101,14 +104,31 @@ function patchAttrs(o, n) {
 // ---------- persistence ----------
 
 let saveTimer = null;
+let saving = 0; // saves in flight
+
 function save(delay = 250) {
   clearTimeout(saveTimer);
-  saveTimer = setTimeout(async () => {
+  saveTimer = setTimeout(flushSave, delay);
+}
+
+// Local edits the backend hasn't stored yet.
+const unsaved = () => saveTimer !== null || saving > 0;
+
+async function flushSave() {
+  if (saveTimer === null) return;
+  clearTimeout(saveTimer);
+  saveTimer = null;
+  saving++;
+  try {
     const st = await invoke("save_config", { config: cfg() });
     S.dpiStage = st.dpiStage;
     S.hotkeyErrors = st.hotkeyErrors;
-    render();
-  }, delay);
+  } catch (err) {
+    toast(`Couldn't save: ${err}`);
+  } finally {
+    saving--;
+  }
+  render();
 }
 
 function toast(text) {
@@ -175,6 +195,8 @@ function renderDevice() {
   } else if (d.present) {
     dot = "sleep";
     text = "Asleep — move the mouse to wake it";
+  } else if (!d.error) {
+    text = "Looking for the mouse…";
   } else {
     text = "Receiver not found — is G HUB closed?";
   }
@@ -467,9 +489,10 @@ function macroEditor(m) {
       if (p[side].type === "macro" && p[side].id === m.id) usedBy.push(`${p.name} · ${SIDE_NAMES[side]}`);
     }
   }
+  const into = recording && recording.macroId !== m.id ? cfg().macros.find((x) => x.id === recording.macroId) : null;
   const recBar = recording
     ? `<div class="rec-bar"><span class="rec-dot"></span><span class="rec-time" id="rec-time">0.0s</span>
-        <span class="grow">Recording keys and clicks. Clicks inside this window are ignored.</span>
+        <span class="grow">${into ? `Recording into "${esc(into.name)}".` : "Recording keys and clicks."} Clicks inside this window are ignored.</span>
         <button class="tbtn" data-act="rec-stop">${icons.stop}Stop</button></div>`
     : "";
   const addKeyListening = keyCapture && keyCapture.kind === "step";
@@ -554,7 +577,7 @@ function settingsPage() {
     <span class="label block">Device</span>
     <dl class="kv">
       <dt>Mouse</dt><dd>${esc(d.name || "—")}</dd>
-      <dt>Status</dt><dd>${d.connected ? "Connected" : d.present ? "Asleep" : "Not found"}</dd>
+      <dt>Status</dt><dd>${d.connected ? "Connected" : d.present ? "Asleep" : d.error ? "Not found" : "Searching…"}</dd>
       <dt>Battery</dt><dd>${d.battery != null ? `${d.battery}%${d.charging ? " (charging)" : ""}` : "—"}</dd>
       <dt>Current DPI</dt><dd>${d.dpi ?? "—"}</dd>
       <dt>Report rate</dt><dd>${d.rate ? `${d.rate} Hz` : "—"}</dd>
@@ -579,6 +602,8 @@ function defaultAction(type) {
 }
 
 async function activate(id) {
+  // Send pending edits first, or the state that comes back would drop them.
+  await flushSave();
   S = await invoke("activate_profile", { id });
   render();
 }
@@ -589,16 +614,23 @@ async function captureKeys(kind) {
     return;
   }
   keyCapture = { kind };
+  // Remember what the keys are for: the user may switch tabs while capturing.
+  const targetId = kind === "step" ? view.macroId : profile().id;
   render();
+  await invoke("pause_hotkeys");
   const keys = await invoke("capture_keys");
+  invoke("resume_hotkeys");
   keyCapture = null;
   if (keys && keys.length) {
     if (kind === "step") {
-      const m = currentMacro();
-      for (const key of keys) m.steps.push({ type: "key", key, down: true });
-      for (const key of [...keys].reverse()) m.steps.push({ type: "key", key, down: false });
+      const m = cfg().macros.find((x) => x.id === targetId);
+      if (m) {
+        for (const key of keys) m.steps.push({ type: "key", key, down: true });
+        for (const key of [...keys].reverse()) m.steps.push({ type: "key", key, down: false });
+      }
     } else {
-      profile()[kind] = { type: "keys", keys };
+      const p = cfg().profiles.find((x) => x.id === targetId);
+      if (p) p[kind] = { type: "keys", keys };
     }
     save(0);
   }
@@ -607,7 +639,7 @@ async function captureKeys(kind) {
 
 async function startRecording() {
   await invoke("start_recording");
-  recording = { start: performance.now() };
+  recording = { start: performance.now(), macroId: view.macroId };
   recording.timer = setInterval(() => {
     const el = $("#rec-time");
     if (el) el.textContent = ((performance.now() - recording.start) / 1000).toFixed(1) + "s";
@@ -618,12 +650,15 @@ async function startRecording() {
 async function stopRecording() {
   const steps = await invoke("stop_recording");
   clearInterval(recording.timer);
+  // Into the macro the recording started on, even if another one is open now.
+  const m = cfg().macros.find((x) => x.id === recording.macroId);
   recording = null;
-  const m = currentMacro();
   if (m) {
     m.steps = steps;
     save(0);
     toast(`Recorded ${steps.filter((s) => s.type !== "delay").length} actions`);
+  } else {
+    toast("Recording discarded: the macro was deleted");
   }
   render();
 }
@@ -659,10 +694,12 @@ const handlers = {
     appWindow.close();
   },
   page(el) {
+    setHotkeyCapture(null);
     view.page = el.dataset.page;
     render();
   },
   "profile-open"(el) {
+    setHotkeyCapture(null);
     view.page = "profile";
     view.profileId = el.dataset.id;
     render();
@@ -691,6 +728,9 @@ const handlers = {
     armDelete(p.id, () => {
       cfg().profiles = cfg().profiles.filter((q) => q.id !== p.id);
       if (cfg().active === p.id) cfg().active = cfg().profiles[0].id;
+      for (const q of cfg().profiles) {
+        for (const side of ["back", "forward"]) if (q[side].type === "profile" && q[side].id === p.id) q[side] = { type: "default" };
+      }
       view.profileId = cfg().profiles[0].id;
       save(0);
       toast(`Deleted "${p.name}"`);
@@ -741,7 +781,7 @@ const handlers = {
     captureKeys(el.dataset.side);
   },
   "hotkey-set"(el) {
-    hotkeyCapture = hotkeyCapture === el.dataset.target ? null : el.dataset.target;
+    setHotkeyCapture(hotkeyCapture === el.dataset.target ? null : el.dataset.target);
     render();
   },
   "hotkey-clear"(el) {
@@ -810,7 +850,7 @@ const handlers = {
     render();
   },
   "delays-set"() {
-    const ms = Math.max(0, Number($("#all-delays").value) || 0);
+    const ms = clampInt($("#all-delays").value, 0, MAX_DELAY);
     const m = currentMacro();
     // Normalise: one delay between every pair of actions.
     const actions = m.steps.filter((s) => s.type !== "delay");
@@ -838,9 +878,18 @@ function moveStep(i, dir) {
 function setHotkey(target, value) {
   if (target === "next") cfg().settings.nextProfileHotkey = value;
   else profile().hotkey = value;
-  hotkeyCapture = null;
+  setHotkeyCapture(null);
   save(0);
   render();
+}
+
+// Global hotkeys are off while capturing, so a combo that is already in use
+// reaches this window instead of switching profiles.
+function setHotkeyCapture(target) {
+  const was = hotkeyCapture;
+  hotkeyCapture = target;
+  if (!was && target) invoke("pause_hotkeys");
+  else if (was && !target) invoke("resume_hotkeys");
 }
 
 // ---------- events ----------
@@ -865,10 +914,10 @@ document.addEventListener("input", (e) => {
     save();
     render();
   } else if (f === "step-ms") {
-    currentMacro().steps[Number(el.dataset.i)].ms = Math.max(0, Number(el.value) || 0);
+    currentMacro().steps[Number(el.dataset.i)].ms = clampInt(el.value, 0, MAX_DELAY);
     save();
   } else if (f === "macro-repeat") {
-    currentMacro().repeat = Math.min(1000, Math.max(1, Number(el.value) || 1));
+    currentMacro().repeat = clampInt(el.value, 1, 1000);
     save();
   }
 });
@@ -922,7 +971,7 @@ document.addEventListener("keydown", (e) => {
   if (!hotkeyCapture) return;
   e.preventDefault();
   if (e.key === "Escape") {
-    hotkeyCapture = null;
+    setHotkeyCapture(null);
     render();
     return;
   }
@@ -937,6 +986,11 @@ document.addEventListener("keydown", (e) => {
   if (!code && /^[a-z]$/i.test(e.key)) code = "Key" + e.key.toUpperCase();
   else if (!code && /^[0-9]$/.test(e.key)) code = "Digit" + e.key;
   if (!code) return;
+  // A bare key would be taken from every app: typing it would switch profiles.
+  if (!mods.length && !/^F\d+$/.test(code)) {
+    toast("Add Ctrl, Alt, Shift or Win (F-keys work on their own)");
+    return;
+  }
   setHotkey(hotkeyCapture, [...mods, code].join("+"));
 });
 
@@ -949,7 +1003,13 @@ document.addEventListener("keydown", (e) => {
   render();
 
   await listen("state", (e) => {
-    S = e.payload;
+    if (unsaved()) {
+      // Keep edits the backend doesn't have yet; take only the profile switch.
+      const config = { ...cfg(), active: e.payload.config.active };
+      S = { ...e.payload, config };
+    } else {
+      S = e.payload;
+    }
     if (!cfg().profiles.some((p) => p.id === view.profileId)) view.profileId = cfg().active;
     render();
   });

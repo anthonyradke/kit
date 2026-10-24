@@ -35,7 +35,8 @@ const STALE_MS: u32 = 2_000;
 /// Whether Back (0) / Forward (1) presses are swallowed and handled by us.
 static INTERCEPT: [AtomicBool; 2] = [AtomicBool::new(false), AtomicBool::new(false)];
 static MODE: AtomicU8 = AtomicU8::new(MODE_OFF);
-/// Side buttons whose press we swallowed and whose release has not come yet.
+/// Side buttons whose press we swallowed. Their release is swallowed too, even
+/// if the profile or mode changed while the button was held.
 static HELD: [AtomicBool; 2] = [AtomicBool::new(false), AtomicBool::new(false)];
 /// Tick count of the last event each hook saw, for the watchdog.
 static MOUSE_SEEN: AtomicU32 = AtomicU32::new(0);
@@ -108,6 +109,19 @@ pub fn capture_combo() -> std::sync::mpsc::Receiver<Vec<KeyRef>> {
     MODE.store(MODE_COMBO, Ordering::SeqCst);
     post(MSG_KEYBOARD_ON);
     rx
+}
+
+/// Stop any recording or capture. Used when the window goes away, since
+/// nothing else could stop it then and side buttons are only handled while
+/// neither is running.
+pub fn reset() {
+    if MODE.swap(MODE_OFF, Ordering::SeqCst) != MODE_OFF {
+        post(MSG_KEYBOARD_OFF);
+    }
+    COMBO_DONE.lock().unwrap().take();
+    let mut rec = RECORD.lock().unwrap();
+    rec.events.clear();
+    rec.held.clear();
 }
 
 pub fn cancel_capture() {
@@ -266,10 +280,12 @@ unsafe fn own_foreground() -> bool {
 }
 
 /// Release side buttons whose press we swallowed but whose release a dropped
-/// hook never saw, so a held key or repeating macro does not get stuck.
+/// hook never saw, so a held key or repeating macro does not get stuck. The
+/// flag stays set so a release that does arrive later is still swallowed (the
+/// executor ignores the second release).
 fn release_held() {
     for (side, held) in HELD.iter().enumerate() {
-        if held.swap(false, Ordering::Relaxed) {
+        if held.load(Ordering::Relaxed) {
             if let Some(tx) = EXEC.get() {
                 let _ = tx.send(exec::Msg::Button { forward: side == 1, down: false });
             }
@@ -335,26 +351,33 @@ unsafe extern "system" fn mouse_proc(code: i32, wparam: WPARAM, lparam: LPARAM) 
             if let Some(button) = button {
                 let down = matches!(msg, WM_LBUTTONDOWN | WM_RBUTTONDOWN | WM_MBUTTONDOWN | WM_XBUTTONDOWN);
                 let mode = MODE.load(Ordering::Relaxed);
-                if mode == MODE_MACRO {
-                    // Clicks on our own window (Record/Stop buttons) are not part of the macro.
-                    if !is_own_window(info.pt) {
-                        RECORD.lock().unwrap().events.push((info.time, Raw::Mouse { button, down }));
-                    }
-                } else if mode == MODE_OFF {
-                    let side = match button {
-                        MouseButton::Back => Some(0),
-                        MouseButton::Forward => Some(1),
-                        _ => None,
+                let side = match button {
+                    MouseButton::Back => Some(0),
+                    MouseButton::Forward => Some(1),
+                    _ => None,
+                };
+                if let Some(side) = side {
+                    // The release follows what happened to the press. Deciding it
+                    // from INTERCEPT again let a release through after a side
+                    // button switched to a profile with that button on Default,
+                    // and a lone XBUTTONUP still makes browsers go back.
+                    let swallow = if down {
+                        let take = mode == MODE_OFF && INTERCEPT[side].load(Ordering::Relaxed);
+                        HELD[side].store(take, Ordering::Relaxed);
+                        take
+                    } else {
+                        HELD[side].swap(false, Ordering::Relaxed)
                     };
-                    if let Some(side) = side {
-                        if INTERCEPT[side].load(Ordering::Relaxed) {
-                            HELD[side].store(down, Ordering::Relaxed);
-                            if let Some(tx) = EXEC.get() {
-                                let _ = tx.send(exec::Msg::Button { forward: side == 1, down });
-                            }
-                            return 1;
+                    if swallow {
+                        if let Some(tx) = EXEC.get() {
+                            let _ = tx.send(exec::Msg::Button { forward: side == 1, down });
                         }
+                        return 1;
                     }
+                }
+                // Clicks on our own window (Record/Stop buttons) are not part of the macro.
+                if mode == MODE_MACRO && !is_own_window(info.pt) {
+                    RECORD.lock().unwrap().events.push((info.time, Raw::Mouse { button, down }));
                 }
             }
         }
@@ -539,8 +562,11 @@ fn to_steps(events: &[(u32, Raw)]) -> Vec<Step> {
     let mut last: Option<u32> = None;
     for &(time, raw) in events {
         if let Some(prev) = last {
+            // Keys forwarded from our window are stamped when they arrive, a
+            // little late, so time can step back slightly; never turn that
+            // into a 49-day wrap-around delay.
             let ms = time.wrapping_sub(prev);
-            if ms > 0 {
+            if ms > 0 && ms < i32::MAX as u32 {
                 steps.push(Step::Delay { ms });
             }
         }
