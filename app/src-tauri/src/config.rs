@@ -119,7 +119,12 @@ fn peak(freq: u16, gain: f32, q: f32) -> Band {
     Band { enabled: true, filter: Filter::Peaking, freq, gain, q }
 }
 
-/// Flat plus the user's two Sonar game presets, converted to headset bands.
+fn shelf(filter: Filter, freq: u16, gain: f32) -> Band {
+    Band { enabled: true, filter, freq, gain, q: 0.707 }
+}
+
+/// Flat, the user's two Sonar game presets converted to headset bands, and a
+/// few purpose-built ones. Boosts stay near +5 dB: the headset has no preamp.
 fn seed_presets() -> Vec<Preset> {
     let pad = |mut bands: Vec<Band>| {
         bands.resize(arctis::BANDS, Band::default());
@@ -153,6 +158,65 @@ fn seed_presets() -> Vec<Preset> {
                 peak(2500, 1.5, 1.4),
                 peak(4981, -6.5, 0.707),
                 peak(3000, 1.5, 0.707),
+            ]),
+        },
+        Preset {
+            // Competitive shooters: less rumble from explosions, more of the
+            // 2-5 kHz range where footsteps and reloads sit.
+            id: "footsteps".into(),
+            name: "Footsteps".into(),
+            bands: pad(vec![
+                shelf(Filter::LowShelf, 120, -4.0),
+                peak(250, -2.0, 1.0),
+                peak(2000, 2.0, 1.2),
+                peak(3500, 4.0, 1.4),
+                peak(6000, 2.0, 1.4),
+            ]),
+        },
+        Preset {
+            // Discord, podcasts, video: no rumble, less boxiness, clearer
+            // consonants, softer "s" sounds.
+            id: "voice".into(),
+            name: "Voice".into(),
+            bands: pad(vec![
+                Band { enabled: true, filter: Filter::HighPass, freq: 90, gain: 0.0, q: 0.707 },
+                peak(200, -2.0, 1.0),
+                peak(1500, 1.5, 1.0),
+                peak(3000, 3.0, 1.2),
+                peak(7000, -2.0, 2.0),
+            ]),
+        },
+        Preset {
+            // Music: a gentle bass shelf, otherwise close to neutral.
+            id: "warm".into(),
+            name: "Warm".into(),
+            bands: pad(vec![
+                shelf(Filter::LowShelf, 105, 4.5),
+                peak(400, -1.0, 1.0),
+                peak(2500, 1.0, 1.4),
+                peak(6000, -1.5, 2.0),
+                shelf(Filter::HighShelf, 10000, 1.0),
+            ]),
+        },
+        Preset {
+            // Movies and story games: sub-bass rumble plus a dialogue lift.
+            id: "cinema".into(),
+            name: "Cinema".into(),
+            bands: pad(vec![
+                shelf(Filter::LowShelf, 70, 5.0),
+                peak(250, -1.5, 1.0),
+                peak(2000, 2.5, 1.0),
+                shelf(Filter::HighShelf, 9000, 2.0),
+            ]),
+        },
+        Preset {
+            // Quiet listening: ears lose bass and treble at low volume, so lift both.
+            id: "late-night".into(),
+            name: "Late night".into(),
+            bands: pad(vec![
+                shelf(Filter::LowShelf, 100, 5.0),
+                peak(1000, -1.0, 0.707),
+                shelf(Filter::HighShelf, 8000, 3.5),
             ]),
         },
     ]
