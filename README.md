@@ -1,3 +1,5 @@
+<img src="app-icon.png" width="96" alt="kit icon">
+
 # kit
 
 One small, fast app that replaces Logitech G HUB and SteelSeries GG / Sonar on Windows, built for a
