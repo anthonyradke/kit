@@ -1,10 +1,10 @@
 //! The Logitech PRO X Superlight: profiles, DPI, report rate, side buttons and macros.
 
-mod config;
+pub mod config;
 mod device;
-mod exec;
+pub mod exec;
 mod hotkeys;
-mod input;
+pub mod input;
 pub mod state;
 
 use std::time::Duration;

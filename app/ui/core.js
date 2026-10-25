@@ -33,7 +33,33 @@ const icons = {
   key: '<svg viewBox="0 0 24 24"><rect x="3" y="6" width="18" height="12" rx="2"/><path d="M7 10h.01M11 10h.01M15 10h.01M8 14h8"/></svg>',
   reset: '<svg viewBox="0 0 24 24"><path d="M4 12a8 8 0 1 0 2.3-5.6M4 4v4h4"/></svg>',
   shield: '<svg viewBox="0 0 24 24"><path d="M12 3l7 3v6c0 4.5-3 7.5-7 9-4-1.5-7-4.5-7-9V6z"/></svg>',
+  check: '<svg viewBox="0 0 24 24"><path d="M5 12.5l4.5 4.5L19 7.5"/></svg>',
+  brush: '<svg viewBox="0 0 24 24"><path d="M14.5 4.5l5 5-8 8-5-5zM6.5 12.5L4 20l7.5-2.5"/></svg>',
+  eraser: '<svg viewBox="0 0 24 24"><path d="M8 20h12M5 15l9-9 5 5-9 9H8z"/></svg>',
 };
+
+// ---------- products ----------
+// Photos follow the color picked in setup (A is the app config, loaded in app.js).
+
+const PRODUCTS = {
+  mouse: { name: "PRO X Superlight", colors: ["white", "black"] },
+  headset: { name: "Arctis Nova 5", colors: ["white", "black"] },
+  nk65: { name: "NK65", long: "NK65 Milkshake Edition" },
+  proxtkl: { name: "PRO X TKL", long: "PRO X TKL LIGHTSPEED" },
+};
+
+function productImg(kind, view, colorOverride) {
+  if (kind === "keyboard") return `img/keyboard-${colorOverride || A.keyboard?.model || "nk65"}.webp`;
+  const color = colorOverride || A[kind]?.color || "white";
+  const dark = color === "black" ? "-black" : "";
+  if (kind === "mouse") return `img/mouse-${view || "side"}${dark}.webp`;
+  return `img/headset${dark}.webp`;
+}
+
+function keyboardName(long = false) {
+  const p = PRODUCTS[A.keyboard?.model || "nk65"];
+  return long ? p.long : p.name;
+}
 
 // ---------- DOM patching ----------
 // Rendering builds HTML strings, then patches the live DOM in place instead of

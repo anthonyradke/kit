@@ -1,5 +1,5 @@
-//! Low-level Windows input: side-button interception, macro recording and
-//! synthetic input playback.
+//! Low-level Windows input: side-button and keyboard-key interception, macro
+//! recording and synthetic input playback.
 //!
 //! Hook callbacks must return quickly (Windows silently removes slow hooks), so
 //! they only touch atomics and a short-lived mutex and hand work to other
@@ -38,6 +38,12 @@ static MODE: AtomicU8 = AtomicU8::new(MODE_OFF);
 /// Side buttons whose press we swallowed. Their release is swallowed too, even
 /// if the profile or mode changed while the button was held.
 static HELD: [AtomicBool; 2] = [AtomicBool::new(false), AtomicBool::new(false)];
+/// Keyboard keys kit handles (bindings), by scan code + 256 if extended.
+static KEY_BIND: [AtomicBool; 512] = [const { AtomicBool::new(false) }; 512];
+/// Bound keys whose press we swallowed, so the release (and auto-repeat) is too.
+static KEY_HELD: [AtomicBool; 512] = [const { AtomicBool::new(false) }; 512];
+/// Any key is bound: the keyboard hook stays installed.
+static KEYS_BOUND: AtomicBool = AtomicBool::new(false);
 /// Tick count of the last event each hook saw, for the watchdog.
 static MOUSE_SEEN: AtomicU32 = AtomicU32::new(0);
 static KEY_SEEN: AtomicU32 = AtomicU32::new(0);
@@ -77,6 +83,25 @@ pub fn start(exec_tx: Sender<exec::Msg>) {
 pub fn set_intercept(back: bool, forward: bool) {
     INTERCEPT[0].store(back, Ordering::Relaxed);
     INTERCEPT[1].store(forward, Ordering::Relaxed);
+}
+
+/// Keys (scan code, extended) the keyboard settings bind to an action. The
+/// keyboard hook runs only while there are some (or while recording).
+pub fn set_key_bindings(keys: &[(u16, bool)]) {
+    for b in &KEY_BIND {
+        b.store(false, Ordering::Relaxed);
+    }
+    for &(scan, ext) in keys {
+        if let Some(i) = key_slot(scan, ext) {
+            KEY_BIND[i].store(true, Ordering::Relaxed);
+        }
+    }
+    KEYS_BOUND.store(!keys.is_empty(), Ordering::SeqCst);
+    post(if keys.is_empty() { MSG_KEYBOARD_OFF } else { MSG_KEYBOARD_ON });
+}
+
+fn key_slot(scan: u16, ext: bool) -> Option<usize> {
+    (scan < 256).then_some(scan as usize + if ext { 256 } else { 0 })
 }
 
 pub fn start_recording() {
@@ -200,6 +225,11 @@ unsafe fn hook_thread() {
     let mut keyboard = Hook::new("keyboard", WH_KEYBOARD_LL, Some(keyboard_proc), module);
     MOUSE_SEEN.store(GetTickCount(), Ordering::Relaxed);
     mouse.install();
+    // Bindings set before this thread could take messages.
+    if KEYS_BOUND.load(Ordering::SeqCst) {
+        KEY_SEEN.store(GetTickCount(), Ordering::Relaxed);
+        keyboard.install();
+    }
 
     // Windows silently removes a low-level hook that answered too slowly
     // (common around sleep/wake). Hooks are re-installed on resume, and a
@@ -252,7 +282,9 @@ unsafe fn hook_thread() {
                 KEY_SEEN.store(GetTickCount(), Ordering::Relaxed);
                 keyboard.install();
             }
-            MSG_KEYBOARD_OFF => keyboard.remove(),
+            MSG_KEYBOARD_OFF if MODE.load(Ordering::SeqCst) == MODE_OFF && !KEYS_BOUND.load(Ordering::SeqCst) => {
+                keyboard.remove();
+            }
             _ => {}
         }
     }
@@ -288,6 +320,13 @@ fn release_held() {
         if held.load(Ordering::Relaxed) {
             if let Some(tx) = EXEC.get() {
                 let _ = tx.send(exec::Msg::Button { forward: side == 1, down: false });
+            }
+        }
+    }
+    for (i, held) in KEY_HELD.iter().enumerate() {
+        if held.swap(false, Ordering::Relaxed) {
+            if let Some(tx) = EXEC.get() {
+                let _ = tx.send(exec::Msg::Key { scan: (i % 256) as u16, ext: i >= 256, down: false });
             }
         }
     }
@@ -392,12 +431,38 @@ unsafe extern "system" fn keyboard_proc(code: i32, wparam: WPARAM, lparam: LPARA
         if info.flags & LLKHF_INJECTED == 0 {
             let down = matches!(wparam as u32, WM_KEYDOWN | WM_SYSKEYDOWN);
             let ext = info.flags & LLKHF_EXTENDED != 0;
+            if bound_key(info.scanCode as u16, ext, down) {
+                return 1;
+            }
             if handle_key(info.vkCode as u16, info.scanCode as u16, ext, down, info.time) {
                 return 1;
             }
         }
     }
     CallNextHookEx(std::ptr::null_mut(), code, wparam, lparam)
+}
+
+/// A bound key: swallow it and let the executor run its action. Auto-repeat
+/// presses are swallowed without repeating the action. While recording or
+/// capturing, keys are left to the recorder (a held one is still released here).
+fn bound_key(scan: u16, ext: bool, down: bool) -> bool {
+    let Some(i) = key_slot(scan, ext) else { return false };
+    if !down {
+        if !KEY_HELD[i].swap(false, Ordering::Relaxed) {
+            return false;
+        }
+    } else {
+        if MODE.load(Ordering::Relaxed) != MODE_OFF || !KEY_BIND[i].load(Ordering::Relaxed) {
+            return false;
+        }
+        if KEY_HELD[i].swap(true, Ordering::Relaxed) {
+            return true;
+        }
+    }
+    if let Some(tx) = EXEC.get() {
+        let _ = tx.send(exec::Msg::Key { scan, ext, down });
+    }
+    true
 }
 
 /// A key event from our own window. Windows does not run low-level keyboard

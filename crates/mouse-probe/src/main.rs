@@ -1,16 +1,19 @@
 //! Hardware probe: `mouse-probe` prints device info, `mouse-probe dpi <value>` sets DPI.
+//! `mouse-probe keyboard [...]` does the same for a Logitech keyboard.
 
 use anyhow::{Context, Result};
-use hidpp::{feature, Mouse};
+use hidpp::{feature, Device, Kind};
 
 fn main() -> Result<()> {
-    let mut mouse = Mouse::open().context("opening mouse")?;
+    let keyboard = std::env::args().nth(1).as_deref() == Some("keyboard");
+    let kind = if keyboard { Kind::Keyboard } else { Kind::Mouse };
+    let mut mouse = Device::open(kind).context("opening device")?;
     let (major, minor) = mouse.ping()?;
     println!("Interface : {}", mouse.product);
     println!("Index     : 0x{:02X}", mouse.device_index());
     println!("HID++     : {major}.{minor}");
 
-    let args: Vec<String> = std::env::args().skip(1).collect();
+    let args: Vec<String> = std::env::args().skip(if keyboard { 2 } else { 1 }).collect();
     // `mouse-probe raw <feature id hex> <function> [param bytes hex...]`
     if args.first().map(String::as_str) == Some("raw") && args.len() >= 3 {
         let id = u16::from_str_radix(&args[1], 16)?;
@@ -43,6 +46,19 @@ fn main() -> Result<()> {
     report("DPI", mouse.dpi());
     report("Rate (Hz)", mouse.report_rate());
 
+    if keyboard {
+        match mouse.rgb_zones() {
+            Ok(zones) => {
+                for z in zones {
+                    let ids: Vec<String> = z.effects.iter().map(|e| format!("{:02X}", e.id)).collect();
+                    println!("Zone {}    : location {} effects {}", z.index, z.location, ids.join(" "));
+                }
+            }
+            Err(e) => println!("Zones     : <{e}>"),
+        }
+        report("Per-key", mouse.per_key_zones().map(|z| format!("{} keys", z.len())));
+    }
+
     println!("Features  :");
     for (index, id) in mouse.features()? {
         println!("  [{index:2}] 0x{id:04X}{}", label(id));
@@ -67,6 +83,9 @@ fn label(id: u16) -> &'static str {
         feature::ADJUSTABLE_DPI => "  adjustable DPI",
         feature::REPORT_RATE => "  report rate",
         feature::ONBOARD_PROFILES => "  onboard profiles",
+        feature::WIRELESS_STATUS => "  wireless status",
+        feature::RGB_EFFECTS => "  RGB effects",
+        feature::PER_KEY_LIGHTING_V2 => "  per-key lighting",
         _ => "",
     }
 }

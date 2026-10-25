@@ -1,0 +1,15 @@
+[package]
+name = "via"
+version = "0.1.0"
+edition.workspace = true
+license.workspace = true
+
+[features]
+default = ["hid"]
+# The USB client. Without it the crate is just the macro and key-code tables,
+# which is what the tests need (and they then build anywhere).
+hid = ["dep:hidapi"]
+
+[dependencies]
+hidapi = { version = "2.6", optional = true }
+thiserror = "2"

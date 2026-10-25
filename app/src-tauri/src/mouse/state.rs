@@ -129,7 +129,7 @@ pub fn cycle_dpi(app: &AppHandle) {
 
 /// Replace the whole config (the UI saves this way) and apply what changed.
 pub fn update_config(app: &AppHandle, mut config: Config) {
-    let menu_changed = {
+    let (menu_changed, macros_changed) = {
         let shared = app.state::<Shared>();
         let mut core = shared.core.lock().unwrap();
         // Only `activate` switches profiles. A save sent just before a hotkey
@@ -142,17 +142,22 @@ pub fn update_config(app: &AppHandle, mut config: Config) {
         if old.id != new.id || old.dpi_stages != new.dpi_stages || old.dpi_index != new.dpi_index {
             core.dpi_stage = new.dpi_index;
         }
-        if core.config.macros != config.macros {
+        let macros_changed = core.config.macros != config.macros;
+        if macros_changed {
             let _ = shared.exec_tx.send(exec::Msg::CancelAll);
         }
         core.config = config;
         save(&shared, &core.config);
-        menu_changed
+        (menu_changed, macros_changed)
     };
     apply_active(app);
     hotkeys::register(app);
     if menu_changed {
         tray::refresh(app);
+    }
+    // Keyboards bind and store these macros too.
+    if macros_changed {
+        crate::keyboard::state::macros_changed(app);
     }
 }
 

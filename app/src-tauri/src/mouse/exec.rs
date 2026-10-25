@@ -16,6 +16,8 @@ use super::state::{self, Shared};
 
 pub enum Msg {
     Button { forward: bool, down: bool },
+    /// A keyboard key bound in the keyboard settings.
+    Key { scan: u16, ext: bool, down: bool },
     /// Play a macro once from the UI's Test button.
     Test { id: String },
     /// Stop every running macro (profile switch, macro edited).
@@ -26,7 +28,7 @@ pub fn spawn(app: AppHandle, rx: Receiver<Msg>) {
     std::thread::Builder::new()
         .name("exec".into())
         .spawn(move || {
-            let mut exec = Executor { app, pressed: [None, None], running: HashMap::new() };
+            let mut exec = Executor { app, pressed: [None, None], keys: HashMap::new(), running: HashMap::new() };
             for msg in rx {
                 exec.handle(msg);
             }
@@ -39,6 +41,8 @@ struct Executor {
     /// Action captured at press time so the release matches it even if the
     /// profile changes in between.
     pressed: [Option<Action>; 2],
+    /// The same for bound keyboard keys.
+    keys: HashMap<(u16, bool), Action>,
     running: HashMap<String, Arc<Run>>,
 }
 
@@ -68,9 +72,19 @@ impl Executor {
                         if forward { p.forward.clone() } else { p.back.clone() }
                     };
                     self.pressed[side] = Some(action.clone());
-                    self.press(&action, forward);
+                    self.press(&action, Some(Self::native(forward)));
                 } else if let Some(action) = self.pressed[side].take() {
-                    self.release(&action, forward);
+                    self.release(&action, Some(Self::native(forward)));
+                }
+            }
+            Msg::Key { scan, ext, down } => {
+                if down {
+                    if let Some(action) = crate::keyboard::state::key_action(&self.app, scan, ext) {
+                        self.keys.insert((scan, ext), action.clone());
+                        self.press(&action, None);
+                    }
+                } else if let Some(action) = self.keys.remove(&(scan, ext)) {
+                    self.release(&action, None);
                 }
             }
         }
@@ -80,10 +94,11 @@ impl Executor {
         if forward { MouseButton::Forward } else { MouseButton::Back }
     }
 
-    fn press(&mut self, action: &Action, forward: bool) {
+    /// `native` is the mouse button a side button stands for (none for keys).
+    fn press(&mut self, action: &Action, native: Option<MouseButton>) {
         match action {
             // Intercept flag was stale; pass the click through.
-            Action::Default => input::send_mouse(Self::native(forward), true),
+            Action::Default => native.into_iter().for_each(|b| input::send_mouse(b, true)),
             Action::Disabled => {}
             Action::Keys { keys } => keys.iter().for_each(|k| input::send_key(k, true)),
             Action::Macro { id } => self.press_macro(id),
@@ -94,9 +109,9 @@ impl Executor {
         }
     }
 
-    fn release(&mut self, action: &Action, forward: bool) {
+    fn release(&mut self, action: &Action, native: Option<MouseButton>) {
         match action {
-            Action::Default => input::send_mouse(Self::native(forward), false),
+            Action::Default => native.into_iter().for_each(|b| input::send_mouse(b, false)),
             Action::Keys { keys } => keys.iter().rev().for_each(|k| input::send_key(k, false)),
             Action::DpiShift { .. } => self.device(Cmd::TempDpi(None)),
             Action::Macro { id } => {

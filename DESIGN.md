@@ -239,6 +239,12 @@ The core component. A grid of ruled cells (`--cols`, usually 4; 10 for EQ bands)
 - **Signature motion:** when a backend event changes a cell's value, the cell flashes its new value in safety yellow for 900ms in place, then eases back over 0.5s. Local edits do not flash.
 - **Selectable plates** (EQ bands, DPI stages): hover fills raised-graphite-2; the selected cell inverts to label ink with graphite text. A live DPI stage appends " · live" in yellow to its caption.
 
+### Keyboard Drawing
+Keyboards are drawn from their real layouts as ruled key cells: raised graphite, 1px hairline-2 inset outline, 3px corners, a semi-condensed 12px legend and an optional condensed caps sub-label (layer function, macro name). Keys bound to a kit macro take an ink-3 outline. The selected key inverts to label ink, like every other selection. On the Lighting page each key shows its LED color as a 24% tint plus a 3px bar of the full color along its lower edge; the color is the content, so it is not a glow. Animated effects are previewed with a slow hue or opacity cycle that stops under reduced motion.
+
+### Setup
+Three steps, shown as a three-cell plate whose current cell inverts to ink. Step one is three product cards in ruled columns (photo on a floor light, name, an on/off switch, a "Plugged in" live mark when detected, model and color segmented controls); an unpicked card dims its photo.
+
 ### Buttons
 - **Shape:** gently squared (3px), 32px tall, 14px horizontal padding, 13px/600 label, optional 14px stroke icon.
 - **Primary:** label-ink face with graphite text; hover brightens to white. One per action group ("Open mouse").

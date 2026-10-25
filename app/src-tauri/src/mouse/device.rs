@@ -147,7 +147,7 @@ impl Worker {
         if Instant::now() < self.next_open {
             return;
         }
-        match Mouse::open() {
+        match Mouse::open(hidpp::Kind::Mouse) {
             Ok(mut m) => {
                 self.wireless_index = m.feature_index(feature::WIRELESS_STATUS).ok();
                 self.status.name = m.name().ok();

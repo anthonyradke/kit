@@ -357,7 +357,7 @@ function headsetDevicePage() {
   const s = headsetStatus();
   return `<div class="page fpage" data-key="headset-device"><div class="fpage-inner">
     ${sonarNotice()}
-    <h1 class="h1">Arctis Nova 5</h1>
+    <h1 class="h1">${PRODUCTS.headset.name}</h1>
     ${plate([
       statusCellH("status"),
       battery("bat", h.connected ? h.battery : null, h.charging),

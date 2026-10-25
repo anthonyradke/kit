@@ -131,7 +131,7 @@ function mouseSvg(p, dpi, rate, live) {
         <feDropShadow dx="0" dy="22" stdDeviation="22" flood-color="#000" flood-opacity="0.6" />
       </filter>
     </defs>
-    <image href="img/mouse-top.webp" x="${i.x}" y="${i.y}" width="${i.w}" height="${i.h}" preserveAspectRatio="xMidYMid meet" filter="url(#drop)" />
+    <image href="${productImg("mouse", "top")}" x="${i.x}" y="${i.y}" width="${i.w}" height="${i.h}" preserveAspectRatio="xMidYMid meet" filter="url(#drop)" />
 
     <g class="co fixed">
       <text class="co-cap" x="240" y="-40" text-anchor="middle">MIDDLE CLICK</text>
@@ -315,8 +315,8 @@ function macrosPage() {
   const m = currentMacro();
   const editor = m
     ? macroEditor(m)
-    : `<div class="empty"><b>No macros yet</b>Record keys and clicks once, then bind the macro to a side button.<br><button class="btn" data-act="macro-new">${icons.plus}New macro</button></div>`;
-  return `<div class="page mpage" data-key="mouse-macros">
+    : `<div class="empty"><b>No macros yet</b>Record keys and clicks once, then bind the macro to a side button or a keyboard key.<br><button class="btn" data-act="macro-new">${icons.plus}New macro</button></div>`;
+  return `<div class="page mpage" data-key="macros">
     <aside class="mlist">
       <div class="list-head"><span class="sec-title">Macros</span><button class="tbtn" data-act="macro-new">${icons.plus}New</button></div>
       ${list}
@@ -333,6 +333,7 @@ function macroEditor(m) {
       if (p[side].type === "macro" && p[side].id === m.id) usedBy.push(`${p.name} · ${SIDE_NAMES[side]}`);
     }
   }
+  usedBy.push(...keyboardMacroUses(m.id));
   const into = recording && recording.macroId !== m.id ? mcfg().macros.find((x) => x.id === recording.macroId) : null;
   const recBar = recording
     ? `<div class="rec-bar"><span class="rec-dot"></span><span class="rec-time" id="rec-time">0.0s</span>
@@ -411,7 +412,7 @@ function mouseDevicePage() {
   const d = M.device;
   const s = mouseStatus();
   return `<div class="page fpage" data-key="mouse-device"><div class="fpage-inner">
-    <h1 class="h1">PRO X Superlight</h1>
+    <h1 class="h1">${PRODUCTS.mouse.name}</h1>
     ${plate([
       statusCell("status", s),
       battery("bat", d.battery, d.charging),
@@ -452,19 +453,9 @@ async function activateProfile(id) {
 }
 
 async function captureKeys(kind) {
-  if (keyCapture) {
-    await invoke("cancel_capture");
-    return;
-  }
-  keyCapture = { kind };
   // Remember what the keys are for: the user may switch tabs while capturing.
   const targetId = kind === "step" ? mv.macroId : profile().id;
-  render();
-  await invoke("pause_hotkeys");
-  const keys = await invoke("capture_keys");
-  invoke("resume_hotkeys");
-  keyCapture = null;
-  if (keys && keys.length) {
+  await captureCombo(kind, (keys) => {
     if (kind === "step") {
       const m = mcfg().macros.find((x) => x.id === targetId);
       if (m) {
@@ -476,7 +467,23 @@ async function captureKeys(kind) {
       if (p) p[kind] = { type: "keys", keys };
     }
     mouseSaver.save(0);
+  });
+}
+
+// Let the backend capture one key combination (it also sees keys typed into
+// this window), then hand the keys to `onKeys`. Clicking again cancels.
+async function captureCombo(kind, onKeys) {
+  if (keyCapture) {
+    await invoke("cancel_capture");
+    return;
   }
+  keyCapture = { kind };
+  render();
+  await invoke("pause_hotkeys");
+  const keys = await invoke("capture_keys");
+  invoke("resume_hotkeys");
+  keyCapture = null;
+  if (keys && keys.length) onKeys(keys);
   render();
 }
 

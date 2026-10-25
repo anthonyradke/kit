@@ -7,10 +7,10 @@
 web
 
 ## Users
-One person: the owner, a PC gamer on Windows 11 with a white Logitech PRO X Superlight (original, Lightspeed receiver) and a white SteelSeries Arctis Nova 5 headset. Opens the app in a mix of ways: occasional set-up sessions (profiles, macros, EQ presets), and frequent quick checks of battery or a quick switch. Day-to-day switching mostly happens from global hotkeys, a side button or the tray, without the window.
+The owner, a PC gamer on Windows 11 with a white Logitech PRO X Superlight (original, Lightspeed receiver), a white SteelSeries Arctis Nova 5 headset and an NK65 Milkshake Edition keyboard (VIA firmware); and the owner's brother, with the black mouse and headset and a Logitech PRO X TKL LIGHTSPEED keyboard. A first-run setup picks which devices (and colors) are on the PC. Opens the app in a mix of ways: occasional set-up sessions (profiles, macros, EQ presets), and frequent quick checks of battery or a quick switch. Day-to-day switching mostly happens from global hotkeys, a side button or the tray, without the window.
 
 ## Product Purpose
-kit replaces Logitech G HUB and SteelSeries GG / Sonar, which were unreliable (G HUB's per-app switching never worked; Sonar's virtual audio devices broke inputs and outputs). It talks to both devices directly and stays tiny when the window is closed. Success: the devices just work, settings survive sleep, wake and reboots, and the app never gets in the way.
+kit replaces Logitech G HUB, SteelSeries GG / Sonar and the VIA web app, which were unreliable or clumsy (G HUB's per-app switching never worked; Sonar's virtual audio devices broke inputs and outputs). It talks to both devices directly and stays tiny when the window is closed. Success: the devices just work, settings survive sleep, wake and reboots, and the app never gets in the way.
 
 ## Positioning
 A personal, single-purpose replacement for two vendors' bloated suites, covering exactly this mouse and this headset. No virtual audio devices, no accounts, no popups. The headset EQ runs on the headset's own onboard DSP, so it keeps working even when kit is not running.
@@ -23,7 +23,8 @@ A personal, single-purpose replacement for two vendors' bloated suites, covering
 ## Capabilities and Constraints
 - Mouse: unlimited user profiles (manual switching only: tray, per-profile hotkey, next-profile hotkey, side button; no per-app switching). Up to 5 DPI stages per profile (100-25600, step 50) with a default stage; report rate 125/250/500/1000 Hz. Only the two side buttons (Back/Forward) are rebindable: default, disabled, key combination, macro, DPI shift (held), cycle DPI, next profile, switch to profile. Macros: record keys and clicks with timing, edit steps, play once (with repeat) / while held / toggle. Status: connected / asleep / receiver not found, battery, charging.
 - Headset: 10-band parametric onboard EQ (peak, low/high shelf, low/high pass; ±10 dB; Q 0.2-10) with named presets, live drag preview. Mic noise suppression (RNNoise system-effect APO on the real mic endpoint, needs one UAC prompt to install) with strength %. Mic volume 0-15, sidetone 0-10, mute LED off/low/medium/high, auto-off timer, volume limiter. Keeps the headset as the Windows default device. Warns when SteelSeries Sonar holds the defaults. Single output only (no Game/Chat/Media split).
-- App: launch at startup, config file paths, noise suppression log.
+- Keyboard (NK65): remap every layer, onboard macros, lighting (effect, colors, brightness, speed, indicators) with saved presets; kit macros on keys either stored on the board or run by kit. (PRO X TKL): zone effects and per-key paint, battery, idle lights-off, kit-handled key bindings.
+- App: first-run setup (devices, colors, vendor-app check, startup), launch at startup, config file paths, noise suppression log.
 - No on-screen popups or notifications.
 
 ## Brand Commitments
@@ -35,7 +36,7 @@ A personal, single-purpose replacement for two vendors' bloated suites, covering
 
 ## Evidence on Hand
 - Real device data comes live from the hardware (battery, DPI, rate, EQ). The user's own profiles, macros (e.g. "678 - valheim") and presets ("Main", "opus5.5", "Footsteps", "Voice", ...) live in their config.
-- Product photos: white PRO X Superlight and white Arctis Nova 5, sourced from the manufacturers' sites (see app/ui/img).
+- Product photos: white and black PRO X Superlight and Arctis Nova 5, black PRO X TKL (manufacturers' sites), NK65 Milkshake (Oblotzky, background removed); provenance next to each in app/ui/img.
 
 ## Product Principles
 1. Out of the way: tiny when closed, no popups, nothing to babysit.

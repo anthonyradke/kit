@@ -1,7 +1,9 @@
 #![cfg_attr(not(debug_assertions), windows_subsystem = "windows")]
 
 mod headset;
+mod keyboard;
 mod mouse;
+mod setup;
 mod tray;
 mod update;
 
@@ -73,8 +75,10 @@ fn main() {
         .setup(move |app| {
             let handle = app.handle();
             migrate_configs(handle);
+            setup::init(handle)?;
             mouse::init(handle)?;
             headset::init(handle)?;
+            keyboard::init(handle, setup::keyboard_model(handle))?;
             update::init(handle);
             tray::create(handle)?;
             if !start_hidden {
@@ -90,6 +94,10 @@ fn main() {
         .invoke_handler(tauri::generate_handler![
             get_autostart,
             set_autostart,
+            setup::app_config,
+            setup::app_save,
+            setup::detect_devices,
+            setup::vendor_apps,
             mouse::mouse_state,
             mouse::mouse_save,
             mouse::activate_profile,
@@ -108,16 +116,22 @@ fn main() {
             headset::use_headset,
             headset::set_apo_installed,
             headset::apo_log,
+            keyboard::keyboard_state,
+            keyboard::keyboard_save,
+            keyboard::activate_lighting,
+            keyboard::preview_lighting,
+            keyboard::keyboard_set_key,
             update::update_state,
             update::check_update,
             update::install_update,
         ])
         .build(tauri::generate_context!())
         .expect("failed to build kit")
-        .run(|_app, event| {
+        .run(|app, event| match event {
             // Keep running in the tray when the last window closes; only Quit exits.
-            if let RunEvent::ExitRequested { code: None, api, .. } = event {
-                api.prevent_exit();
-            }
+            RunEvent::ExitRequested { code: None, api, .. } => api.prevent_exit(),
+            // Quit or an update restart: give a Logitech keyboard its own lighting back.
+            RunEvent::Exit => keyboard::state::release(app),
+            _ => {}
         });
 }
