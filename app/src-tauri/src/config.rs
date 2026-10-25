@@ -199,6 +199,21 @@ fn seed_presets() -> Vec<Preset> {
             ]),
         },
         Preset {
+            // Music with much more low end than Warm (about +8 dB from 25-100 Hz),
+            // with the low mids cut so it stays clean and a vocal lift so the mix
+            // isn't buried.
+            id: "bass-music".into(),
+            name: "Bass Music".into(),
+            bands: pad(vec![
+                shelf(Filter::LowShelf, 100, 6.5),
+                peak(50, 2.5, 1.2),
+                peak(300, -2.0, 1.0),
+                peak(2500, 1.5, 1.2),
+                peak(6500, -1.0, 2.0),
+                shelf(Filter::HighShelf, 10000, 1.5),
+            ]),
+        },
+        Preset {
             // Movies and story games: sub-bass rumble plus a dialogue lift.
             id: "cinema".into(),
             name: "Cinema".into(),
