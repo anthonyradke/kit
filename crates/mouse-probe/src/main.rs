@@ -1,4 +1,4 @@
-//! Hardware probe: `probe` prints device info, `probe dpi <value>` sets DPI.
+//! Hardware probe: `mouse-probe` prints device info, `mouse-probe dpi <value>` sets DPI.
 
 use anyhow::{Context, Result};
 use hidpp::{feature, Mouse};
@@ -11,7 +11,7 @@ fn main() -> Result<()> {
     println!("HID++     : {major}.{minor}");
 
     let args: Vec<String> = std::env::args().skip(1).collect();
-    // `probe raw <feature id hex> <function> [param bytes hex...]`
+    // `mouse-probe raw <feature id hex> <function> [param bytes hex...]`
     if args.first().map(String::as_str) == Some("raw") && args.len() >= 3 {
         let id = u16::from_str_radix(&args[1], 16)?;
         let function: u8 = args[2].parse()?;

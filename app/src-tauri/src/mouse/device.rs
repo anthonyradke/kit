@@ -11,7 +11,7 @@ use hidpp::{feature, Error, Mouse};
 use serde::Serialize;
 use tauri::{AppHandle, Emitter, Manager};
 
-use crate::state::Shared;
+use super::state::Shared;
 
 pub enum Cmd {
     /// Settings of the active profile (also clears any temporary DPI).
@@ -304,7 +304,7 @@ impl Worker {
     fn publish(&self) {
         let shared = self.app.state::<Shared>();
         *shared.status.lock().unwrap() = self.status.clone();
-        let _ = self.app.emit("device", &self.status);
+        let _ = self.app.emit("mouse", &self.status);
         crate::tray::refresh_tooltip(&self.app);
     }
 }

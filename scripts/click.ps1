@@ -1,4 +1,4 @@
-# Dev helper: click at a point relative to the lightswitch window's top-left.
+# Dev helper: click at a point relative to the kit window's top-left.
 param([int]$X, [int]$Y, [int]$Wheel = 0)
 Add-Type @"
 using System; using System.Runtime.InteropServices;
@@ -12,7 +12,7 @@ public class C {
 }
 "@
 [C]::SetProcessDPIAware() | Out-Null
-$p = Get-Process lightswitch | Where-Object MainWindowHandle -ne 0 | Select-Object -First 1
+$p = Get-Process kit | Where-Object MainWindowHandle -ne 0 | Select-Object -First 1
 [C]::SetForegroundWindow($p.MainWindowHandle) | Out-Null
 $r = New-Object C+RECT; [C]::GetWindowRect($p.MainWindowHandle, [ref]$r) | Out-Null
 [C]::SetCursorPos($r.L + $X, $r.T + $Y) | Out-Null

@@ -1,2 +1,5 @@
 /target
 /app/src-tauri/gen
+/.impeccable/review
+/.impeccable/tmp
+/.impeccable/mocks

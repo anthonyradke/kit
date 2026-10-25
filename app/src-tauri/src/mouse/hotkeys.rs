@@ -8,7 +8,7 @@ use tauri::plugin::TauriPlugin;
 use tauri::{AppHandle, Manager, Wry};
 use tauri_plugin_global_shortcut::{GlobalShortcutExt, Shortcut, ShortcutState};
 
-use crate::state::{self, Shared};
+use super::state::{self, Shared};
 
 #[derive(Clone, PartialEq)]
 enum Target {

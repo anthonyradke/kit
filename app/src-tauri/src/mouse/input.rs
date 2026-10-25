@@ -16,8 +16,8 @@ use windows_sys::Win32::System::Threading::{GetCurrentProcessId, GetCurrentThrea
 use windows_sys::Win32::UI::Input::KeyboardAndMouse::*;
 use windows_sys::Win32::UI::WindowsAndMessaging::*;
 
-use crate::config::{KeyRef, MouseButton, Step};
-use crate::exec;
+use super::config::{KeyRef, MouseButton, Step};
+use super::exec;
 
 const MODE_OFF: u8 = 0;
 const MODE_MACRO: u8 = 1;
@@ -296,7 +296,7 @@ fn release_held() {
 /// A hidden top-level window, only there to receive WM_POWERBROADCAST
 /// (message-only windows do not get broadcasts).
 unsafe fn create_power_window(module: HINSTANCE) {
-    let class: Vec<u16> = "lightswitch-input\0".encode_utf16().collect();
+    let class: Vec<u16> = "kit-input\0".encode_utf16().collect();
     let mut wc: WNDCLASSW = std::mem::zeroed();
     wc.lpfnWndProc = Some(power_proc);
     wc.hInstance = module;

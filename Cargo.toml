@@ -1,6 +1,14 @@
 [workspace]
 resolver = "2"
-members = ["crates/hidpp", "crates/probe", "app/src-tauri"]
+members = [
+    "crates/hidpp",
+    "crates/mouse-probe",
+    "crates/arctis",
+    "crates/apo",
+    "crates/sysaudio",
+    "crates/headset-probe",
+    "app/src-tauri",
+]
 
 [workspace.package]
 edition = "2021"
@@ -11,4 +19,5 @@ opt-level = "s"
 lto = true
 codegen-units = 1
 strip = true
-panic = "abort"
+# Unwind (not abort) so a bug in the APO falls back to passthrough instead of
+# taking down audiodg.exe.

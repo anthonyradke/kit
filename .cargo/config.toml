@@ -1,0 +1,4 @@
+# Static CRT: the APO DLL is loaded by audiodg.exe, which must not depend on
+# the VC++ redistributable being installed.
+[target.x86_64-pc-windows-msvc]
+rustflags = ["-C", "target-feature=+crt-static"]

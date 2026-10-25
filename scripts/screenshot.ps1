@@ -1,5 +1,5 @@
-# Dev helper: capture the lightswitch window to a PNG.
-param([string]$Out = "$env:TEMP\lightswitch.png")
+# Dev helper: capture the kit window to a PNG.
+param([string]$Out = "$env:TEMP\kit.png")
 Add-Type -AssemblyName System.Drawing
 Add-Type @"
 using System; using System.Runtime.InteropServices;
@@ -12,7 +12,7 @@ public class W {
 }
 "@
 [W]::SetProcessDPIAware() | Out-Null
-$p = Get-Process lightswitch | Where-Object MainWindowHandle -ne 0 | Select-Object -First 1
+$p = Get-Process kit | Where-Object MainWindowHandle -ne 0 | Select-Object -First 1
 if (-not $p) { throw "window not found" }
 [W]::ShowWindow($p.MainWindowHandle, 9) | Out-Null
 [W]::SetForegroundWindow($p.MainWindowHandle) | Out-Null

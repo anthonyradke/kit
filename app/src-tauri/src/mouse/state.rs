@@ -7,8 +7,9 @@ use std::sync::Mutex;
 use serde::Serialize;
 use tauri::{AppHandle, Emitter, Manager};
 
-use crate::config::{Action, Config};
-use crate::{device, exec, hotkeys, input, tray};
+use super::config::{Action, Config};
+use super::{device, exec, hotkeys, input};
+use crate::tray;
 
 pub struct Shared {
     pub core: Mutex<Core>,
@@ -36,7 +37,7 @@ pub struct UiState {
 }
 
 pub fn init(app: &AppHandle) -> tauri::Result<()> {
-    let config_path = app.path().app_config_dir()?.join("config.json");
+    let config_path = app.path().app_config_dir()?.join("mouse.json");
     let config = Config::load(&config_path);
     let dpi_stage = config.active_profile().dpi_index;
     // Threads are started after `manage` so they can always reach the state.
@@ -70,7 +71,7 @@ pub fn ui_state(app: &AppHandle) -> UiState {
 }
 
 pub fn emit_state(app: &AppHandle) {
-    let _ = app.emit("state", ui_state(app));
+    let _ = app.emit("mouse-state", ui_state(app));
 }
 
 /// Push the active profile's settings to the mouse and the input hook.

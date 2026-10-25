@@ -1,26 +1,37 @@
-//! System tray icon: quick profile switching without opening the window.
+//! System tray icon: switch mouse profiles and headset presets, toggle noise
+//! suppression, without opening the window.
 
 use tauri::menu::{CheckMenuItem, Menu, MenuItem, PredefinedMenuItem};
 use tauri::tray::{MouseButton, MouseButtonState, TrayIconBuilder, TrayIconEvent};
 use tauri::{AppHandle, Manager};
 
-use crate::state::{self, Shared};
+use crate::{headset, mouse};
 
 const TRAY_ID: &str = "main";
 const PROFILE_PREFIX: &str = "profile:";
+const PRESET_PREFIX: &str = "preset:";
 
 pub fn create(app: &AppHandle) -> tauri::Result<()> {
     TrayIconBuilder::with_id(TRAY_ID)
         .icon(app.default_window_icon().cloned().expect("app icon"))
-        .tooltip("lightswitch")
+        .tooltip("kit")
         .menu(&build_menu(app)?)
         .show_menu_on_left_click(false)
         .on_menu_event(|app, event| match event.id.as_ref() {
             "open" => crate::show_window(app),
             "quit" => app.exit(0),
+            "denoise" => {
+                let on = app.state::<headset::state::Shared>().core.lock().unwrap().mic.denoise;
+                headset::state::set_denoise(app, !on);
+            }
+            "default" => {
+                let _ = app.state::<headset::state::Shared>().audio_tx.send(headset::audio::Cmd::UseHeadset);
+            }
             id => {
                 if let Some(profile) = id.strip_prefix(PROFILE_PREFIX) {
-                    state::activate(app, profile);
+                    mouse::state::activate(app, profile);
+                } else if let Some(preset) = id.strip_prefix(PRESET_PREFIX) {
+                    headset::state::activate(app, preset);
                 }
             }
         })
@@ -36,24 +47,40 @@ pub fn create(app: &AppHandle) -> tauri::Result<()> {
 
 fn build_menu(app: &AppHandle) -> tauri::Result<Menu<tauri::Wry>> {
     let menu = Menu::new(app)?;
-    let (profiles, active) = {
-        let shared = app.state::<Shared>();
+    let (profiles, active_profile) = {
+        let shared = app.state::<mouse::state::Shared>();
         let core = shared.core.lock().unwrap();
         let profiles: Vec<(String, String)> =
             core.config.profiles.iter().map(|p| (p.id.clone(), p.name.clone())).collect();
         (profiles, core.config.active.clone())
     };
+    let (presets, active_preset, denoise) = {
+        let shared = app.state::<headset::state::Shared>();
+        let config = shared.core.lock().unwrap();
+        let presets: Vec<(String, String)> = config.presets.iter().map(|p| (p.id.clone(), p.name.clone())).collect();
+        (presets, config.active.clone(), config.mic.denoise)
+    };
+
+    menu.append(&MenuItem::with_id(app, "h-mouse", "Mouse profile", false, None::<&str>)?)?;
     for (id, name) in profiles {
-        let item = CheckMenuItem::with_id(app, format!("{PROFILE_PREFIX}{id}"), name, true, id == active, None::<&str>)?;
-        menu.append(&item)?;
+        let checked = id == active_profile;
+        menu.append(&CheckMenuItem::with_id(app, format!("{PROFILE_PREFIX}{id}"), name, true, checked, None::<&str>)?)?;
     }
     menu.append(&PredefinedMenuItem::separator(app)?)?;
-    menu.append(&MenuItem::with_id(app, "open", "Open lightswitch", true, None::<&str>)?)?;
+    menu.append(&MenuItem::with_id(app, "h-headset", "Headset EQ", false, None::<&str>)?)?;
+    for (id, name) in presets {
+        let checked = id == active_preset;
+        menu.append(&CheckMenuItem::with_id(app, format!("{PRESET_PREFIX}{id}"), name, true, checked, None::<&str>)?)?;
+    }
+    menu.append(&CheckMenuItem::with_id(app, "denoise", "Mic noise suppression", true, denoise, None::<&str>)?)?;
+    menu.append(&MenuItem::with_id(app, "default", "Use headset as default device", true, None::<&str>)?)?;
+    menu.append(&PredefinedMenuItem::separator(app)?)?;
+    menu.append(&MenuItem::with_id(app, "open", "Open kit", true, None::<&str>)?)?;
     menu.append(&MenuItem::with_id(app, "quit", "Quit", true, None::<&str>)?)?;
     Ok(menu)
 }
 
-/// Rebuild the menu after profiles or the active profile change.
+/// Rebuild the menu after profiles, presets or noise suppression change.
 pub fn refresh(app: &AppHandle) {
     if let Some(tray) = app.tray_by_id(TRAY_ID) {
         if let Ok(menu) = build_menu(app) {
@@ -65,19 +92,37 @@ pub fn refresh(app: &AppHandle) {
 
 pub fn refresh_tooltip(app: &AppHandle) {
     let Some(tray) = app.tray_by_id(TRAY_ID) else { return };
-    let shared = app.state::<Shared>();
-    let profile = shared.core.lock().unwrap().config.active_profile().name.clone();
-    let status = shared.status.lock().unwrap().clone();
-    let mut text = format!("lightswitch · {profile}");
-    if status.connected {
-        if let Some(dpi) = status.dpi {
-            text.push_str(&format!("\n{dpi} DPI"));
+    // Both devices' workers call this; either may run before the other's state exists.
+    let (Some(m), Some(h)) = (app.try_state::<mouse::state::Shared>(), app.try_state::<headset::state::Shared>())
+    else {
+        return;
+    };
+
+    let profile = m.core.lock().unwrap().config.active_profile().name.clone();
+    let mouse = m.status.lock().unwrap().clone();
+    let mut text = format!("kit\nMouse · {profile}");
+    if mouse.connected {
+        if let Some(dpi) = mouse.dpi {
+            text.push_str(&format!(" · {dpi} DPI"));
         }
-        if let Some(b) = status.battery {
-            text.push_str(&format!(" · {b}%{}", if status.charging { " ⚡" } else { "" }));
+        if let Some(b) = mouse.battery {
+            text.push_str(&format!(" · {b}%"));
         }
     } else {
-        text.push_str("\nMouse not connected");
+        text.push_str(" · not connected");
+    }
+
+    let preset = h.core.lock().unwrap().active_preset().name.clone();
+    let headset = h.headset.lock().unwrap().clone();
+    text.push_str(&format!("\nHeadset · {preset}"));
+    if headset.connected {
+        if let Some(b) = headset.battery {
+            text.push_str(&format!(" · {b}%"));
+        }
+    } else if headset.present {
+        text.push_str(" · off");
+    } else {
+        text.push_str(" · not found");
     }
     let _ = tray.set_tooltip(Some(text));
 }

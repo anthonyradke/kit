@@ -9,10 +9,10 @@ use std::time::{Duration, Instant};
 
 use tauri::{AppHandle, Manager};
 
-use crate::config::{Action, KeyRef, Macro, MouseButton, PlayMode, Step};
-use crate::device::Cmd;
-use crate::input;
-use crate::state::{self, Shared};
+use super::config::{Action, KeyRef, Macro, MouseButton, PlayMode, Step};
+use super::device::Cmd;
+use super::input;
+use super::state::{self, Shared};
 
 pub enum Msg {
     Button { forward: bool, down: bool },

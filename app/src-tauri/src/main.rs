@@ -1,20 +1,11 @@
 #![cfg_attr(not(debug_assertions), windows_subsystem = "windows")]
 
-mod config;
-mod device;
-mod exec;
-mod hotkeys;
-mod input;
-mod state;
+mod headset;
+mod mouse;
 mod tray;
-
-use std::time::Duration;
 
 use tauri::{AppHandle, Manager, RunEvent, WebviewUrl, WebviewWindowBuilder, WindowEvent};
 use tauri_plugin_autostart::{MacosLauncher, ManagerExt};
-
-use config::{Config, KeyRef, Step};
-use state::UiState;
 
 const HIDDEN_ARG: &str = "--minimized";
 
@@ -28,81 +19,30 @@ pub fn show_window(app: &AppHandle) {
         return;
     }
     let _ = WebviewWindowBuilder::new(app, "main", WebviewUrl::App("index.html".into()))
-        .title("lightswitch")
-        .inner_size(1180.0, 780.0)
-        .min_inner_size(940.0, 640.0)
+        .title("kit")
+        .inner_size(1240.0, 800.0)
+        .min_inner_size(1000.0, 660.0)
         // Frameless: the UI draws its own title bar (drag region + minimize/close).
         .decorations(false)
         .maximizable(false)
         .shadow(true)
         .theme(Some(tauri::Theme::Dark))
-        .background_color(tauri::window::Color(8, 9, 12, 255))
+        .background_color(tauri::window::Color(14, 14, 13, 255))
         .build();
 }
 
-#[tauri::command]
-fn get_state(app: AppHandle) -> UiState {
-    state::ui_state(&app)
-}
-
-#[tauri::command]
-fn save_config(app: AppHandle, config: Config) -> UiState {
-    state::update_config(&app, config);
-    state::ui_state(&app)
-}
-
-#[tauri::command]
-fn activate_profile(app: AppHandle, id: String) -> UiState {
-    state::activate(&app, &id);
-    state::ui_state(&app)
-}
-
-#[tauri::command]
-fn test_macro(app: AppHandle, id: String) {
-    let _ = app.state::<state::Shared>().exec_tx.send(exec::Msg::Test { id });
-}
-
-#[tauri::command]
-fn start_recording() {
-    input::start_recording();
-}
-
-#[tauri::command]
-fn stop_recording() -> Vec<Step> {
-    input::stop_recording()
-}
-
-/// Wait for the user to press a key combination. Runs off the main thread.
-#[tauri::command(async)]
-fn capture_keys() -> Option<Vec<KeyRef>> {
-    let rx = input::capture_combo();
-    let keys = rx.recv_timeout(Duration::from_secs(15)).ok();
-    if keys.is_none() {
-        input::cancel_capture();
+/// kit replaced two apps, lightswitch (mouse) and headroom (headset). Carry
+/// their settings over the first time it runs.
+fn migrate_configs(app: &AppHandle) {
+    let (Ok(roaming), Ok(dir)) = (app.path().config_dir(), app.path().app_config_dir()) else { return };
+    for (old_app, new_file) in [("com.anthonyradke.lightswitch", "mouse.json"), ("com.anthonyradke.headroom", "headset.json")] {
+        let old = roaming.join(old_app).join("config.json");
+        let new = dir.join(new_file);
+        if !new.exists() && old.exists() {
+            let _ = std::fs::create_dir_all(&dir);
+            let _ = std::fs::copy(&old, &new);
+        }
     }
-    keys
-}
-
-/// Key events from the settings window while recording or capturing.
-#[tauri::command]
-fn ui_key(code: String, down: bool) {
-    input::ui_key(&code, down);
-}
-
-#[tauri::command]
-fn cancel_capture() {
-    input::cancel_capture();
-}
-
-/// Turn global hotkeys off while the UI captures a new one.
-#[tauri::command]
-fn pause_hotkeys(app: AppHandle) {
-    hotkeys::pause(&app);
-}
-
-#[tauri::command]
-fn resume_hotkeys(app: AppHandle) {
-    hotkeys::resume(&app);
 }
 
 #[tauri::command]
@@ -119,14 +59,20 @@ fn set_autostart(app: AppHandle, enabled: bool) -> Result<bool, String> {
 }
 
 fn main() {
-    let start_hidden = std::env::args().any(|a| a == HIDDEN_ARG);
+    let args: Vec<String> = std::env::args().collect();
+    if let Some(code) = headset::elevate::helper_main(&args) {
+        std::process::exit(code);
+    }
+    let start_hidden = args.iter().any(|a| a == HIDDEN_ARG);
     tauri::Builder::default()
         .plugin(tauri_plugin_single_instance::init(|app, _args, _cwd| show_window(app)))
         .plugin(tauri_plugin_autostart::init(MacosLauncher::LaunchAgent, Some(vec![HIDDEN_ARG])))
-        .plugin(hotkeys::plugin())
+        .plugin(mouse::hotkeys_plugin())
         .setup(move |app| {
             let handle = app.handle();
-            state::init(handle)?;
+            migrate_configs(handle);
+            mouse::init(handle)?;
+            headset::init(handle)?;
             tray::create(handle)?;
             if !start_hidden {
                 show_window(handle);
@@ -134,31 +80,34 @@ fn main() {
             Ok(())
         })
         .on_window_event(|window, event| {
-            // A closed window can't stop what it started: a recording or key
-            // capture would keep side buttons unhandled, a shortcut capture
-            // would leave hotkeys off.
             if let WindowEvent::Destroyed = event {
-                input::reset();
-                hotkeys::resume(window.app_handle());
+                mouse::on_window_destroyed(window.app_handle());
             }
         })
         .invoke_handler(tauri::generate_handler![
-            get_state,
-            save_config,
-            activate_profile,
-            test_macro,
-            start_recording,
-            stop_recording,
-            capture_keys,
-            ui_key,
-            cancel_capture,
-            pause_hotkeys,
-            resume_hotkeys,
             get_autostart,
             set_autostart,
+            mouse::mouse_state,
+            mouse::mouse_save,
+            mouse::activate_profile,
+            mouse::test_macro,
+            mouse::start_recording,
+            mouse::stop_recording,
+            mouse::capture_keys,
+            mouse::ui_key,
+            mouse::cancel_capture,
+            mouse::pause_hotkeys,
+            mouse::resume_hotkeys,
+            headset::headset_state,
+            headset::headset_save,
+            headset::activate_preset,
+            headset::preview_eq,
+            headset::use_headset,
+            headset::set_apo_installed,
+            headset::apo_log,
         ])
         .build(tauri::generate_context!())
-        .expect("failed to build lightswitch")
+        .expect("failed to build kit")
         .run(|_app, event| {
             // Keep running in the tray when the last window closes; only Quit exits.
             if let RunEvent::ExitRequested { code: None, api, .. } = event {

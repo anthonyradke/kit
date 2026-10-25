@@ -3,41 +3,35 @@
 <head>
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1" />
-  <title>lightswitch</title>
+  <title>kit</title>
+  <link rel="preload" href="fonts/archivo.woff2" as="font" type="font/woff2" crossorigin />
   <link rel="stylesheet" href="style.css" />
 </head>
 <body>
   <header class="titlebar" data-tauri-drag-region>
-    <div class="tb-brand" data-tauri-drag-region>
-      <svg class="tb-mark" viewBox="0 0 24 24" aria-hidden="true" data-tauri-drag-region>
-        <defs>
-          <linearGradient id="markGrad" x1="0" y1="0" x2="1" y2="1">
-            <stop offset="0" stop-color="#8b5cf6" /><stop offset="1" stop-color="#38bdf8" />
-          </linearGradient>
-        </defs>
-        <path d="M13.2 2 4 13.4h6.1L9.6 22 20 10.1h-6.4z" fill="url(#markGrad)" />
-      </svg>
-      <span data-tauri-drag-region>lightswitch</span>
-    </div>
-    <nav class="nav-tabs">
-      <button class="nav-tab" data-act="page" data-page="profile">Mouse</button>
-      <button class="nav-tab" data-act="page" data-page="macros">Macros</button>
-      <button class="nav-tab" data-act="page" data-page="settings">Settings</button>
-    </nav>
+    <div class="wordmark" data-tauri-drag-region>kit</div>
+    <div class="tb-title" id="tb-title" data-tauri-drag-region></div>
+    <nav class="tabs" id="tabs" aria-label="Sections"></nav>
     <div class="tb-spacer" data-tauri-drag-region></div>
-    <div class="tb-device" id="device" data-tauri-drag-region></div>
     <div class="win-controls">
-      <button class="win-btn" data-act="win-min" title="Minimize">
+      <button class="win-btn" data-act="win-min" title="Minimize" aria-label="Minimize">
         <svg viewBox="0 0 12 12"><path d="M1 6h10" /></svg>
       </button>
-      <button class="win-btn close" data-act="win-close" title="Close to tray">
+      <button class="win-btn close" data-act="win-close" title="Close to tray" aria-label="Close to tray">
         <svg viewBox="0 0 12 12"><path d="M1.5 1.5l9 9M10.5 1.5l-9 9" /></svg>
       </button>
     </div>
   </header>
 
-  <main id="main" class="main"></main>
-  <div id="toast" class="toast"></div>
+  <div class="shell">
+    <nav class="rail" id="rail" aria-label="Devices"></nav>
+    <main id="main" class="main"></main>
+  </div>
+  <div id="toast" class="toast" role="status"></div>
+
+  <script src="core.js"></script>
+  <script src="mouse.js"></script>
+  <script src="headset.js"></script>
   <script src="app.js"></script>
 </body>
 </html>
