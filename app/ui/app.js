@@ -7,6 +7,7 @@ const PAGES = {
 };
 
 let autostart = false;
+let upd = { current: "", available: null, notes: null, checking: false, checked: false, progress: null, error: null };
 // Which page is open; remembered across window closes (the webview is destroyed on close).
 const view = { page: "home", mouse: "profiles", headset: "sound", ...JSON.parse(localStorage.getItem("kit.view") || "{}") };
 
@@ -61,7 +62,7 @@ function renderRail() {
     item("home", `${icons.home}<span class="ri-label">Home</span>`, "Home") +
       item("mouse", `${pip(d.connected, d.present)}<img src="img/mouse-side.webp" alt="" />${bat(d.connected ? d.battery : null) || '<span class="ri-label">Mouse</span>'}`, "PRO X Superlight") +
       item("headset", `${pip(h.connected, h.present)}<img src="img/headset.webp" alt="" />${bat(h.connected ? h.battery : null) || '<span class="ri-label">Headset</span>'}`, "Arctis Nova 5") +
-      `<div class="rail-foot">${item("settings", `${icons.gear}<span class="ri-label">Settings</span>`, "Settings")}</div>`,
+      `<div class="rail-foot">${item("settings", `${upd.available ? '<span class="pip"></span>' : ""}${icons.gear}<span class="ri-label">Settings</span>`, "Settings")}</div>`,
   );
 }
 
@@ -119,6 +120,7 @@ function homePage() {
 function settingsPage() {
   return `<div class="page fpage" data-key="settings"><div class="fpage-inner">
     <h1 class="h1">Settings</h1>
+    ${updateRow()}
     <div class="row">
       <div><div class="rtitle">Launch at startup</div><p class="hint">Start kit in the tray when you sign in to Windows.</p></div>
       <label class="switch"><input type="checkbox" data-field="autostart" ${autostart ? "checked" : ""} aria-label="Launch at startup" /><span></span></label>
@@ -140,6 +142,29 @@ function settingsPage() {
   </div></div>`;
 }
 
+function updateRow() {
+  let title = `kit ${esc(upd.current)}`;
+  let hint = "kit checks GitHub for a new version every few hours.";
+  let btn = `<button class="btn quiet" data-act="check-update" ${upd.checking ? "disabled" : ""}>${upd.checking ? "Checking…" : "Check now"}</button>`;
+  if (upd.progress != null) {
+    title = `Updating to kit ${esc(upd.available)}`;
+    hint = `Downloading, ${upd.progress}%. kit restarts on its own when it's done.`;
+    btn = "";
+  } else if (upd.available) {
+    title = `kit ${esc(upd.available)} is available`;
+    hint = `You have ${esc(upd.current)}. Updating takes a few seconds and restarts kit; your settings stay.${upd.notes ? `<br>${esc(upd.notes)}` : ""}`;
+    btn = `<button class="btn" data-act="install-update">Update and restart</button>`;
+  } else if (upd.error && upd.checked) {
+    hint = `Couldn't check for updates: ${esc(upd.error)}`;
+  } else if (upd.checked) {
+    hint = "Up to date. kit checks GitHub for a new version every few hours.";
+  }
+  return `<div class="row">
+      <div><div class="rtitle">${title}</div><p class="hint">${hint}</p></div>
+      ${btn}
+    </div>`;
+}
+
 // ---------- events ----------
 
 Object.assign(handlers, {
@@ -158,6 +183,19 @@ Object.assign(handlers, {
   },
   "headset-tab"(el) {
     go("headset", el.dataset.tab);
+  },
+  async "check-update"() {
+    upd = { ...upd, checking: true };
+    render();
+    upd = await invoke("check_update");
+    render();
+  },
+  async "install-update"() {
+    try {
+      await invoke("install_update");
+    } catch (err) {
+      toast(`Update failed: ${err}`);
+    }
   },
   async "show-log"() {
     hv.log = await invoke("apo_log");
@@ -205,7 +243,7 @@ document.addEventListener("keydown", (e) => {
 // ---------- boot ----------
 
 (async () => {
-  [M, H, autostart] = await Promise.all([invoke("mouse_state"), invoke("headset_state"), invoke("get_autostart")]);
+  [M, H, autostart, upd] = await Promise.all([invoke("mouse_state"), invoke("headset_state"), invoke("get_autostart"), invoke("update_state")]);
   mv.profileId = mcfg().active;
   render();
 
@@ -220,4 +258,8 @@ document.addEventListener("keydown", (e) => {
   await listen("headset-state", hw(onHeadsetState));
   await listen("headset", hw((p) => (H.headset = p)));
   await listen("audio", hw((p) => (H.audio = p)));
+  await listen("update", (e) => {
+    upd = e.payload;
+    render();
+  });
 })();

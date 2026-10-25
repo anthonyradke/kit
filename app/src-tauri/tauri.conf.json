@@ -1,7 +1,7 @@
 {
   "$schema": "https://schema.tauri.app/config/2",
   "productName": "kit",
-  "version": "0.1.0",
+  "version": "0.2.0",
   "identifier": "com.anthonyradke.kit",
   "build": {
     "frontendDist": "../ui"
@@ -24,6 +24,16 @@
       "icons/128x128.png",
       "icons/128x128@2x.png",
       "icons/icon.ico"
-    ]
+    ],
+    "createUpdaterArtifacts": true
+  },
+  "plugins": {
+    "updater": {
+      "pubkey": "dW50cnVzdGVkIGNvbW1lbnQ6IG1pbmlzaWduIHB1YmxpYyBrZXk6IEMwM0Q1REVGOERFRUM4MUIKUldRYnlPNk43MTA5d0lMeGkycjJVbG1wWVFSM3Q4Nk55K2VKOHhUVDRMWmhKcmFzbUhFa010blkK",
+      "endpoints": ["https://github.com/anthonyradke/kit/releases/latest/download/latest.json"],
+      "windows": {
+        "installMode": "passive"
+      }
+    }
   }
 }

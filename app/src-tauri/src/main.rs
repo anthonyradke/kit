@@ -3,6 +3,7 @@
 mod headset;
 mod mouse;
 mod tray;
+mod update;
 
 use tauri::{AppHandle, Manager, RunEvent, WebviewUrl, WebviewWindowBuilder, WindowEvent};
 use tauri_plugin_autostart::{MacosLauncher, ManagerExt};
@@ -68,11 +69,13 @@ fn main() {
         .plugin(tauri_plugin_single_instance::init(|app, _args, _cwd| show_window(app)))
         .plugin(tauri_plugin_autostart::init(MacosLauncher::LaunchAgent, Some(vec![HIDDEN_ARG])))
         .plugin(mouse::hotkeys_plugin())
+        .plugin(tauri_plugin_updater::Builder::new().build())
         .setup(move |app| {
             let handle = app.handle();
             migrate_configs(handle);
             mouse::init(handle)?;
             headset::init(handle)?;
+            update::init(handle);
             tray::create(handle)?;
             if !start_hidden {
                 show_window(handle);
@@ -105,6 +108,9 @@ fn main() {
             headset::use_headset,
             headset::set_apo_installed,
             headset::apo_log,
+            update::update_state,
+            update::check_update,
+            update::install_update,
         ])
         .build(tauri::generate_context!())
         .expect("failed to build kit")

@@ -5,7 +5,7 @@ use tauri::menu::{CheckMenuItem, Menu, MenuItem, PredefinedMenuItem};
 use tauri::tray::{MouseButton, MouseButtonState, TrayIconBuilder, TrayIconEvent};
 use tauri::{AppHandle, Manager};
 
-use crate::{headset, mouse};
+use crate::{headset, mouse, update};
 
 const TRAY_ID: &str = "main";
 const PROFILE_PREFIX: &str = "profile:";
@@ -20,6 +20,12 @@ pub fn create(app: &AppHandle) -> tauri::Result<()> {
         .on_menu_event(|app, event| match event.id.as_ref() {
             "open" => crate::show_window(app),
             "quit" => app.exit(0),
+            "update" => {
+                let app = app.clone();
+                tauri::async_runtime::spawn(async move {
+                    let _ = update::install(&app).await;
+                });
+            }
             "denoise" => {
                 let on = app.state::<headset::state::Shared>().core.lock().unwrap().mic.denoise;
                 headset::state::set_denoise(app, !on);
@@ -75,6 +81,9 @@ fn build_menu(app: &AppHandle) -> tauri::Result<Menu<tauri::Wry>> {
     menu.append(&CheckMenuItem::with_id(app, "denoise", "Mic noise suppression", true, denoise, None::<&str>)?)?;
     menu.append(&MenuItem::with_id(app, "default", "Use headset as default device", true, None::<&str>)?)?;
     menu.append(&PredefinedMenuItem::separator(app)?)?;
+    if let Some(version) = app.try_state::<update::Shared>().and_then(|_| update::status(app).available) {
+        menu.append(&MenuItem::with_id(app, "update", format!("Update to kit {version}"), true, None::<&str>)?)?;
+    }
     menu.append(&MenuItem::with_id(app, "open", "Open kit", true, None::<&str>)?)?;
     menu.append(&MenuItem::with_id(app, "quit", "Quit", true, None::<&str>)?)?;
     Ok(menu)

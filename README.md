@@ -29,6 +29,8 @@ One small, fast app that replaces Logitech G HUB and SteelSeries GG / Sonar on W
 
 Download `kit_x.y.z_x64-setup.exe` from [Releases](https://github.com/anthonyradke/kit/releases) and run it.
 Closing the window keeps kit running in the tray. Use **Quit** from the tray menu to exit.
+kit checks this repo's releases for a new version every few hours. When there is one, Settings and the tray menu
+offer to update; kit downloads the installer, checks its signature, installs it and restarts.
 Settings from lightswitch and headroom (the two apps kit replaced) are copied over the first time it runs.
 
 ## How it works
@@ -51,12 +53,16 @@ Requires Rust (MSVC toolchain) and the Tauri CLI (`cargo install tauri-cli`).
 ```
 cargo build --release -p kit-apo            # once: the installer bundles this DLL
 cargo build -p kit && target\debug\kit.exe  # run the app (debug)
-cd app/src-tauri && cargo tauri build       # release exe + installer in target/release/bundle
+cd app/src-tauri && cargo tauri build       # release exe + installer in target/release/bundle (needs the signing key)
 cargo run -p mouse-probe                    # mouse hardware test: device info
 cargo run -p mouse-probe -- dpi 800         # set DPI directly
 cargo run -p headset-probe                  # headset hardware test: status, EQ, settings
 cargo run -p headset-probe -- devices       # audio endpoints and defaults
 ```
+
+Releases are built by GitHub Actions (`.github/workflows/release.yml`): bump the version in
+`app/src-tauri/tauri.conf.json` and `app/src-tauri/Cargo.toml`, then push an annotated tag such as `v0.2.1`. The tag's
+message becomes the release notes that kit shows next to the update.
 
 ## Layout
 
