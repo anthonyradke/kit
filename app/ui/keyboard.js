@@ -142,6 +142,26 @@ const NK65_KLE = [
   [{ w: 1.25 }, "4,0", { w: 1.25 }, "4,1", { w: 1.25 }, "4,2", { w: 6.25 }, "4,6", "4,9", "4,10", "4,11", "4,12", "4,13", "4,14"],
 ];
 
+// The NK65's factory keymap (QMK's novelkeys/nk65 default), in drawing order. "mo1" is MO(1).
+const NK65_BASE = [
+  [0x29, 0x1e, 0x1f, 0x20, 0x21, 0x22, 0x23, 0x24, 0x25, 0x26, 0x27, 0x2d, 0x2e, 0x2a, 0x4a],
+  [0x2b, 0x14, 0x1a, 0x08, 0x15, 0x17, 0x1c, 0x18, 0x0c, 0x12, 0x13, 0x2f, 0x30, 0x31, 0x4b],
+  [0x39, 0x04, 0x16, 0x07, 0x09, 0x0a, 0x0b, 0x0d, 0x0e, 0x0f, 0x33, 0x34, 0x28, 0x4e],
+  [0xe1, 0x1d, 0x1b, 0x06, 0x19, 0x05, 0x11, 0x10, 0x36, 0x37, 0x38, 0xe5, 0x52, 0x4d],
+  [0xe0, 0xe3, 0xe2, 0x2c, 0xe6, "mo1", 0xe4, 0x50, 0x51, 0x4f],
+].flat();
+// Layer 1's defaults (` F1-F12 Del, volume); every other upper-layer key falls through.
+const NK65_FN = { "0,0": 0x35, "0,13": 0x4c, "4,0": 0xa9, "4,1": 0xaa, "4,2": 0xa8 };
+for (let i = 1; i <= 12; i++) NK65_FN[`0,${i}`] = 0x39 + i;
+
+function defaultKeycode(layer, k) {
+  if (layer === 0) {
+    const code = NK65_BASE[LAYOUT.nk65.keys.indexOf(k)];
+    return code === "mo1" ? layerCode("MO", 1) : code;
+  }
+  return (layer === 1 && NK65_FN[k.id]) || 1;
+}
+
 // The PRO X TKL by HID usage ({ g } is a gap in key units). The Fn key can't be bound.
 const TKL_ROWS = [
   [0, [0x29, { g: 1 }, 0x3a, 0x3b, 0x3c, 0x3d, { g: 0.5 }, 0x3e, 0x3f, 0x40, 0x41, { g: 0.5 }, 0x42, 0x43, 0x44, 0x45, { g: 0.25 }, 0x46, 0x47, 0x48]],
@@ -307,12 +327,13 @@ function nkKeysPage() {
       }, "", kv.layer ? "Keys showing ▽ fall through to the layer below. Hold a layer key (MO) on the base layer to reach this one." : "Click a key, then pick what it does. Changes are written to the keyboard right away and work on any computer.")
     : `<div class="empty"><b>${s.present ? "The NK65 isn't answering" : "Plug in the NK65"}</b>${keyStatus().hint || "kit reads the keymap straight from the keyboard."}</div>`;
   const kitUsed = kcfg().kitKeys.filter(Boolean).length;
+  const resetting = confirmDelete === `layer-${kv.layer}`;
   return `<div class="page devpage" data-key="kb-keys">
     ${layerStrip()}
     <div class="work">
       <section class="canvas">
         <div class="canvas-head"><h1 class="h1 inline-h">${kv.layer ? `Layer ${kv.layer}` : "Base layer"}</h1>
-          <div class="pactions">${s.connected ? `<span class="live-mark">Stored on keyboard</span>` : ""}</div></div>
+          <div class="pactions">${s.connected ? `<span class="live-mark">Stored on keyboard</span>` : ""}${ready ? `<button class="tbtn ${resetting ? "confirm" : ""}" data-act="layer-reset">${icons.reset}${resetting ? "Confirm reset" : "Reset layer"}</button>` : ""}</div></div>
         ${plate([
           keyStatusCell("status"),
           cell("fw", "Firmware", s.protocol ? `VIA <small>v${s.protocol}</small>` : "—", { cls: s.protocol ? "" : "dim" }),
@@ -335,11 +356,18 @@ function nkKeyPanel(k) {
   let body = "";
   const opt = (c, label, sub = "") => `<button class="kopt ${c === code ? "on" : ""}" data-act="kc-set" data-code="${c}">${esc(label)}${sub ? `<small>${esc(sub)}</small>` : ""}</button>`;
   if (pick === "keys") {
+    const group = (title, codes, cls = "dense") => `<div class="cap kgroup">${title}</div><div class="kopts ${cls}">${codes.map((c) => opt(c, USAGE[c])).join("")}</div>`;
+    const range = (a, n) => Array.from({ length: n }, (_, i) => a + i);
     body = `<button class="capture ${kv.listening ? "listening" : ""}" data-act="kc-listen">${kv.listening ? "Press the key (with Ctrl, Shift, Alt or Win for a shortcut)…" : "Press a key to assign it"}</button>
       ${kv.listening ? `<button class="tbtn" data-act="kc-listen-stop">Cancel</button>` : ""}
-      <div class="kopts">${[0x29, 0x2a, 0x28, 0x2b, 0x39, 0x2c, 0x49, 0x4c, 0x4a, 0x4d, 0x4b, 0x4e, 0x46, 0x65, 0xe3, 0xe7].map((c) => opt(c, USAGE[c])).join("")}</div>
-      <div class="kopts">${opt(0, "Nothing")}${kv.layer ? opt(1, "Fall through", "▽") : ""}</div>
-      <p class="hint">Keys the window can't see (Win, PrintScreen) are in the list above.</p>`;
+      <p class="hint">A key you've changed types its new job, so to set one back, click it in the lists below or use Reset.</p>
+      ${group("Letters", range(0x04, 26))}
+      ${group("Numbers and symbols", [...range(0x1e, 10), 0x2d, 0x2e, 0x2f, 0x30, 0x31, 0x33, 0x34, 0x35, 0x36, 0x37, 0x38])}
+      ${group("Function keys", range(0x3a, 12))}
+      ${group("Editing", [0x29, 0x2a, 0x28, 0x2b, 0x2c, 0x39, 0x49, 0x4c], "")}
+      ${group("Navigation", [0x4a, 0x4d, 0x4b, 0x4e, 0x52, 0x51, 0x50, 0x4f, 0x46, 0x47, 0x48, 0x65], "")}
+      ${group("Modifiers", range(0xe0, 8), "")}
+      <div class="kopts">${opt(0, "Nothing")}${kv.layer ? opt(1, "Fall through", "▽") : ""}</div>`;
   } else if (pick === "media") {
     body = `<div class="kopts">${MEDIA.map((c) => opt(c, USAGE[c])).join("")}</div>`;
   } else if (pick === "layers") {
@@ -354,8 +382,11 @@ function nkKeyPanel(k) {
   } else {
     body = macroPick(code);
   }
+  const def = defaultKeycode(kv.layer, k);
+  const defInfo = kcInfo(def);
   return `<section class="sec">
       <div class="sec-head"><span class="sec-title">${esc(info.text || "Nothing")}<small>${esc(info.sub || "")}</small></span><span class="cap">Row ${k.r + 1} · col ${k.c + 1}</span></div>
+      <button class="tbtn kreset" data-act="kc-set" data-code="${def}" ${code === def ? "disabled" : ""}>${icons.reset}Reset to ${esc(def === 1 ? "fall through" : defInfo.text)}</button>
       <div class="seg fill">${PICKS.map(([id, label]) => `<button class="${pick === id ? "on" : ""}" data-act="kc-pick" data-v="${id}">${label}</button>`).join("")}</div>
     </section>
     <section class="sec">${body}</section>`;
@@ -680,11 +711,25 @@ async function activateLighting(id) {
 function setKeycode(code) {
   const k = LAYOUT.nk65.keys.find((x) => x.id === kv.key);
   if (!k) return;
+  freeIfUnused(writeKey(kv.layer, k, code));
+  render();
+}
+
+// Returns the keycode that was there.
+function writeKey(layer, k, code) {
   const s = kst();
-  const old = keycodeAt(kv.layer, k.r, k.c);
-  s.keymap[(kv.layer * s.rows + k.r) * s.cols + k.c] = code;
-  invoke("keyboard_set_key", { layer: kv.layer, row: k.r, col: k.c, code });
-  freeIfUnused(old);
+  const old = keycodeAt(layer, k.r, k.c);
+  if (old !== code) {
+    s.keymap[(layer * s.rows + k.r) * s.cols + k.c] = code;
+    invoke("keyboard_set_key", { layer, row: k.r, col: k.c, code });
+  }
+  return old;
+}
+
+// Every key on a layer back to the factory keymap.
+function resetLayer(layer) {
+  const olds = LAYOUT.nk65.keys.map((k) => writeKey(layer, k, defaultKeycode(layer, k)));
+  new Set(olds).forEach(freeIfUnused);
   render();
 }
 
@@ -831,6 +876,13 @@ Object.assign(handlers, {
     kv.pick = el.dataset.v;
     stopListening();
     render();
+  },
+  "layer-reset"() {
+    const layer = kv.layer;
+    armDelete(`layer-${layer}`, () => {
+      resetLayer(layer);
+      toast(`${layer ? `Layer ${layer}` : "Base layer"} is back to the factory keymap`);
+    });
   },
   "kc-set"(el) {
     setKeycode(Number(el.dataset.code));

@@ -514,6 +514,10 @@ kbd {
 .kopt.on small { color: var(--ground); }
 .kopt.wide { grid-column: 1 / -1; }
 .kgroup { margin-top: 14px; }
+.kopts.dense { grid-template-columns: repeat(6, minmax(0, 1fr)); }
+.kopts.dense .kopt { align-items: center; padding: 6px 2px; }
+.kgroup + .kopts { margin-top: 6px; }
+.kreset { margin: 8px 0 12px; }
 .choices.one { grid-template-columns: 1fr; }
 .fx-list { max-height: 280px; overflow-y: auto; }
 
