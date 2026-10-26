@@ -2,6 +2,7 @@
 //! a Logitech PRO X TKL LIGHTSPEED (HID++: lighting, battery; keys handled by
 //! kit's input hook).
 
+mod anim;
 pub mod config;
 mod device;
 pub mod state;

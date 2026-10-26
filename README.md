@@ -19,6 +19,8 @@ one of two keyboards: a **NovelKeys NK65** (VIA firmware, such as the Milkshake 
 - On the NK65, remap any key on every layer (written to the keyboard, so it works on any computer), lighting
   effects, colors, brightness, speed and indicator lights with a live preview, and saved lighting presets you can
   switch from the tray (VIA can't save presets)
+- Extra NK65 effects that kit plays itself while it runs: Keystrike (each key press flashes the board), Typing
+  heat (warms up the faster you type), Hue step, Music (pulses with what's playing), Heartbeat, Candle and Aurora
 - Put kit's recorded macros on an NK65 key either *on the keyboard* (works without kit; keys and
   waits only) or *through kit* (clicks, hold-to-repeat and toggle; uses spare F13-F24 codes). Macros you made in
   VIA show up and can be copied into kit
@@ -57,6 +59,9 @@ Settings from lightswitch and headroom (the two apps kit replaced) are copied ov
 - The NK65 is driven through VIA's own raw-HID protocol (`crates/via`): keymap, the onboard macro buffer and
   lighting values, for both the original PCB (wilba's RGB backlight) and rev B (QMK RGB matrix). Per-key colors
   need custom firmware; the plan is in [docs/nk65-firmware.md](docs/nk65-firmware.md).
+  kit's own effects (`keyboard/anim.rs`) put Solid on the board and then stream its one color and brightness about
+  30 times a second without saving them, so the EEPROM isn't worn. Key presses come from the input hook (only
+  counted, never recorded) and the music level from the default output's peak meter.
 - The PRO X TKL's lighting goes through HID++ (RGB effects 0x8071, per-key lighting 0x8081). kit takes the LEDs
   over from the onboard profile while it runs, turns them off when the keyboard reports idle, and hands them back
   on Quit. Its key bindings, like the mouse side buttons, use a low-level input hook.

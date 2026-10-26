@@ -7,6 +7,7 @@ mod policy;
 use windows::core::PWSTR;
 use windows::Win32::Devices::FunctionDiscovery::{PKEY_DeviceInterface_FriendlyName, PKEY_Device_FriendlyName};
 use windows::Win32::Foundation::PROPERTYKEY;
+use windows::Win32::Media::Audio::Endpoints::IAudioMeterInformation;
 use windows::Win32::Media::Audio::{
     eCapture, eCommunications, eConsole, eRender, EDataFlow, IMMDevice, IMMDeviceEnumerator,
     MMDeviceEnumerator, DEVICE_STATE_ACTIVE,
@@ -140,4 +141,24 @@ pub fn set_default(id: &str) -> Result<()> {
 /// The Nova 5's endpoints, matched by the USB device name.
 pub fn find_arctis(flow: Flow) -> Result<Option<Endpoint>> {
     Ok(endpoints(flow)?.into_iter().find(|e| e.device.contains("Arctis Nova 5")))
+}
+
+/// How loud the default output device is playing, for lighting that follows
+/// the sound. Opened on the default device at the time; reopen it to follow a
+/// change of default.
+pub struct PeakMeter(IAudioMeterInformation);
+
+impl PeakMeter {
+    pub fn open() -> Result<Self> {
+        let e = enumerator()?;
+        unsafe {
+            let dev = e.GetDefaultAudioEndpoint(eRender, eConsole)?;
+            Ok(PeakMeter(dev.Activate(CLSCTX_ALL, None)?))
+        }
+    }
+
+    /// The current peak sample, 0-1, across channels.
+    pub fn peak(&self) -> Result<f32> {
+        Ok(unsafe { self.0.GetPeakValue()? })
+    }
 }

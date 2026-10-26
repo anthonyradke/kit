@@ -44,6 +44,11 @@ static KEY_BIND: [AtomicBool; 512] = [const { AtomicBool::new(false) }; 512];
 static KEY_HELD: [AtomicBool; 512] = [const { AtomicBool::new(false) }; 512];
 /// Any key is bound: the keyboard hook stays installed.
 static KEYS_BOUND: AtomicBool = AtomicBool::new(false);
+/// Count key presses for lighting that reacts to typing: the keyboard hook stays installed.
+static KEY_WATCH: AtomicBool = AtomicBool::new(false);
+static KEY_PRESSES: AtomicU32 = AtomicU32::new(0);
+/// Keys counted as down, so auto-repeat isn't counted again.
+static KEY_DOWN: [AtomicBool; 512] = [const { AtomicBool::new(false) }; 512];
 /// Tick count of the last event each hook saw, for the watchdog.
 static MOUSE_SEEN: AtomicU32 = AtomicU32::new(0);
 static KEY_SEEN: AtomicU32 = AtomicU32::new(0);
@@ -98,6 +103,33 @@ pub fn set_key_bindings(keys: &[(u16, bool)]) {
     }
     KEYS_BOUND.store(!keys.is_empty(), Ordering::SeqCst);
     post(if keys.is_empty() { MSG_KEYBOARD_OFF } else { MSG_KEYBOARD_ON });
+}
+
+/// Start or stop counting key presses (see `key_presses`).
+pub fn set_key_watch(on: bool) {
+    if KEY_WATCH.swap(on, Ordering::SeqCst) != on {
+        for k in &KEY_DOWN {
+            k.store(false, Ordering::Relaxed);
+        }
+        post(if on { MSG_KEYBOARD_ON } else { MSG_KEYBOARD_OFF });
+    }
+}
+
+/// Physical key presses seen while watching (wraps around).
+pub fn key_presses() -> u32 {
+    KEY_PRESSES.load(Ordering::Relaxed)
+}
+
+fn count_press(scan: u16, ext: bool, down: bool) {
+    if !KEY_WATCH.load(Ordering::Relaxed) {
+        return;
+    }
+    let Some(i) = key_slot(scan, ext) else { return };
+    if !down {
+        KEY_DOWN[i].store(false, Ordering::Relaxed);
+    } else if !KEY_DOWN[i].swap(true, Ordering::Relaxed) {
+        KEY_PRESSES.fetch_add(1, Ordering::Relaxed);
+    }
 }
 
 fn key_slot(scan: u16, ext: bool) -> Option<usize> {
@@ -226,7 +258,7 @@ unsafe fn hook_thread() {
     MOUSE_SEEN.store(GetTickCount(), Ordering::Relaxed);
     mouse.install();
     // Bindings set before this thread could take messages.
-    if KEYS_BOUND.load(Ordering::SeqCst) {
+    if KEYS_BOUND.load(Ordering::SeqCst) || KEY_WATCH.load(Ordering::SeqCst) {
         KEY_SEEN.store(GetTickCount(), Ordering::Relaxed);
         keyboard.install();
     }
@@ -282,7 +314,9 @@ unsafe fn hook_thread() {
                 KEY_SEEN.store(GetTickCount(), Ordering::Relaxed);
                 keyboard.install();
             }
-            MSG_KEYBOARD_OFF if MODE.load(Ordering::SeqCst) == MODE_OFF && !KEYS_BOUND.load(Ordering::SeqCst) => {
+            MSG_KEYBOARD_OFF
+                if MODE.load(Ordering::SeqCst) == MODE_OFF && !KEYS_BOUND.load(Ordering::SeqCst) && !KEY_WATCH.load(Ordering::SeqCst) =>
+            {
                 keyboard.remove();
             }
             _ => {}
@@ -431,6 +465,7 @@ unsafe extern "system" fn keyboard_proc(code: i32, wparam: WPARAM, lparam: LPARA
         if info.flags & LLKHF_INJECTED == 0 {
             let down = matches!(wparam as u32, WM_KEYDOWN | WM_SYSKEYDOWN);
             let ext = info.flags & LLKHF_EXTENDED != 0;
+            count_press(info.scanCode as u16, ext, down);
             if bound_key(info.scanCode as u16, ext, down) {
                 return 1;
             }

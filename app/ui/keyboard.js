@@ -506,6 +506,17 @@ const FX = {
   }),
   lightsync: [[0, "Off", 0, "off"], [1, "Static", 1, "solid"], [10, "Breathe", 1, "breathe"], [3, "Cycle", 0, "cycle"], [4, "Wave", 0, "wave-x"], [11, "Ripple", 1, "dim"]],
 };
+// Effects kit plays on the NK65 itself by streaming one color and brightness
+// for the whole board (stock firmware has no per-key control). [effect, name, colors, preview, what it does]
+const KIT_FX = [
+  [200, "Keystrike", 2, "strike", "Every key press flashes the board to color 2 at full brightness, then it fades back."],
+  [201, "Typing heat", 2, "heat", "Warms from color 1 to color 2 and gets brighter the faster you type, then cools off."],
+  [202, "Hue step", 1, "huestep", "Each key press nudges the color along the rainbow, starting from this color."],
+  [203, "Music", 2, "music", "Pulses with whatever is playing on the default output: louder means brighter and more color 2."],
+  [204, "Heartbeat", 2, "beat", "A slow double pulse. Speed sets the heart rate."],
+  [205, "Candle", 2, "candle", "Flickers like a flame; dimmer moments lean to color 2."],
+  [206, "Aurora", 2, "aurora", "Drifts slowly back and forth between the two colors."],
+];
 const SWATCHES = ["#ffffff", "#fff1dc", "#ff4040", "#ff8a1f", "#ffd23f", "#4ade80", "#9fe8cf", "#38bdf8", "#4a6cff", "#a78bfa", "#ffb3d1", "#ff4fa3"];
 const INDICATORS = ["Caps Lock", "Layer 1", "Layer 2", "Layer 3"];
 
@@ -518,7 +529,7 @@ function effects() {
   const ids = { 0: [0], 1: [1], 10: [10, 2], 3: [3, 0x15], 4: [4, 0x16], 11: [11, 0x17] };
   return all.filter(([id]) => ids[id].some((x) => have.has(x)));
 }
-const fxOf = (p) => effects().find((f) => f[0] === p.effect) || effects()[1] || effects()[0];
+const fxOf = (p) => (isNk() && KIT_FX.find((f) => f[0] === p.effect)) || effects().find((f) => f[0] === p.effect) || effects()[1] || effects()[0];
 
 const hexToRgb = (h) => [1, 3, 5].map((i) => parseInt(h.slice(i, i + 2), 16));
 const rgbHex = (rgb) => "#" + rgb.map((v) => Math.round(clamp(v, 0, 255)).toString(16).padStart(2, "0")).join("");
@@ -554,6 +565,7 @@ function ledColor(k, p) {
     case "radial": c = hue(((Math.atan2(k.y - L.h / 2, k.x - L.w / 2) / Math.PI) * 180 + 360) % 360); break;
     case "cycle": c = hue(0); break;
     case "dim": c = mix("#000000", p.color1, 0.25); break;
+    case "huestep": c = p.color1; break;
     default: {
       const z = !isNk() && k.usage != null ? p.keys[zoneOf(k.usage)] : null;
       c = z || p.color1;
@@ -607,13 +619,14 @@ function lightingPage() {
           cell("bright", "Brightness", `${p.brightness}<small>%</small>`),
           isNk() ? cell("store", "Stored", kst().connected ? "On keyboard" : "In kit", { cls: "text" }) : cell("lights", "Lights", kst().lightsAsleep ? "Off · idle" : kst().connected ? "On" : "—", { cls: `text ${kst().connected && !kst().lightsAsleep ? "" : "dim"}` }),
         ])}
-        <div style="--fx-speed:${speedMs.toFixed(1)}s;display:contents">${board}</div>
+        <div style="--fx-speed:${speedMs.toFixed(1)}s;--c1:${mix("#000000", p.color1, p.brightness / 100)};--c2:${p.color2};display:contents">${board}</div>
       </section>
       <aside class="panel">
         <section class="sec">
           <div class="sec-head"><span class="sec-title">Effect</span></div>
           <div class="choices fx-list" role="radiogroup">${effects().map(([id, name]) => `<button class="choice ${p.effect === id ? "on" : ""}" data-act="light-fx" data-v="${id}">${esc(name)}</button>`).join("")}</div>
         </section>
+        ${isNk() ? kitFxSection(p) : ""}
         ${used >= 1 ? `<section class="sec"><div class="sec-head"><span class="sec-title">${used === 2 ? "Color 1" : "Color"}</span><span class="cap">${p.color1}</span></div>${swatchRow("color1", p.color1)}</section>` : ""}
         ${used === 2 ? `<section class="sec"><div class="sec-head"><span class="sec-title">Color 2</span><span class="cap">${p.color2}</span></div>${swatchRow("color2", p.color2)}</section>` : ""}
         <section class="sec">
@@ -626,6 +639,16 @@ function lightingPage() {
       </aside>
     </div>
   </div>`;
+}
+
+function kitFxSection(p) {
+  const fx = KIT_FX.find((f) => f[0] === p.effect);
+  return `<section class="sec">
+    <div class="sec-head"><span class="sec-title">Animated by kit<small>reactive and ambient</small></span></div>
+    <div class="choices" role="radiogroup">${KIT_FX.map(([id, name]) => `<button class="choice ${p.effect === id ? "on" : ""}" data-act="light-fx" data-v="${id}">${esc(name)}</button>`).join("")}</div>
+    ${fx ? `<p class="hint">${fx[4]} Brightness sets the resting level.</p>
+    <p class="hint">These run while kit is running (window closed is fine). Typing in kit's own window doesn't count. The keyboard stores plain color 1, so that's what it shows without kit.</p>` : ""}
+  </section>`;
 }
 
 function paintSection(p) {
@@ -946,8 +969,12 @@ Object.assign(handlers, {
   },
   "light-fx"(el) {
     const p = lightPreset();
+    const was = p.effect;
     p.effect = Number(el.dataset.v);
     if (p.effect !== 0 && p.brightness === 0) p.brightness = 80;
+    // These rise from the resting brightness to full, so start them low enough to see it.
+    const lifts = (id) => [200, 201, 203, 204].includes(id);
+    if (isNk() && lifts(p.effect) && !lifts(was) && p.brightness > 40) p.brightness = 25;
     lightChanged();
   },
   "light-color"(el) {

@@ -3,6 +3,8 @@
 //!
 //! The NK65 keeps its keymap, macros and lighting in its own EEPROM, so on
 //! connect the worker reads them and only writes lighting values that differ.
+//! kit's own NK65 effects (`anim`) stream color and brightness over a solid
+//! base that is what gets stored.
 //! The PRO X TKL's lighting is driven by kit while it runs: kit takes the LEDs
 //! from the onboard profile, paints them, turns them off when the keyboard
 //! reports idle (it runs on a battery) and hands them back on Quit.
@@ -14,7 +16,9 @@ use std::time::{Duration, Instant};
 use serde::Serialize;
 use tauri::{AppHandle, Emitter, Manager};
 
+use super::anim::{self, Anim};
 use super::config::{parse_color, to_hue_sat, Model, Preset};
+use crate::mouse::input;
 use super::state::Shared;
 
 pub enum Cmd {
@@ -85,6 +89,8 @@ const BATTERY_EVERY: Duration = Duration::from_secs(60);
 const APPLY_RETRY: Duration = Duration::from_secs(2);
 const EVENT_WAIT_MS: i32 = 20;
 const EVENT_WAIT_ASLEEP_MS: i32 = 100;
+/// The default output can change; the sound meter is reopened this often.
+const METER_REOPEN: Duration = Duration::from_secs(5);
 
 pub fn spawn(app: AppHandle, rx: Receiver<Cmd>, model: Option<Model>) {
     std::thread::Builder::new()
@@ -119,6 +125,13 @@ struct Worker {
     via_values: BTreeMap<u8, [u8; 2]>,
     /// NK65: the raw macro buffer as on the board.
     macro_buffer: Vec<u8>,
+    /// NK65: a kit effect playing, the key press count it last saw and the
+    /// sound meter (Music).
+    anim: Option<Anim>,
+    presses: u32,
+    meter: Option<sysaudio::PeakMeter>,
+    next_meter: Instant,
+    next_frame: Instant,
     next_open: Instant,
     next_poll: Instant,
     next_battery: Instant,
@@ -139,6 +152,11 @@ impl Worker {
             save: false,
             via_values: BTreeMap::new(),
             macro_buffer: vec![],
+            anim: None,
+            presses: 0,
+            meter: None,
+            next_meter: now,
+            next_frame: now,
             next_open: now,
             next_poll: now,
             next_battery: now,
@@ -173,7 +191,14 @@ impl Worker {
                     if Instant::now() >= self.next_poll {
                         self.poll_via();
                     }
-                    self.wait(self.next_poll);
+                    if self.anim.is_some() {
+                        if Instant::now() >= self.next_frame {
+                            self.animate();
+                        }
+                        self.wait(self.next_poll.min(self.next_frame));
+                    } else {
+                        self.wait(self.next_poll);
+                    }
                 }
                 None => self.wait(self.next_open),
             }
@@ -237,6 +262,7 @@ impl Worker {
     }
 
     fn drop_dev(&mut self, error: Option<String>) {
+        self.set_anim(None);
         self.dev = None;
         self.via_values.clear();
         self.status = Status { error, ..Status::default() };
@@ -390,10 +416,22 @@ impl Worker {
 
     fn apply_via(&mut self) {
         self.dirty = false;
-        let Some(kind) = self.lighting_kind() else { return };
         let Some((p, _)) = self.desired.clone() else { return };
+        let wrote = self.write_via(&p);
+        let kit = anim::is_kit(p.effect);
+        // A kit effect's base may already be on the board while EEPROM holds another preset.
+        if (wrote || kit) && self.save {
+            self.save = false;
+            let _ = self.with_via(|b| b.save_lighting());
+        }
+        self.set_anim(kit.then(|| Anim::new(&p, Instant::now())));
+    }
+
+    /// Write the values `p` needs that differ from the board's. True if any did.
+    fn write_via(&mut self, p: &Preset) -> bool {
+        let Some(kind) = self.lighting_kind() else { return false };
         let mut wrote = false;
-        for (value, data) in via_target(kind, &p) {
+        for (value, data) in via_target(kind, p) {
             if self.via_values.get(&(value as u8)) == Some(&data) {
                 continue;
             }
@@ -404,9 +442,49 @@ impl Worker {
                 wrote = true;
             }
         }
-        if wrote && self.save {
-            self.save = false;
-            let _ = self.with_via(|b| b.save_lighting());
+        wrote
+    }
+
+    /// Start or stop a kit effect, with the key counting and sound meter it needs.
+    fn set_anim(&mut self, next: Option<Anim>) {
+        let effect = next.as_ref().map(|a| a.effect);
+        let keys = effect.is_some_and(anim::wants_keys);
+        input::set_key_watch(keys);
+        self.presses = input::key_presses();
+        if !effect.is_some_and(anim::wants_sound) {
+            self.meter = None;
+        }
+        self.anim = next;
+        self.next_frame = Instant::now();
+    }
+
+    /// One frame of the kit effect: only values that changed go to the board.
+    fn animate(&mut self) {
+        let now = Instant::now();
+        self.next_frame = now + anim::FRAME;
+        let Some(effect) = self.anim.as_ref().map(|a| a.effect) else { return };
+        let count = input::key_presses();
+        let presses = count.wrapping_sub(self.presses);
+        self.presses = count;
+        let mut peak = 0.0;
+        if anim::wants_sound(effect) {
+            if now >= self.next_meter {
+                self.next_meter = now + METER_REOPEN;
+                self.meter = sysaudio::PeakMeter::open().ok();
+            }
+            peak = self.meter.as_ref().and_then(|m| m.peak().ok()).unwrap_or(0.0);
+        }
+        let Some(a) = self.anim.as_mut() else { return };
+        let frame = a.frame(now, presses, peak);
+        for (value, data) in [(via::Value::Brightness, [frame.brightness, 0]), (via::Value::Color1, frame.hue_sat)] {
+            if self.via_values.get(&(value as u8)) == Some(&data) {
+                continue;
+            }
+            let len = if value == via::Value::Brightness { 1 } else { 2 };
+            if self.with_via(|b| b.set_value(value, &data[..len])).is_none() {
+                return;
+            }
+            self.via_values.insert(value as u8, data);
         }
     }
 
@@ -562,6 +640,16 @@ impl Worker {
     }
 
     fn release(&mut self) {
+        if let Some(Dev::Via(_)) = self.dev {
+            // Leave the board on the stored base, not wherever the effect was.
+            if self.anim.is_some() {
+                self.set_anim(None);
+                if let Some((p, _)) = self.desired.clone() {
+                    self.write_via(&p);
+                }
+            }
+            return;
+        }
         if !matches!(self.dev, Some(Dev::Logi(_))) {
             return;
         }
@@ -588,7 +676,9 @@ fn via_target(kind: via::Lighting, p: &Preset) -> Vec<(via::Value, [u8; 2])> {
     use via::Value::*;
     let hs = |c: &str| to_hue_sat(parse_color(c).unwrap_or([255, 255, 255]));
     let brightness = (p.brightness as u16 * 255 / 100) as u8;
-    let mut out = vec![(Brightness, [brightness, 0]), (Effect, [p.effect.min(255) as u8, 0]), (Color1, hs(&p.color1))];
+    // kit's own effects play over Solid (effect 1 on both firmwares).
+    let effect = if anim::is_kit(p.effect) { 1 } else { p.effect.min(255) as u8 };
+    let mut out = vec![(Brightness, [brightness, 0]), (Effect, [effect, 0]), (Color1, hs(&p.color1))];
     match kind {
         via::Lighting::Wilba => {
             out.push((Speed, [(p.speed as u16 * 3 / 100) as u8, 0]));

@@ -499,6 +499,20 @@ kbd {
 .fx-cycle .kkey.lit, .fx-wave-x .kkey.lit, .fx-wave-y .kkey.lit, .fx-radial .kkey.lit { animation: led-hue var(--fx-speed, 8s) linear infinite; }
 .fx-breathe .kkey.lit { animation: led-breathe var(--fx-speed, 6s) ease-in-out infinite; }
 @keyframes led-hue { to { filter: hue-rotate(360deg); } }
+/* kit's own NK65 effects: the whole board moves together between --c1 (at the resting brightness) and --c2. */
+@property --led { syntax: "<color>"; inherits: true; initial-value: transparent; }
+.fx-strike .kkey.lit { animation: led-strike calc(var(--fx-speed, 8s) * .2) ease-out infinite; }
+.fx-heat .kkey.lit { animation: led-swap calc(var(--fx-speed, 8s) * .6) ease-in-out infinite alternate; }
+.fx-huestep .kkey.lit { animation: led-hue calc(var(--fx-speed, 8s) * 1.2) steps(14) infinite; }
+.fx-music .kkey.lit { animation: led-music calc(var(--fx-speed, 8s) * .25) linear infinite; }
+.fx-beat .kkey.lit { animation: led-beat calc(var(--fx-speed, 8s) * .12) ease-out infinite; }
+.fx-candle .kkey.lit { animation: led-candle calc(var(--fx-speed, 8s) * .15) steps(1) infinite; }
+.fx-aurora .kkey.lit { animation: led-swap calc(var(--fx-speed, 8s) * .9) ease-in-out infinite alternate; }
+@keyframes led-strike { 0% { --led: var(--c2); } 45%, 100% { --led: var(--c1); } }
+@keyframes led-swap { from { --led: var(--c1); } to { --led: var(--c2); } }
+@keyframes led-music { 0%, 40%, 62% { --led: var(--c2); } 22%, 54%, 100% { --led: var(--c1); } }
+@keyframes led-beat { 0%, 30%, 100% { --led: var(--c1); } 8%, 24% { --led: var(--c2); } 16% { --led: color-mix(in srgb, var(--c1) 60%, var(--c2)); } }
+@keyframes led-candle { 0% { opacity: 1; } 20% { opacity: .8; } 35% { opacity: .95; } 50% { opacity: .65; } 70% { opacity: .9; } 85% { opacity: .75; } }
 @keyframes led-breathe { 50% { opacity: .3; } }
 
 /* Keycode picker */
