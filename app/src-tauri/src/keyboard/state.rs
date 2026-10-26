@@ -198,6 +198,10 @@ pub fn adopt_board_lighting(app: &AppHandle, kind: via::Lighting, values: &BTree
     true
 }
 
+pub fn send(app: &AppHandle, cmd: Cmd) {
+    let _ = app.state::<Shared>().tx.send(cmd);
+}
+
 pub fn set_key(app: &AppHandle, layer: u8, row: u8, col: u8, code: u16) {
     let _ = app.state::<Shared>().tx.send(Cmd::SetKey { layer, row, col, code });
 }

@@ -87,7 +87,11 @@ const layerCode = (fn, n) => {
 const macroCode = (n) => (v12() ? 0x7700 : 0x5f12) + n;
 const customCode = (n) => (v12() ? 0x7e00 : 0x5f80) + n;
 const RGB_KEYS = ["Lights on/off", "Effect +", "Effect −", "Hue +", "Hue −", "Saturation +", "Saturation −", "Brightness +", "Brightness −", "Speed +", "Speed −"];
-const rgbCode = (i) => (v12() ? 0x7820 : 0x5cc2) + i;
+// Current QMK gives RGB matrix its own keys (RM_*, 0x7840); 0x7820 is underglow.
+const RM_KEYS = ["Lights on", "Lights off", "Lights on/off", "Effect +", "Effect −", "Hue +", "Hue −", "Saturation +", "Saturation −", "Brightness +", "Brightness −", "Speed +", "Speed −"];
+const rmKeys = () => v12() && kst().lighting === "rgbMatrix";
+const rgbKeys = () => (rmKeys() ? RM_KEYS : RGB_KEYS);
+const rgbCode = (i) => (rmKeys() ? 0x7840 : v12() ? 0x7820 : 0x5cc2) + i;
 const WILBA_KEYS = ["Brightness +", "Brightness −", "Effect +", "Effect −", "Speed +", "Speed −", "Color 1 hue +", "Color 1 hue −", "Color 2 hue +", "Color 2 hue −", "Color 1 sat +", "Color 1 sat −", "Color 2 sat +", "Color 2 sat −"];
 const MEDIA = [0xa8, 0xaa, 0xa9, 0xae, 0xad, 0xac, 0xab, 0xbd, 0xbe, 0xb2, 0xb1, 0xb3, 0xa6];
 
@@ -126,7 +130,7 @@ function kcInfo(code) {
   const cBase = customCode(0);
   if (code >= cBase && code < cBase + WILBA_KEYS.length && kst().lighting === "wilba") return { text: WILBA_KEYS[code - cBase], sub: "lighting", cls: "fn" };
   const rBase = rgbCode(0);
-  if (code >= rBase && code < rBase + RGB_KEYS.length) return { text: RGB_KEYS[code - rBase], sub: "lighting", cls: "fn" };
+  if (code >= rBase && code < rBase + rgbKeys().length) return { text: rgbKeys()[code - rBase], sub: "lighting", cls: "fn" };
   if (code === (v12() ? 0x7c00 : 0x5c00)) return { text: "Boot", sub: "flash mode", cls: "fn" };
   return { text: hex, sub: "", cls: "fn" };
 }
@@ -336,7 +340,7 @@ function nkKeysPage() {
           <div class="pactions">${s.connected ? `<span class="live-mark">Stored on keyboard</span>` : ""}${ready ? `<button class="tbtn ${resetting ? "confirm" : ""}" data-act="layer-reset">${icons.reset}${resetting ? "Confirm reset" : "Reset layer"}</button>` : ""}</div></div>
         ${plate([
           keyStatusCell("status"),
-          cell("fw", "Firmware", s.protocol ? `VIA <small>v${s.protocol}</small>` : "—", { cls: s.protocol ? "" : "dim" }),
+          cell("fw", "Firmware", s.kitFirmware ? `kit <small>v${s.kitFirmware}</small>` : s.protocol ? `VIA <small>v${s.protocol}</small>` : "—", { cls: s.protocol ? "" : "dim" }),
           cell("kit", "kit-run macros", `${kitUsed}<small>of ${KIT_KEYS}</small>`),
           cell("board", "Onboard macros", s.macros.length ? `${s.macros.filter((m) => m.length).length}<small>of ${s.macros.length}</small>` : "—", { cls: s.macros.length ? "" : "dim" }),
         ])}
@@ -378,7 +382,7 @@ function nkKeyPanel(k) {
     body += `<p class="hint">MO: the layer is on while the key is held (the usual Fn key). TG: each press turns it on or off. TO: stays on that layer.</p>`;
   } else if (pick === "light") {
     const wilba = kst().lighting === "wilba";
-    body = `<div class="kopts">${(wilba ? WILBA_KEYS : RGB_KEYS).map((n, i) => opt(wilba ? customCode(i) : rgbCode(i), n)).join("")}</div>`;
+    body = `<div class="kopts">${(wilba ? WILBA_KEYS : rgbKeys()).map((n, i) => opt(wilba ? customCode(i) : rgbCode(i), n)).join("")}</div>`;
   } else {
     body = macroPick(code);
   }
@@ -515,8 +519,25 @@ const KIT_FX = [
   [203, "Music", 2, "music", "Pulses with whatever is playing on the default output: louder means brighter and more color 2."],
   [204, "Heartbeat", 2, "beat", "A slow double pulse. Speed sets the heart rate."],
   [205, "Candle", 2, "candle", "Flickers like a flame; dimmer moments lean to color 2."],
-  [206, "Aurora", 2, "aurora", "Drifts slowly back and forth between the two colors."],
+  [206, "Color drift", 2, "aurora", "Drifts slowly back and forth between the two colors."],
 ];
+// Effects in kit's NK65 firmware, in its order (they follow QMK's own).
+// [name, preview, what it does]. They use the color, brightness and speed.
+const BOARD_FX = [
+  ["Ripple", "ripple", "Each key you press sends a ring out across the board, tinted by where it started, over a dim base."],
+  ["Prism ripple", "prism", "Thin rings on a dark board that run through the rainbow as they spread."],
+  ["Ink", "ink", "Every press drops a blot of color that spreads and fades; overlapping blots mix."],
+  ["Afterglow", "afterglow", "Pressed keys light up hot and cool off slowly, glowing a little onto their neighbors."],
+  ["Aurora", "flow", "Slow curtains of light swaying across the board."],
+  ["Lava", "flow", "Blobs that drift, merge and split like a lava lamp."],
+  ["Tide", "tide", "Waves rolling across the board with pale crests."],
+  ["Fireflies", "fireflies", "Keys glow up and fade on their own, each at its own pace."],
+];
+function boardFx() {
+  const [first, count] = kst().kitEffects || [0, 0];
+  if (!kst().kitFirmware) return [];
+  return BOARD_FX.slice(0, count).map(([name, preview, about], i) => [first + i, name, 1, preview, about]);
+}
 const SWATCHES = ["#ffffff", "#fff1dc", "#ff4040", "#ff8a1f", "#ffd23f", "#4ade80", "#9fe8cf", "#38bdf8", "#4a6cff", "#a78bfa", "#ffb3d1", "#ff4fa3"];
 const INDICATORS = ["Caps Lock", "Layer 1", "Layer 2", "Layer 3"];
 
@@ -529,7 +550,7 @@ function effects() {
   const ids = { 0: [0], 1: [1], 10: [10, 2], 3: [3, 0x15], 4: [4, 0x16], 11: [11, 0x17] };
   return all.filter(([id]) => ids[id].some((x) => have.has(x)));
 }
-const fxOf = (p) => (isNk() && KIT_FX.find((f) => f[0] === p.effect)) || effects().find((f) => f[0] === p.effect) || effects()[1] || effects()[0];
+const fxOf = (p) => (isNk() && (KIT_FX.find((f) => f[0] === p.effect) || boardFx().find((f) => f[0] === p.effect))) || effects().find((f) => f[0] === p.effect) || effects()[1] || effects()[0];
 
 const hexToRgb = (h) => [1, 3, 5].map((i) => parseInt(h.slice(i, i + 2), 16));
 const rgbHex = (rgb) => "#" + rgb.map((v) => Math.round(clamp(v, 0, 255)).toString(16).padStart(2, "0")).join("");
@@ -591,8 +612,19 @@ function lightingPage() {
   const deleting = confirmDelete === p.id;
   const painting = !isNk() && p.effect === 1;
   const speedMs = 20 - p.speed * 0.17; // preview seconds per cycle
+  const L = layout();
+  // Moving previews: each key starts its loop later the farther it is from where the motion starts.
+  const origin = isNk() ? L.keys.find((k) => k.r === 2 && k.c === 5) : null; // G
+  const delay = (k) => {
+    if (kind === "ripple" || kind === "prism" || kind === "ink") return Math.hypot(k.x + k.w / 2 - origin.x - origin.w / 2, k.y - origin.y) * 0.09;
+    if (kind === "flow" || kind === "tide") return (k.x / L.w) * 2 + (k.y / L.h) * 0.6;
+    if (kind === "afterglow" || kind === "fireflies") return Math.abs(keyNoise(k)) * 4;
+    return null;
+  };
   const board = boardHtml((k, box) => {
     const c = ledColor(k, p);
+    const d = origin || kind === "flow" || kind === "tide" ? delay(k) : null;
+    if (d != null) box += `;--d:${d.toFixed(2)}s;--h:${Math.round(d * 400)}deg`;
     const label = isNk() ? kcInfo(keycodeAt(0, k.r, k.c)).text : k.usage == null ? "Fn" : USAGE[k.usage];
     const painted = painting && k.usage != null && p.keys[zoneOf(k.usage)];
     return `<button class="kkey ${c ? "lit" : ""} ${painted ? "painted" : ""}" style="${box};${c ? `--led:${c}` : ""}" data-act="paint-key" data-k="${k.id}" ${painting && k.usage != null ? "" : "tabindex=-1"}><span class="kl">${esc(label)}</span></button>`;
@@ -619,13 +651,14 @@ function lightingPage() {
           cell("bright", "Brightness", `${p.brightness}<small>%</small>`),
           isNk() ? cell("store", "Stored", kst().connected ? "On keyboard" : "In kit", { cls: "text" }) : cell("lights", "Lights", kst().lightsAsleep ? "Off · idle" : kst().connected ? "On" : "—", { cls: `text ${kst().connected && !kst().lightsAsleep ? "" : "dim"}` }),
         ])}
-        <div style="--fx-speed:${speedMs.toFixed(1)}s;--c1:${mix("#000000", p.color1, p.brightness / 100)};--c2:${p.color2};display:contents">${board}</div>
+        <div style="--fx-speed:${speedMs.toFixed(1)}s;--c1:${mix("#000000", p.color1, p.brightness / 100)};--c2:${p.color2};--lo:${mix("#000000", p.color1, (p.brightness / 100) * 0.15)};--hi:${mix("#000000", p.color1, p.brightness / 100)};display:contents">${board}</div>
       </section>
       <aside class="panel">
         <section class="sec">
           <div class="sec-head"><span class="sec-title">Effect</span></div>
           <div class="choices fx-list" role="radiogroup">${effects().map(([id, name]) => `<button class="choice ${p.effect === id ? "on" : ""}" data-act="light-fx" data-v="${id}">${esc(name)}</button>`).join("")}</div>
         </section>
+        ${boardFx().length ? boardFxSection(p) : ""}
         ${isNk() ? kitFxSection(p) : ""}
         ${used >= 1 ? `<section class="sec"><div class="sec-head"><span class="sec-title">${used === 2 ? "Color 1" : "Color"}</span><span class="cap">${p.color1}</span></div>${swatchRow("color1", p.color1)}</section>` : ""}
         ${used === 2 ? `<section class="sec"><div class="sec-head"><span class="sec-title">Color 2</span><span class="cap">${p.color2}</span></div>${swatchRow("color2", p.color2)}</section>` : ""}
@@ -641,10 +674,19 @@ function lightingPage() {
   </div>`;
 }
 
+function boardFxSection(p) {
+  const fx = boardFx().find((f) => f[0] === p.effect);
+  return `<section class="sec">
+    <div class="sec-head"><span class="sec-title">kit effects<small>run on the keyboard</small></span></div>
+    <div class="choices" role="radiogroup">${boardFx().map(([id, name]) => `<button class="choice ${p.effect === id ? "on" : ""}" data-act="light-fx" data-v="${id}">${esc(name)}</button>`).join("")}</div>
+    ${fx ? `<p class="hint">${fx[4]} They run on the keyboard itself, so they work without kit too.</p>` : ""}
+  </section>`;
+}
+
 function kitFxSection(p) {
   const fx = KIT_FX.find((f) => f[0] === p.effect);
   return `<section class="sec">
-    <div class="sec-head"><span class="sec-title">Animated by kit<small>reactive and ambient</small></span></div>
+    <div class="sec-head"><span class="sec-title">Whole-board effects<small>played by kit</small></span></div>
     <div class="choices" role="radiogroup">${KIT_FX.map(([id, name]) => `<button class="choice ${p.effect === id ? "on" : ""}" data-act="light-fx" data-v="${id}">${esc(name)}</button>`).join("")}</div>
     ${fx ? `<p class="hint">${fx[4]} Brightness sets the resting level.</p>
     <p class="hint">These run while kit is running (window closed is fine). Typing in kit's own window doesn't count. The keyboard stores plain color 1, so that's what it shows without kit.</p>` : ""}
@@ -673,6 +715,39 @@ function indicatorSection(p) {
 
 // ---------- device page ----------
 
+// After a firmware flash the board comes back with default keys: offer what kit backed up before.
+function restoreSection(s) {
+  if (s.restore == null || !s.connected) return "";
+  return `<h2 class="h2">Put your keys back</h2>
+    <p class="hint">The keyboard is on different firmware now and came back with the default keymap. kit kept a copy of your keymap and onboard macros from before (VIA v${s.restore}), translated for this firmware.</p>
+    <div class="btn-row"><button class="btn" data-act="nk-restore">Restore my keymap and macros</button><button class="btn quiet" data-act="nk-restore-skip">Keep the defaults</button></div>`;
+}
+
+function firmwareSection(s) {
+  const flashBtn = s.connected ? `<button class="btn quiet" data-act="nk-bootloader">Restart into flash mode</button>` : "";
+  const fnBoot = "Fn + \\";
+  if (s.flashing && !s.connected) {
+    return `<h2 class="h2">Firmware</h2>
+      <p class="hint">The keyboard should be in flash mode now (its lights go off and it stops typing). Flash it with QMK Toolbox; kit picks it back up when it restarts. If it is still typing, press ${fnBoot} instead, or plug it back in while holding Esc.</p>`;
+  }
+  if (s.kitFirmware) {
+    return `<h2 class="h2">Firmware</h2>
+      <p class="hint">kit's firmware, version ${s.kitFirmware}: QMK with VIA plus kit's own lighting effects (the kit effects on the Lighting page). For a newer version, download it, restart into flash mode and flash it with QMK Toolbox.</p>
+      <div class="btn-row"><button class="btn quiet" data-act="nk-firmware-page">Open the download page</button>${flashBtn}</div>`;
+  }
+  if (s.name !== "NK65") return "";
+  return `<h2 class="h2">Firmware</h2>
+    <p class="hint">This NK65 runs its original firmware, which lights the whole board one way at a time. kit's firmware (current QMK with VIA) adds per-key effects that run on the keyboard itself: ripples from the key you press, splashes, ink, afterglow, and calmer ones like aurora and lava.</p>
+    <ol class="hint flash-steps">
+      <li>kit has already backed up your keymap and macros, and offers to put them back after flashing.</li>
+      <li>Download <b>kit-nk65-v1_4.bin</b> from the download page, and QMK Toolbox from qmk.fm/toolbox.</li>
+      <li>Click <b>Restart into flash mode</b> (or press ${fnBoot}, or plug the board in while holding Esc). Its lights go off.</li>
+      <li>In QMK Toolbox, open the file and click Flash. It takes a few seconds.</li>
+      <li>Try U I O, J K L and M , . If they don't type, the PCB is the older v1: flash <b>kit-nk65-v1.bin</b> the same way (${fnBoot} still works).</li>
+    </ol>
+    <div class="btn-row"><button class="btn quiet" data-act="nk-firmware-page">Open the download page</button>${flashBtn}</div>`;
+}
+
 function keyboardDevicePage() {
   const s = kst();
   const st = keyStatus();
@@ -689,10 +764,12 @@ function keyboardDevicePage() {
       ${plate([
         keyStatusCell("status"),
         cell("pcb", "Board", esc(s.name || "—"), { cls: "text" }),
-        cell("fw", "Firmware", s.protocol ? `VIA <small>v${s.protocol}</small>` : "—", { cls: s.protocol ? "" : "dim" }),
+        cell("fw", "Firmware", s.kitFirmware ? `kit <small>v${s.kitFirmware}</small>` : s.protocol ? `VIA <small>v${s.protocol}</small>` : "—", { cls: s.protocol ? "" : "dim" }),
         cell("layers", "Layers", s.layers || "—", { cls: s.layers ? "" : "dim" }),
       ])}
-      ${st.hint ? `<p class="hint">${st.hint}</p>` : ""}
+      ${st.hint && !s.flashing ? `<p class="hint">${st.hint}</p>` : ""}
+      ${restoreSection(s)}
+      ${firmwareSection(s)}
       <h2 class="h2">Onboard macros</h2>
       <p class="hint">What the keyboard has stored. Macros you put on keys from kit use the last free slots, so ones made in VIA stay as they are.</p>
       <div class="mlines">${rows || '<span class="muted">Connect the keyboard to see them.</span>'}</div>
@@ -1001,6 +1078,19 @@ Object.assign(handlers, {
   },
   "nk-import"() {
     importOnboard();
+  },
+  "nk-restore"() {
+    invoke("keyboard_restore", { apply: true });
+    toast("Putting your keymap and macros back");
+  },
+  "nk-restore-skip"() {
+    invoke("keyboard_restore", { apply: false });
+  },
+  "nk-bootloader"() {
+    invoke("keyboard_bootloader");
+  },
+  "nk-firmware-page"() {
+    invoke("keyboard_firmware_page");
   },
 });
 

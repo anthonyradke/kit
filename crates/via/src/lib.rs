@@ -7,6 +7,7 @@
 //! (0x4E4F) QMK's RGB matrix. Firmware before VIA protocol 11 addresses
 //! lighting values without a channel byte.
 
+pub mod keycodes;
 pub mod macros;
 pub mod usage;
 

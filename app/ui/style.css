@@ -513,6 +513,20 @@ kbd {
 @keyframes led-music { 0%, 40%, 62% { --led: var(--c2); } 22%, 54%, 100% { --led: var(--c1); } }
 @keyframes led-beat { 0%, 30%, 100% { --led: var(--c1); } 8%, 24% { --led: var(--c2); } 16% { --led: color-mix(in srgb, var(--c1) 60%, var(--c2)); } }
 @keyframes led-candle { 0% { opacity: 1; } 20% { opacity: .8; } 35% { opacity: .95; } 50% { opacity: .65; } 70% { opacity: .9; } 85% { opacity: .75; } }
+/* kit firmware effects: keys move on their own schedule (--d), rippling out from G or flowing across. */
+.fx-ripple .kkey.lit, .fx-prism .kkey.lit, .fx-ink .kkey.lit, .fx-afterglow .kkey.lit, .fx-flow .kkey.lit, .fx-tide .kkey.lit, .fx-fireflies .kkey.lit { --led: var(--lo); }
+.fx-ripple .kkey.lit { animation: led-strike-lo calc(var(--fx-speed, 8s) * .3) ease-out var(--d, 0s) infinite; }
+.fx-prism .kkey.lit { --led: transparent; filter: hue-rotate(var(--h, 0deg)); animation: led-prism calc(var(--fx-speed, 8s) * .3) ease-out var(--d, 0s) infinite; }
+.fx-ink .kkey.lit { animation: led-ink calc(var(--fx-speed, 8s) * .45) ease-out var(--d, 0s) infinite; }
+.fx-afterglow .kkey.lit { animation: led-strike-lo calc(var(--fx-speed, 8s) * .6) ease-out calc(var(--d, 0s) * -1) infinite; }
+.fx-flow .kkey.lit { animation: led-pulse calc(var(--fx-speed, 8s) * .5) ease-in-out calc(var(--d, 0s) * -1) infinite; }
+.fx-tide .kkey.lit { animation: led-pulse calc(var(--fx-speed, 8s) * .3) ease-in-out calc(var(--d, 0s) * -1) infinite; }
+.fx-fireflies .kkey.lit { animation: led-firefly calc(var(--fx-speed, 8s) * .6) ease-in-out calc(var(--d, 0s) * -1) infinite; }
+@keyframes led-strike-lo { 0% { --led: var(--hi); } 30%, 100% { --led: var(--lo); } }
+@keyframes led-prism { 0% { --led: var(--hi); } 20%, 100% { --led: transparent; } }
+@keyframes led-ink { 0% { --led: var(--hi); } 15% { --led: var(--hi); } 70%, 100% { --led: var(--lo); } }
+@keyframes led-pulse { 0%, 100% { --led: var(--lo); } 50% { --led: var(--hi); } }
+@keyframes led-firefly { 0%, 55%, 100% { --led: var(--lo); } 75% { --led: var(--hi); } }
 @keyframes led-breathe { 50% { opacity: .3; } }
 
 /* Keycode picker */
@@ -593,6 +607,9 @@ body.in-setup .rail { display: none; }
 .fpage-inner { max-width: 780px; }
 .h1 { margin: 0 0 16px; font-size: 25px; font-weight: 700; font-variation-settings: "wdth" 88; letter-spacing: -.012em; }
 .h2 { margin: 34px 0 6px; font-size: 15px; font-weight: 600; }
+.btn-row { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 12px; }
+.flash-steps { margin: 8px 0 0; padding-left: 20px; }
+.flash-steps li { margin: 3px 0; }
 .row { display: flex; align-items: center; justify-content: space-between; gap: 28px; padding: 15px 0; border-top: 1px solid var(--rule); }
 .row.col { flex-direction: column; align-items: stretch; gap: 10px; }
 .row-head { display: flex; align-items: center; justify-content: space-between; gap: 28px; }

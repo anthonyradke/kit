@@ -19,6 +19,7 @@ mod cmd {
     pub const SET_VALUE: u8 = 0x07;
     pub const GET_VALUE: u8 = 0x08;
     pub const SAVE: u8 = 0x09;
+    pub const BOOTLOADER: u8 = 0x0B;
     pub const MACRO_COUNT: u8 = 0x0C;
     pub const MACRO_SIZE: u8 = 0x0D;
     pub const MACRO_GET: u8 = 0x0E;
@@ -46,7 +47,24 @@ pub struct Board {
     dev: HidDevice,
     pub info: &'static Known,
     pub protocol: u16,
+    /// The lighting code the firmware runs. The original NK65 ships with
+    /// wilba's, but current QMK (and kit's firmware) use RGB matrix on the same USB id.
+    pub lighting: Lighting,
+    /// kit's own firmware: (version, number of kit effects, first kit effect number).
+    pub kit: Option<KitFirmware>,
 }
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct KitFirmware {
+    pub version: u8,
+    pub effects: u8,
+    pub first_effect: u8,
+}
+
+/// kit's values on VIA's custom channel (see firmware/nk65/keymaps/kit/keymap.c).
+const KIT_CHANNEL: u8 = 0;
+const KIT_INFO: u8 = 0x6B;
+const KIT_BOOTLOADER: u8 = 0x62;
 
 /// The first known board that is plugged in, without opening it.
 pub fn find() -> Option<&'static Known> {
@@ -70,9 +88,18 @@ impl Board {
             let Some(info) = KNOWN.iter().find(|k| k.vid == d.vendor_id() && k.pid == d.product_id()) else {
                 continue;
             };
-            let mut board = Board { dev: api.open_path(d.path())?, info, protocol: 0 };
+            let mut board = Board { dev: api.open_path(d.path())?, info, protocol: 0, lighting: info.lighting, kit: None };
             let r = board.command(&[cmd::PROTOCOL])?;
             board.protocol = u16::from_be_bytes([r[1], r[2]]);
+            if board.protocol >= CHANNELS_FROM {
+                let (channel, id) = Value::Brightness.address(Lighting::RgbMatrix).unwrap_or((3, 1));
+                if board.command(&[cmd::GET_VALUE, channel, id]).is_ok() {
+                    board.lighting = Lighting::RgbMatrix;
+                }
+                if let Ok(r) = board.command(&[cmd::GET_VALUE, KIT_CHANNEL, KIT_INFO]) {
+                    board.kit = Some(KitFirmware { version: r[3], effects: r[4], first_effect: r[5] });
+                }
+            }
             return Ok(board);
         }
         Err(Error::NotFound)
@@ -150,7 +177,23 @@ impl Board {
     }
 
     fn lighting(&self) -> Lighting {
-        self.info.lighting
+        self.lighting
+    }
+
+    /// Restart the board into its bootloader (STM32 DFU) for flashing. kit's
+    /// firmware does it on request; older VIA firmware may answer VIA's own
+    /// bootloader command. Either way the board drops off USB, so a timeout or
+    /// a HID error afterwards means it worked.
+    pub fn enter_bootloader(&mut self) -> Result<()> {
+        let result = if self.kit.is_some() {
+            self.command(&[cmd::SET_VALUE, KIT_CHANNEL, KIT_BOOTLOADER])
+        } else {
+            self.command(&[cmd::BOOTLOADER])
+        };
+        match result {
+            Ok(_) | Err(Error::Timeout) | Err(Error::Hid(_)) => Ok(()),
+            Err(e) => Err(e),
+        }
     }
 
     /// Header of a lighting get/set for this firmware: command, then channel and id.

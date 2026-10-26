@@ -13,7 +13,7 @@ use std::collections::BTreeMap;
 use std::sync::mpsc::{Receiver, RecvTimeoutError, TryRecvError};
 use std::time::{Duration, Instant};
 
-use serde::Serialize;
+use serde::{Deserialize, Serialize};
 use tauri::{AppHandle, Emitter, Manager};
 
 use super::anim::{self, Anim};
@@ -31,6 +31,10 @@ pub enum Cmd {
     Macros(BTreeMap<u8, Vec<u8>>),
     /// kit is quitting: give the PRO X TKL's lights back to its onboard profile.
     Release(std::sync::mpsc::Sender<()>),
+    /// NK65: put the keymap and macros from before a firmware change back (true) or forget them (false).
+    Restore(bool),
+    /// NK65: restart into the bootloader for flashing.
+    Bootloader,
 }
 
 #[derive(Clone, Debug, Default, PartialEq, Serialize)]
@@ -43,6 +47,13 @@ pub struct Status {
     pub charging: bool,
     /// "wilba", "rgbMatrix" (NK65) or "lightsync" (PRO X TKL).
     pub lighting: Option<&'static str>,
+    /// NK65 on kit's firmware: its version, first kit effect number and how many there are.
+    pub kit_firmware: Option<u8>,
+    pub kit_effects: [u8; 2],
+    /// NK65: a keymap backup from different firmware (its VIA protocol) that can be put back.
+    pub restore: Option<u16>,
+    /// NK65: the board was asked to restart into its bootloader.
+    pub flashing: bool,
     /// NK65: VIA protocol, layers, matrix and every keycode (layer, row, col order).
     pub protocol: Option<u16>,
     pub layers: u8,
@@ -91,6 +102,20 @@ const EVENT_WAIT_MS: i32 = 20;
 const EVENT_WAIT_ASLEEP_MS: i32 = 100;
 /// The default output can change; the sound meter is reopened this often.
 const METER_REOPEN: Duration = Duration::from_secs(5);
+
+/// The NK65's keymap and macros as last read, so they survive a firmware
+/// flash (which wipes the board's EEPROM).
+#[derive(Clone, Debug, Default, Serialize, Deserialize)]
+#[serde(default, rename_all = "camelCase")]
+struct Backup {
+    protocol: u16,
+    kit_firmware: Option<u8>,
+    layers: u8,
+    rows: u8,
+    cols: u8,
+    keymap: Vec<u16>,
+    macros: Vec<u8>,
+}
 
 pub fn spawn(app: AppHandle, rx: Receiver<Cmd>, model: Option<Model>) {
     std::thread::Builder::new()
@@ -240,12 +265,31 @@ impl Worker {
                     if let Some(k) = s.keymap.get_mut(i) {
                         *k = code;
                     }
+                    if self.status.restore.is_none() {
+                        self.save_backup();
+                    }
                 }
             }
             Cmd::Macros(owned) => self.write_macros(owned),
             Cmd::Release(done) => {
                 self.release();
                 let _ = done.send(());
+            }
+            Cmd::Restore(apply) => {
+                if apply {
+                    self.restore_backup();
+                } else {
+                    self.status.restore = None;
+                    self.save_backup();
+                }
+            }
+            Cmd::Bootloader => {
+                if self.with_via(|b| b.enter_bootloader()).is_some() {
+                    self.drop_dev(None);
+                    self.status.flashing = true;
+                    // Give the flash tool time before looking for the board again.
+                    self.next_open = Instant::now() + Duration::from_secs(5);
+                }
             }
         }
     }
@@ -289,11 +333,89 @@ impl Worker {
 
     // ---------- NK65 ----------
 
+    fn backup_path(&self) -> Option<std::path::PathBuf> {
+        Some(self.app.path().app_config_dir().ok()?.join("nk65-backup.json"))
+    }
+
+    fn load_backup(&self) -> Option<Backup> {
+        let text = std::fs::read_to_string(self.backup_path()?).ok()?;
+        serde_json::from_str(&text).ok()
+    }
+
+    /// Keep what is on the board now as the backup.
+    fn save_backup(&self) {
+        let (Some(path), Some(protocol)) = (self.backup_path(), self.status.protocol) else { return };
+        if self.status.keymap.is_empty() {
+            return;
+        }
+        let s = &self.status;
+        let b = Backup {
+            protocol,
+            kit_firmware: s.kit_firmware,
+            layers: s.layers,
+            rows: s.rows,
+            cols: s.cols,
+            keymap: s.keymap.clone(),
+            macros: self.macro_buffer.clone(),
+        };
+        if let Ok(text) = serde_json::to_string(&b) {
+            let tmp = path.with_extension("json.tmp");
+            if std::fs::write(&tmp, text).is_ok() {
+                let _ = std::fs::rename(tmp, path);
+            }
+        }
+    }
+
+    /// After a flash the board comes back with the firmware's default keymap:
+    /// offer the backup instead of overwriting it.
+    fn check_backup(&mut self) {
+        match self.load_backup() {
+            Some(b) if b.protocol != self.status.protocol.unwrap_or(0) || b.kit_firmware != self.status.kit_firmware => {
+                self.status.restore = Some(b.protocol);
+            }
+            _ => self.save_backup(),
+        }
+    }
+
+    fn restore_backup(&mut self) {
+        let Some(b) = self.load_backup() else { return };
+        let old_keycodes = b.protocol < 12;
+        let new_keycodes = self.status.protocol.unwrap_or(0) >= 12;
+        let (rows, cols) = (self.status.rows as usize, self.status.cols as usize);
+        if b.rows as usize == rows && b.cols as usize == cols {
+            let layers = b.layers.min(self.status.layers) as usize;
+            for i in 0..layers * rows * cols {
+                let (Some(&old), Some(&now)) = (b.keymap.get(i), self.status.keymap.get(i)) else { break };
+                let code = if old_keycodes && new_keycodes { via::keycodes::upgrade(old).unwrap_or(now) } else { old };
+                if code == now {
+                    continue;
+                }
+                let (layer, row, col) = ((i / (rows * cols)) as u8, ((i / cols) % rows) as u8, (i % cols) as u8);
+                if self.with_via(|board| board.set_keycode(layer, row, col, code)).is_none() {
+                    return;
+                }
+                self.status.keymap[i] = code;
+            }
+        }
+        // The macro format is the same before and after protocol 12.
+        let size = self.macro_buffer.len();
+        if !b.macros.is_empty() && size > 0 {
+            let mut buffer = b.macros.clone();
+            buffer.resize(size, 0);
+            if buffer != self.macro_buffer && self.with_via(|board| board.set_macro_buffer(&buffer)).is_some() {
+                self.read_macros();
+            }
+        }
+        self.status.restore = None;
+        self.save_backup();
+    }
+
     fn open_via(&mut self) {
         let mut board = match via::Board::open() {
             Ok(b) => b,
             Err(e) => {
-                self.status = Status { error: Some(e.to_string()), ..Status::default() };
+                // Still waiting for a flash to finish: keep saying so.
+                self.status = Status { error: Some(e.to_string()), flashing: self.status.flashing, ..Status::default() };
                 return;
             }
         };
@@ -314,10 +436,12 @@ impl Worker {
             present: true,
             connected: true,
             name: Some(info.name.to_string()),
-            lighting: Some(match info.lighting {
+            lighting: Some(match board.lighting {
                 via::Lighting::Wilba => "wilba",
                 via::Lighting::RgbMatrix => "rgbMatrix",
             }),
+            kit_firmware: board.kit.map(|k| k.version),
+            kit_effects: board.kit.map(|k| [k.first_effect, k.effects]).unwrap_or_default(),
             protocol: Some(board.protocol),
             layers,
             rows: info.rows,
@@ -325,12 +449,13 @@ impl Worker {
             keymap,
             ..Status::default()
         };
+        let kind = board.lighting;
         self.dev = Some(Dev::Via(board));
         self.read_macros();
+        self.check_backup();
         self.read_via_lighting();
         // First time: keep what VIA set (state sends it back as the active preset).
         // Otherwise put the active preset on the board and store it there.
-        let kind = info.lighting;
         if super::state::adopt_board_lighting(&self.app, kind, &self.via_values) {
             self.desired = None;
         }
@@ -395,12 +520,15 @@ impl Worker {
         }
         if self.with_via(|b| b.set_macro_buffer(&buffer)).is_some() {
             self.read_macros();
+            if self.status.restore.is_none() {
+                self.save_backup();
+            }
         }
     }
 
     fn lighting_kind(&self) -> Option<via::Lighting> {
         match &self.dev {
-            Some(Dev::Via(b)) => Some(b.info.lighting),
+            Some(Dev::Via(b)) => Some(b.lighting),
             _ => None,
         }
     }

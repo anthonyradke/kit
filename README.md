@@ -19,8 +19,12 @@ one of two keyboards: a **NovelKeys NK65** (VIA firmware, such as the Milkshake 
 - On the NK65, remap any key on every layer (written to the keyboard, so it works on any computer), lighting
   effects, colors, brightness, speed and indicator lights with a live preview, and saved lighting presets you can
   switch from the tray (VIA can't save presets)
-- Extra NK65 effects that kit plays itself while it runs: Keystrike (each key press flashes the board), Typing
-  heat (warms up the faster you type), Hue step, Music (pulses with what's playing), Heartbeat, Candle and Aurora
+- My own NK65 firmware (QMK with VIA) with per-key effects that run on the keyboard: Ripple (rings spread out from
+  the key you press), Prism ripple, Ink, Afterglow, Aurora, Lava, Tide and Fireflies, plus QMK's splash and reactive
+  effects. kit backs up the keymap and macros before you flash and puts them back after. See
+  [docs/nk65-firmware.md](docs/nk65-firmware.md)
+- Whole-board NK65 effects that kit plays itself while it runs, on any firmware: Keystrike, Typing heat, Hue step,
+  Music (pulses with what's playing), Heartbeat, Candle and Color drift
 - Put kit's recorded macros on an NK65 key either *on the keyboard* (works without kit; keys and
   waits only) or *through kit* (clicks, hold-to-repeat and toggle; uses spare F13-F24 codes). Macros you made in
   VIA show up and can be copied into kit
@@ -58,7 +62,7 @@ Settings from lightswitch and headroom (the two apps kit replaced) are copied ov
   so it works in games that ignore virtual-key input.
 - The NK65 is driven through VIA's own raw-HID protocol (`crates/via`): keymap, the onboard macro buffer and
   lighting values, for both the original PCB (wilba's RGB backlight) and rev B (QMK RGB matrix). Per-key colors
-  need custom firmware; the plan is in [docs/nk65-firmware.md](docs/nk65-firmware.md).
+  need RGB matrix firmware: kit's own is in `firmware/nk65` ([docs/nk65-firmware.md](docs/nk65-firmware.md)).
   kit's own effects (`keyboard/anim.rs`) put Solid on the board and then stream its one color and brightness about
   30 times a second without saving them, so the EEPROM isn't worn. Key presses come from the input hook (only
   counted, never recorded) and the music level from the default output's peak meter.
