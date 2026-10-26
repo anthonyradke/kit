@@ -271,8 +271,19 @@ kbd {
 
 /* ---------- home ---------- */
 
-.home { display: grid; grid-template-columns: repeat(var(--n, 2), minmax(0, 1fr)); gap: 0; height: 100%; }
-.dev { position: relative; display: flex; flex-direction: column; min-width: 0; padding: 28px 36px 30px; }
+/* Each device column is a subgrid of the page's five rows (photo, name, plate, hint, actions),
+   so names, plates and buttons line up across columns whatever the content. */
+.home {
+  display: grid; grid-template-columns: repeat(var(--n, 2), minmax(0, 1fr));
+  grid-template-rows: minmax(120px, 1fr) repeat(4, auto); gap: 0; height: 100%;
+}
+.dev {
+  position: relative; display: grid; grid-row: span 5; grid-template-rows: subgrid; min-width: 0;
+  padding: 28px 36px 30px;
+}
+/* Plate cells on home have one fixed height so every plate is the same size; the battery meter sits on the cell's bottom edge. */
+.home .cell { height: 64px; }
+.home .cell .meter { position: absolute; left: 12px; right: 12px; bottom: 9px; margin: 0; }
 .dev + .dev { border-left: 1px solid var(--rule); }
 .stage {
   position: relative; flex: 1; min-height: 120px; cursor: pointer;
@@ -287,9 +298,9 @@ kbd {
 .stage img.wide { max-width: 94%; max-height: 66%; }
 .stage:hover img { transform: translate(-50%, calc(-50% - 4px)); }
 .stage.off img { filter: drop-shadow(0 28px 24px rgba(0, 0, 0, .55)) saturate(.6) brightness(.72); }
-.dev-name { margin: 16px 0 10px; font-size: 27px; font-weight: 700; font-variation-settings: "wdth" 88; letter-spacing: -.012em; line-height: 1.1; }
+.dev-name { margin: 16px 0 10px; align-self: end; font-size: 27px; font-weight: 700; font-variation-settings: "wdth" 88; letter-spacing: -.012em; line-height: 1.1; }
 .dev-hint { min-height: 1.5em; margin-top: 6px; }
-.dev-actions { display: flex; gap: 8px; margin-top: 8px; }
+.dev-actions { display: flex; gap: 8px; margin-top: 8px; align-self: end; }
 
 /* ---------- device pages ---------- */
 

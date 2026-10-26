@@ -85,6 +85,6 @@
   window.__TAURI__ = {
     core: { invoke: async (cmd, args) => (handlers[cmd] ? structuredClone(await handlers[cmd](args || {})) : undefined) },
     event: { listen: async () => () => {} },
-    window: { getCurrentWindow: () => ({ minimize() {}, close() {} }) },
+    window: { getCurrentWindow: () => ({ minimize() {}, close() {}, toggleMaximize() {}, isMaximized: async () => false, isFullscreen: async () => false, setFullscreen() {}, onResized() {} }) },
   };
 })();

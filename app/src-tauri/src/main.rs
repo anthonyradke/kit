@@ -25,9 +25,8 @@ pub fn show_window(app: &AppHandle) {
         .title("kit")
         .inner_size(1240.0, 800.0)
         .min_inner_size(1000.0, 660.0)
-        // Frameless: the UI draws its own title bar (drag region + minimize/close).
+        // Frameless: the UI draws its own title bar (drag region + minimize/maximize/close).
         .decorations(false)
-        .maximizable(false)
         .shadow(true)
         .theme(Some(tauri::Theme::Dark))
         .background_color(tauri::window::Color(14, 14, 13, 255))

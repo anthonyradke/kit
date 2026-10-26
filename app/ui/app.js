@@ -395,6 +395,9 @@ Object.assign(handlers, {
   "win-min"() {
     appWindow.minimize();
   },
+  "win-max"() {
+    appWindow.toggleMaximize();
+  },
   // Same as a native close: the webview is destroyed and the tray keeps running.
   "win-close"() {
     appWindow.close();
@@ -520,10 +523,35 @@ document.addEventListener("keyup", (e) => {
 
 document.addEventListener("keydown", (e) => {
   if (captureKeycode(e)) return;
+  if (e.key === "F11" && !e.repeat) {
+    e.preventDefault();
+    appWindow.isFullscreen().then((f) => appWindow.setFullscreen(!f));
+    return;
+  }
   if (forwardKey(e, true)) return;
   if (captureHotkey(e)) return;
   if (e.key === "Enter" && e.target.matches("input")) e.target.blur();
 });
+
+// ---------- window ----------
+
+// The maximize button swaps to a restore icon while the window fills the screen
+// (maximized, or fullscreen with F11).
+const MAX_ICON = '<svg viewBox="0 0 12 12"><rect x="1.5" y="1.5" width="9" height="9" /></svg>';
+const RESTORE_ICON = '<svg viewBox="0 0 12 12"><rect x="1.5" y="3.5" width="7" height="7" /><path d="M3.5 3.5v-2h7v7h-2" /></svg>';
+
+async function syncMaxButton() {
+  const [max, full] = await Promise.all([appWindow.isMaximized(), appWindow.isFullscreen()]);
+  const btn = document.getElementById("win-max");
+  const filled = max || full;
+  btn.innerHTML = filled ? RESTORE_ICON : MAX_ICON;
+  btn.title = full ? "Exit full screen (F11)" : filled ? "Restore" : "Maximize";
+  btn.dataset.act = full ? "win-unfull" : "win-max";
+  document.body.classList.toggle("filled", filled);
+}
+handlers["win-unfull"] = () => appWindow.setFullscreen(false);
+appWindow.onResized(syncMaxButton);
+syncMaxButton();
 
 // ---------- boot ----------
 
