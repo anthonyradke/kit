@@ -740,10 +740,9 @@ function firmwareSection(s) {
     <p class="hint">This NK65 runs its original firmware, which lights the whole board one way at a time. kit's firmware (current QMK with VIA) adds per-key effects that run on the keyboard itself: ripples from the key you press, splashes, ink, afterglow, and calmer ones like aurora and lava.</p>
     <ol class="hint flash-steps">
       <li>kit has already backed up your keymap and macros, and offers to put them back after flashing.</li>
-      <li>Download <b>kit-nk65-v1_4.bin</b> from the download page, and QMK Toolbox from qmk.fm/toolbox.</li>
+      <li>Download <b>kit-nk65.bin</b> from the download page, and QMK Toolbox from qmk.fm/toolbox. The one file fits both NK65 PCBs (v1 and v1.4).</li>
       <li>Click <b>Restart into flash mode</b> (or press ${fnBoot}, or plug the board in while holding Esc). Its lights go off.</li>
       <li>In QMK Toolbox, open the file and click Flash. It takes a few seconds.</li>
-      <li>Try U I O, J K L and M , . If they don't type, the PCB is the older v1: flash <b>kit-nk65-v1.bin</b> the same way (${fnBoot} still works).</li>
     </ol>
     <div class="btn-row"><button class="btn quiet" data-act="nk-firmware-page">Open the download page</button>${flashBtn}</div>`;
 }
@@ -763,7 +762,7 @@ function keyboardDevicePage() {
       <h1 class="h1">${esc(keyboardName(true))}</h1>
       ${plate([
         keyStatusCell("status"),
-        cell("pcb", "Board", esc(s.name || "—"), { cls: "text" }),
+        cell("pcb", "Board", `${esc(s.name || "—")}${s.pcb ? ` <small>PCB ${s.pcb}</small>` : ""}`, { cls: "text" }),
         cell("fw", "Firmware", s.kitFirmware ? `kit <small>v${s.kitFirmware}</small>` : s.protocol ? `VIA <small>v${s.protocol}</small>` : "—", { cls: s.protocol ? "" : "dim" }),
         cell("layers", "Layers", s.layers || "—", { cls: s.layers ? "" : "dim" }),
       ])}

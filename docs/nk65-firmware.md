@@ -8,25 +8,27 @@ effects of my own.
 
 ## What's in it
 
-`firmware/nk65/keymaps/kit` is a QMK keymap for `novelkeys/nk65/v1` and `v1_4`:
+`firmware/nk65/keymaps/kit` is a QMK keymap, built on `novelkeys/nk65/v1_4`, that runs on both NK65 PCBs:
 
 - `keymap.c`: QMK's default NK65 layout with VIA. Fn+\ is the bootloader key; the Fn layer has lighting keys
   (Fn + Q/W/E effect, A/S/D/F hue and saturation, Z/X/C/V brightness and speed). It also answers two values on
-  VIA's custom channel: `0x6B` (get) returns the firmware version, the number of kit effects and the first kit
-  effect number, and `0x62` (set) restarts the board into its bootloader.
+  VIA's custom channel: `0x6B` (get) returns the firmware version, the number of kit effects, the first kit
+  effect number and (from version 2) which PCB's pins have seen a key press; `0x62` (set) restarts the board into
+  its bootloader.
 - `rgb_matrix_user.inc`: kit's effects, appended after QMK's own, so the stock effect numbers don't move. Ripple,
   Prism ripple, Ink and Afterglow react to key presses; Aurora, Lava, Tide and Fireflies are ambient. They use the
   color, brightness and speed set in kit, and do their math in floats (the STM32F303 has an FPU).
 - `config.h`: remembers 16 key presses for ripples (QMK's default is 8) and starts on Ripple after a flash.
-
-The two PCB revisions differ only in three column pins. Flashing the wrong one leaves U I O / J K L / M , . dead and
-nothing else; Fn+\ still works, so the other file can go on the same way.
+- `matrix.c`: the key matrix. The two PCB revisions differ only in the pins of columns 7-9 (7 8 9, U I O, J K L,
+  N M , and right Alt): C13 C14 C15 on v1, B1 B0 A7 on v1.4. Columns are inputs with pull-ups, so it reads both sets
+  and leaves out any pin that is already low before a row is selected. Version 1 of the firmware came as two files,
+  one per PCB, and the wrong one left those keys dead.
 
 ## Building
 
-`firmware/nk65/build.sh <qmk_firmware checkout> [out dir]` builds `kit-nk65-v1.bin` and `kit-nk65-v1_4.bin`, with
-the qmk CLI if it's installed or QMK's Docker image if not. The release workflow builds them at the QMK commit in
-`firmware/nk65/QMK_VERSION` and attaches them to every GitHub release.
+`firmware/nk65/build.sh <qmk_firmware checkout> [out dir]` builds `kit-nk65.bin`, with
+the qmk CLI if it's installed or QMK's Docker image if not. The release workflow builds it at the QMK commit in
+`firmware/nk65/QMK_VERSION` and attaches it to every GitHub release.
 
 ## How kit handles it
 

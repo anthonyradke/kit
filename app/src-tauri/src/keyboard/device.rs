@@ -50,6 +50,8 @@ pub struct Status {
     /// NK65 on kit's firmware: its version, first kit effect number and how many there are.
     pub kit_firmware: Option<u8>,
     pub kit_effects: [u8; 2],
+    /// NK65 on kit's firmware 2+: the PCB revision, once a key on the pins that differ was pressed.
+    pub pcb: Option<&'static str>,
     /// NK65: a keymap backup from different firmware (its VIA protocol) that can be put back.
     pub restore: Option<u16>,
     /// NK65: the board was asked to restart into its bootloader.
@@ -482,8 +484,22 @@ impl Worker {
     /// A cheap request so an unplugged board is noticed.
     fn poll_via(&mut self) {
         self.next_poll = Instant::now() + VIA_POLL;
+        let want_pcb = self.status.pcb.is_none() && self.status.kit_firmware.is_some_and(|v| v >= 2);
         if let Some(Dev::Via(board)) = self.dev.as_mut() {
-            match board.layer_count() {
+            // Both keep the connection checked; the PCB question stops once answered.
+            let r = if want_pcb { board.kit_pcb() } else { board.layer_count() };
+            match r {
+                Ok(seen) if want_pcb => {
+                    let pcb = match seen {
+                        1 => Some("v1"),
+                        2 => Some("v1.4"),
+                        _ => None,
+                    };
+                    if pcb.is_some() {
+                        self.status.pcb = pcb;
+                        self.publish();
+                    }
+                }
                 Ok(_) => {}
                 Err(via::Error::Hid(e)) => self.drop_dev(Some(e.to_string())),
                 Err(via::Error::Timeout) => self.drop_dev(Some("the keyboard stopped answering".into())),

@@ -127,6 +127,12 @@ impl Board {
         Err(Error::Timeout)
     }
 
+    /// kit's firmware (version 2 on): which PCB's column pins have seen a key
+    /// press since it started (bit 0 v1, bit 1 v1.4). 0 until a key in 7-9 / U-O / J-L / N-, is pressed.
+    pub fn kit_pcb(&mut self) -> Result<u8> {
+        Ok(self.command(&[cmd::GET_VALUE, KIT_CHANNEL, KIT_INFO])?[6])
+    }
+
     pub fn layer_count(&mut self) -> Result<u8> {
         Ok(self.command(&[cmd::LAYER_COUNT])?[1])
     }

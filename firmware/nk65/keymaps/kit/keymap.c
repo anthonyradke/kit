@@ -34,13 +34,15 @@ const uint16_t PROGMEM keymaps[][MATRIX_ROWS][MATRIX_COLS] = {
 };
 
 // kit's values on VIA's custom channel:
-//  get 0x6B ('k'): [firmware version, number of kit effects, first kit effect number]
+//  get 0x6B ('k'): [firmware version, number of kit effects, first kit effect number,
+//                   PCB pins that have seen a key press (bit 0 v1, bit 1 v1.4; from version 2)]
 //  set 0x62 ('b'): restart into the bootloader, so kit can offer flashing without a key combo
-#define KIT_FIRMWARE_VERSION 1
+#define KIT_FIRMWARE_VERSION 2
 #define KIT_VALUE_INFO 0x6B
 #define KIT_VALUE_BOOTLOADER 0x62
 
 static bool kit_jump = false;
+extern uint8_t kit_pcb_seen; // matrix.c
 
 void via_custom_value_command_kb(uint8_t *data, uint8_t length) {
     // data = [command, channel, value id, value data...]
@@ -49,6 +51,7 @@ void via_custom_value_command_kb(uint8_t *data, uint8_t length) {
             data[3] = KIT_FIRMWARE_VERSION;
             data[4] = RGB_MATRIX_EFFECT_MAX - RGB_MATRIX_CUSTOM_KIT_RIPPLE;
             data[5] = RGB_MATRIX_CUSTOM_KIT_RIPPLE;
+            data[6] = kit_pcb_seen;
             return;
         }
         if (data[0] == id_custom_set_value && data[2] == KIT_VALUE_BOOTLOADER) {
