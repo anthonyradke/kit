@@ -285,19 +285,26 @@ kbd {
 .home .cell { height: 64px; }
 .home .cell .meter { position: absolute; left: 12px; right: 12px; bottom: 9px; margin: 0; }
 .dev + .dev { border-left: 1px solid var(--rule); }
-.stage {
-  position: relative; flex: 1; min-height: 120px; cursor: pointer;
-  background: radial-gradient(52% 34% at 50% 78%, rgba(236, 232, 223, .07), transparent 70%);
+.stage { position: relative; flex: 1; min-height: 120px; cursor: pointer; container-type: size; }
+/* Every product stands on the same floor line, sized by --k (share of the stage's smaller side) so the
+   three read as one set by visible area rather than by bounding box: the tall headset would otherwise
+   dwarf the mouse. The light pool sits on the floor directly under each product. */
+.shot {
+  --k: 70; --floor: 22cqh;
+  position: absolute; left: 50%; bottom: var(--floor); width: calc(var(--k) * min(1cqw, 1.25cqh));
+  transform: translateX(-50%); transition: transform .3s var(--ease);
 }
-/* Absolutely placed so the photo shrinks with the window instead of pushing the plate and actions down. */
-.stage img {
-  position: absolute; left: 50%; top: 50%; max-width: 82%; max-height: 92%; object-fit: contain;
-  transform: translate(-50%, -50%); filter: drop-shadow(0 28px 24px rgba(0, 0, 0, .55)); transition: transform .3s var(--ease);
+.shot::before {
+  content: ""; position: absolute; left: -12%; right: -12%; bottom: -26px; height: 52px; pointer-events: none;
+  background: radial-gradient(closest-side, rgba(236, 232, 223, .075), transparent);
 }
-.stage img.tall { max-height: 82%; }
-.stage img.wide { max-width: 94%; max-height: 66%; }
-.stage:hover img { transform: translate(-50%, calc(-50% - 4px)); }
-.stage.off img { filter: drop-shadow(0 28px 24px rgba(0, 0, 0, .55)) saturate(.6) brightness(.72); }
+.shot img { position: relative; display: block; width: 100%; height: auto; filter: drop-shadow(0 18px 16px rgba(0, 0, 0, .55)); }
+.stage:hover .shot { transform: translate(-50%, -4px); }
+.shot-mouse { --k: 70; }
+.shot-nk65 { --k: 80; }
+.shot-proxtkl { --k: 84; }
+.shot-proxtkl img { filter: drop-shadow(0 18px 16px rgba(0, 0, 0, .55)) brightness(.85); }
+.shot-headset { --k: 48; --floor: 16cqh; }
 .dev-name { margin: 16px 0 10px; align-self: end; font-size: 27px; font-weight: 700; font-variation-settings: "wdth" 88; letter-spacing: -.012em; line-height: 1.1; }
 .dev-hint { min-height: 1.5em; margin-top: 6px; }
 .dev-actions { display: flex; gap: 8px; margin-top: 8px; align-self: end; }

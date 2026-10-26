@@ -118,14 +118,14 @@ function homeDevice(d, cols) {
       cell("m-profile", "Profile", esc(p.name), { span: 2, cls: "text" }),
       cell("m-side", "Side buttons", `${sideVal("back")} <small>/</small> ${sideVal("forward")}`, { span: 2, cls: "text" }),
     ];
-    return devColumn("mouse", M.device.connected, productImg("mouse"), PRODUCTS.mouse.name, cells, mouseStatus().hint, `
+    return devColumn("mouse", productImg("mouse"), PRODUCTS.mouse.name, cells, mouseStatus().hint, `
       <button class="btn" data-act="go" data-page="mouse" data-tab="profiles">Open mouse</button>
       <button class="btn quiet" data-act="go" data-page="mouse" data-tab="macros">Macros</button>`, cols);
   }
   if (d === "keyboard") {
-    return devColumn("keyboard", kst().connected, productImg("keyboard"), keyboardName(), keyboardPlateCells(), keyStatus().hint, `
+    return devColumn("keyboard", productImg("keyboard"), keyboardName(), keyboardPlateCells(), keyStatus().hint, `
       <button class="btn" data-act="go" data-page="keyboard" data-tab="keys">Open keyboard</button>
-      <button class="btn quiet" data-act="go" data-page="keyboard" data-tab="lighting">Lighting</button>`, cols, "wide");
+      <button class="btn quiet" data-act="go" data-page="keyboard" data-tab="lighting">Lighting</button>`, cols, A.keyboard?.model || "nk65");
   }
   const h = H.headset;
   const cells = [
@@ -137,13 +137,13 @@ function homeDevice(d, cols) {
     defaultCell("h-default", 2),
   ];
   const second = H.audio.output && !H.audio.headsetIsDefault ? `<button class="btn quiet" data-act="use-headset">Use as Windows default</button>` : `<button class="btn quiet" data-act="go" data-page="headset" data-tab="mic">Mic</button>`;
-  return devColumn("headset", h.connected, productImg("headset"), PRODUCTS.headset.name, cells, headsetStatus().hint, `
-    <button class="btn" data-act="go" data-page="headset" data-tab="sound">Open headset</button>${second}`, cols, "tall");
+  return devColumn("headset", productImg("headset"), PRODUCTS.headset.name, cells, headsetStatus().hint, `
+    <button class="btn" data-act="go" data-page="headset" data-tab="sound">Open headset</button>${second}`, cols);
 }
 
-function devColumn(page, connected, img, name, cells, hint, actions, cols, imgCls = "") {
+function devColumn(page, img, name, cells, hint, actions, cols, shot = page) {
   return `<section class="dev">
-    <div class="stage ${connected ? "" : "off"}" data-act="go" data-page="${page}"><img class="${imgCls}" src="${img}" alt="${esc(name)}" /></div>
+    <div class="stage" data-act="go" data-page="${page}"><div class="shot shot-${shot}"><img src="${img}" alt="${esc(name)}" /></div></div>
     <h2 class="dev-name">${esc(name)}</h2>
     ${plate(cells, cols)}
     <p class="hint dev-hint">${hint || ""}</p>
