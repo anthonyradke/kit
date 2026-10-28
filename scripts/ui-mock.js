@@ -59,7 +59,7 @@
     config: { model: kb === "proxtkl" ? "proxtkl" : "nk65", presets, active: "l0", idleOff: 300, bindings: kb === "proxtkl" ? [{ usage: 0x3a, action: { type: "macro", id: "m1" } }] : [], kitKeys: [null, null, null, null, null, null, null, null, null, null, null, null], onboard: {} },
     status: kb === "proxtkl"
       ? { present: true, connected: true, name: "PRO X TKL", battery: 81, charging: false, lighting: "lightsync", protocol: null, layers: 0, rows: 0, cols: 0, keymap: [], macros: [], macroSpace: 0, zones: Array.from({ length: 105 }, (_, i) => i + 1).concat([104, 105, 106, 107, 108, 109, 110, 111]), effects: [0, 1, 3, 4, 10, 11, 0x15, 0x16], lightsAsleep: false, error: null }
-      : { present: true, connected: true, name: "NK65", battery: null, charging: false, lighting: fw === "old" ? "wilba" : "rgbMatrix", protocol: fw === "old" ? 9 : 13, kitFirmware: fw === "old" ? null : 1, kitEffects: fw === "old" ? [0, 0] : [45, 8], restore: fw === "restore" ? 9 : null, flashing: false, layers: 4, rows: 5, cols: 15, keymap: km, macros: nkMacros, macroSpace: 896, zones: [], effects: [], lightsAsleep: false, error: null },
+      : { present: true, connected: true, name: "NK65", battery: null, charging: false, lighting: fw === "old" ? "wilba" : "rgbMatrix", protocol: fw === "old" ? 9 : 13, kitFirmware: fw === "old" ? null : 3, kitEffects: fw === "old" ? [0, 0] : [45, 8], restore: fw === "restore" ? 9 : null, flashing: false, layers: 4, rows: 5, cols: 15, keymap: km, macros: nkMacros, macroSpace: 896, zones: [], effects: [], lightsAsleep: false, error: null },
     configPath: "C:\\Users\\you\\AppData\\Roaming\\com.anthonyradke.kit\\keyboard.json",
   };
   let A = {

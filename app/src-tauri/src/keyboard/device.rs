@@ -575,7 +575,8 @@ impl Worker {
     fn write_via(&mut self, p: &Preset) -> bool {
         let Some(kind) = self.lighting_kind() else { return false };
         let mut wrote = false;
-        for (value, data) in via_target(kind, p) {
+        let kit_first = self.status.kit_firmware.map(|_| self.status.kit_effects[0]);
+        for (value, data) in via_target(kind, p, kit_first) {
             if self.via_values.get(&(value as u8)) == Some(&data) {
                 continue;
             }
@@ -815,14 +816,28 @@ fn via_values(kind: via::Lighting) -> Vec<via::Value> {
     }
 }
 
-/// The values an NK65 should hold for `p`.
-fn via_target(kind: via::Lighting, p: &Preset) -> Vec<(via::Value, [u8; 2])> {
+/// The values an NK65 should hold for `p`. `kit_first` is the first kit effect
+/// number when the board runs kit's firmware.
+fn via_target(kind: via::Lighting, p: &Preset, kit_first: Option<u8>) -> Vec<(via::Value, [u8; 2])> {
     use via::Value::*;
     let hs = |c: &str| to_hue_sat(parse_color(c).unwrap_or([255, 255, 255]));
     let brightness = (p.brightness as u16 * 255 / 100) as u8;
     // kit's own effects play over Solid (effect 1 on both firmwares).
     let effect = if anim::is_kit(p.effect) { 1 } else { p.effect.min(255) as u8 };
-    let mut out = vec![(Brightness, [brightness, 0]), (Effect, [effect, 0]), (Color1, hs(&p.color1))];
+    let mut color1 = hs(&p.color1);
+    let mut speed = (p.speed as u16 * 255 / 100) as u8;
+    if kind == via::Lighting::RgbMatrix {
+        // Rainbow effects take only the saturation from the color, so a white or
+        // pale pick would wash them out: they get full color instead.
+        if rgb_matrix_rainbow(effect, kit_first) {
+            color1[1] = 255;
+        }
+        // Alphas / mods turns the modifier keys `speed` steps around the hue wheel.
+        if effect == ALPHAS_MODS {
+            speed = hs(&p.color2)[0].wrapping_sub(color1[0]);
+        }
+    }
+    let mut out = vec![(Brightness, [brightness, 0]), (Effect, [effect, 0]), (Color1, color1)];
     match kind {
         via::Lighting::Wilba => {
             out.push((Speed, [(p.speed as u16 * 3 / 100) as u8, 0]));
@@ -838,9 +853,18 @@ fn via_target(kind: via::Lighting, p: &Preset) -> Vec<(via::Value, [u8; 2])> {
                 }
             }
         }
-        via::Lighting::RgbMatrix => out.push((Speed, [(p.speed as u16 * 255 / 100) as u8, 0])),
+        via::Lighting::RgbMatrix => out.push((Speed, [speed, 0])),
     }
     out
+}
+
+const ALPHAS_MODS: u8 = 2;
+
+/// RGB matrix effects that run through the rainbow by themselves: the cycles,
+/// beacons and pinwheels (12-22), Typing heatmap (31), Splash and Multi-splash
+/// (41, 42), and kit's Prism ripple (the second kit effect).
+fn rgb_matrix_rainbow(effect: u8, kit_first: Option<u8>) -> bool {
+    matches!(effect, 12..=22 | 31 | 41 | 42) || kit_first.is_some_and(|f| effect == f.wrapping_add(1))
 }
 
 fn scaled(color: &str, brightness: u8) -> [u8; 3] {
@@ -913,4 +937,31 @@ fn logi_params(id: u16, p: &Preset, rgb: [u8; 3]) -> [u8; 10] {
         _ => b[..3].copy_from_slice(&rgb),
     }
     b
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn value(out: &[(via::Value, [u8; 2])], v: via::Value) -> [u8; 2] {
+        out.iter().find(|(x, _)| *x == v).unwrap().1
+    }
+
+    #[test]
+    fn rainbow_effects_get_full_color() {
+        let p = Preset { effect: 12, color1: "#ffffff".into(), ..Preset::default() };
+        assert_eq!(value(&via_target(via::Lighting::RgbMatrix, &p, None), via::Value::Color1)[1], 255);
+        let solid = Preset { effect: 1, ..p.clone() };
+        assert_eq!(value(&via_target(via::Lighting::RgbMatrix, &solid, None), via::Value::Color1)[1], 0);
+        // Prism ripple, the second kit effect.
+        let prism = Preset { effect: 46, ..p };
+        assert_eq!(value(&via_target(via::Lighting::RgbMatrix, &prism, Some(45)), via::Value::Color1)[1], 255);
+    }
+
+    #[test]
+    fn alphas_mods_speed_is_the_hue_step() {
+        let p = Preset { effect: 2, color1: "#ff0000".into(), color2: "#0000ff".into(), speed: 10, ..Preset::default() };
+        let out = via_target(via::Lighting::RgbMatrix, &p, None);
+        assert_eq!(value(&out, via::Value::Speed)[0], to_hue_sat([0, 0, 255])[0]);
+    }
 }

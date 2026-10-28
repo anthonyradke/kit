@@ -19,6 +19,9 @@ pub const AURORA: u16 = 206;
 
 pub const FRAME: Duration = Duration::from_millis(33);
 
+/// Where the effects that rise with an envelope rest, as part of the set brightness.
+const REST: f32 = 0.25;
+
 /// Effect numbers kit plays itself (clear of both firmwares' effect numbers).
 pub fn is_kit(effect: u16) -> bool {
     (KEYSTRIKE..=AURORA).contains(&effect)
@@ -44,7 +47,7 @@ pub struct Anim {
     pub effect: u16,
     c1: [f32; 3],
     c2: [f32; 3],
-    /// Resting brightness, 0-1 (the preset's brightness).
+    /// Peak brightness, 0-1 (the preset's brightness).
     base: f32,
     /// 0-1
     speed: f32,
@@ -97,10 +100,11 @@ impl Anim {
             let l = level * 0.5f32.powf(dt / half);
             if l < 0.01 { 0.0 } else { l }
         };
-        // Most effects rest at the preset's brightness and rise to full with the envelope.
+        // The preset's brightness is the peak, as for the firmware's effects; most
+        // rest at a quarter of it and rise with the envelope.
         let (bright, rgb) = match self.effect {
             KEYSTRIKE => {
-                // Each press flashes color 2 at full brightness, then it fades back.
+                // Each press flashes color 2 at the set brightness, then it fades back.
                 self.level = if presses > 0 { 1.0 } else { decay(self.level, 0.6 - 0.52 * s) };
                 (self.lift(self.level), mix(self.c1, self.c2, self.level))
             }
@@ -121,7 +125,7 @@ impl Anim {
                 self.hue -= turns;
                 self.target_hue -= turns;
                 self.level = if presses > 0 { 1.0 } else { decay(self.level, 0.15) };
-                (self.lift(0.4 * self.level), hue_rgb(self.hue, self.sat))
+                (self.base * (0.75 + 0.25 * self.level), hue_rgb(self.hue, self.sat))
             }
             MUSIC => {
                 // Jumps up with the sound, falls back more slowly.
@@ -159,9 +163,9 @@ impl Anim {
         Frame { brightness: (bright.clamp(0.0, 1.0) * 255.0).round() as u8, hue_sat: to_hue_sat(rgb) }
     }
 
-    /// From the resting brightness (0) up to full (1).
+    /// From the resting level (0) up to the set brightness (1).
     fn lift(&self, x: f32) -> f32 {
-        self.base + (1.0 - self.base) * x
+        self.base * (REST + (1.0 - REST) * x)
     }
 
     fn random(&mut self) -> f32 {
@@ -190,7 +194,7 @@ mod tests {
     use super::*;
 
     fn preset(effect: u16) -> Preset {
-        Preset { effect, color1: "#ff0000".into(), color2: "#0000ff".into(), brightness: 20, speed: 50, ..Preset::default() }
+        Preset { effect, color1: "#ff0000".into(), color2: "#0000ff".into(), brightness: 80, speed: 50, ..Preset::default() }
     }
 
     #[test]
@@ -200,7 +204,7 @@ mod tests {
         let rest = a.frame(t0, 0, 0.0);
         assert_eq!(rest.brightness, 51);
         let hit = a.frame(t0 + FRAME, 1, 0.0);
-        assert_eq!(hit.brightness, 255);
+        assert_eq!(hit.brightness, 204);
         assert_eq!(hit.hue_sat, to_hue_sat([0, 0, 255]));
         let mut f = hit;
         for i in 2..120 {
@@ -218,7 +222,7 @@ mod tests {
         for i in 1..150 {
             f = a.frame(t0 + FRAME * i, (i % 3 == 0) as u32, 0.0);
         }
-        assert!(f.brightness > 200, "only reached {}", f.brightness);
+        assert!(f.brightness > 160, "only reached {}", f.brightness);
     }
 
     #[test]

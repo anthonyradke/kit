@@ -651,34 +651,11 @@ kbd {
 .fx-cycle .kkey.lit, .fx-wave-x .kkey.lit, .fx-wave-y .kkey.lit, .fx-radial .kkey.lit { animation: led-hue var(--fx-speed, 8s) linear infinite; }
 .fx-breathe .kkey.lit { animation: led-breathe var(--fx-speed, 6s) ease-in-out infinite; }
 @keyframes led-hue { to { filter: hue-rotate(360deg); } }
-/* kit's own NK65 effects: the whole board moves together between --c1 (at the resting brightness) and --c2. */
+/* NK65: the preview runs the effect (lighting.js) and sets --led every frame. */
 @property --led { syntax: "<color>"; inherits: true; initial-value: transparent; }
-.fx-strike .kkey.lit { animation: led-strike calc(var(--fx-speed, 8s) * .2) ease-out infinite; }
-.fx-heat .kkey.lit { animation: led-swap calc(var(--fx-speed, 8s) * .6) ease-in-out infinite alternate; }
-.fx-huestep .kkey.lit { animation: led-hue calc(var(--fx-speed, 8s) * 1.2) steps(14) infinite; }
-.fx-music .kkey.lit { animation: led-music calc(var(--fx-speed, 8s) * .25) linear infinite; }
-.fx-beat .kkey.lit { animation: led-beat calc(var(--fx-speed, 8s) * .12) ease-out infinite; }
-.fx-candle .kkey.lit { animation: led-candle calc(var(--fx-speed, 8s) * .15) steps(1) infinite; }
-.fx-aurora .kkey.lit { animation: led-swap calc(var(--fx-speed, 8s) * .9) ease-in-out infinite alternate; }
-@keyframes led-strike { 0% { --led: var(--c2); } 45%, 100% { --led: var(--c1); } }
-@keyframes led-swap { from { --led: var(--c1); } to { --led: var(--c2); } }
-@keyframes led-music { 0%, 40%, 62% { --led: var(--c2); } 22%, 54%, 100% { --led: var(--c1); } }
-@keyframes led-beat { 0%, 30%, 100% { --led: var(--c1); } 8%, 24% { --led: var(--c2); } 16% { --led: color-mix(in srgb, var(--c1) 60%, var(--c2)); } }
-@keyframes led-candle { 0% { opacity: 1; } 20% { opacity: .8; } 35% { opacity: .95; } 50% { opacity: .65; } 70% { opacity: .9; } 85% { opacity: .75; } }
-/* kit firmware effects: keys move on their own schedule (--d), rippling out from G or flowing across. */
-.fx-ripple .kkey.lit, .fx-prism .kkey.lit, .fx-ink .kkey.lit, .fx-afterglow .kkey.lit, .fx-flow .kkey.lit, .fx-tide .kkey.lit, .fx-fireflies .kkey.lit { --led: var(--lo); }
-.fx-ripple .kkey.lit { animation: led-strike-lo calc(var(--fx-speed, 8s) * .3) ease-out var(--d, 0s) infinite; }
-.fx-prism .kkey.lit { --led: transparent; filter: hue-rotate(var(--h, 0deg)); animation: led-prism calc(var(--fx-speed, 8s) * .3) ease-out var(--d, 0s) infinite; }
-.fx-ink .kkey.lit { animation: led-ink calc(var(--fx-speed, 8s) * .45) ease-out var(--d, 0s) infinite; }
-.fx-afterglow .kkey.lit { animation: led-strike-lo calc(var(--fx-speed, 8s) * .6) ease-out calc(var(--d, 0s) * -1) infinite; }
-.fx-flow .kkey.lit { animation: led-pulse calc(var(--fx-speed, 8s) * .5) ease-in-out calc(var(--d, 0s) * -1) infinite; }
-.fx-tide .kkey.lit { animation: led-pulse calc(var(--fx-speed, 8s) * .3) ease-in-out calc(var(--d, 0s) * -1) infinite; }
-.fx-fireflies .kkey.lit { animation: led-firefly calc(var(--fx-speed, 8s) * .6) ease-in-out calc(var(--d, 0s) * -1) infinite; }
-@keyframes led-strike-lo { 0% { --led: var(--hi); } 30%, 100% { --led: var(--lo); } }
-@keyframes led-prism { 0% { --led: var(--hi); } 20%, 100% { --led: transparent; } }
-@keyframes led-ink { 0% { --led: var(--hi); } 15% { --led: var(--hi); } 70%, 100% { --led: var(--lo); } }
-@keyframes led-pulse { 0%, 100% { --led: var(--lo); } 50% { --led: var(--hi); } }
-@keyframes led-firefly { 0%, 55%, 100% { --led: var(--lo); } 75% { --led: var(--hi); } }
+.fx-sim .kkey { transition: none; cursor: pointer; }
+.fx-sim .kkey.lit { background: color-mix(in srgb, var(--led) 38%, var(--chrome)); box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--led) 45%, var(--rule)), inset 0 -3px 0 var(--led); }
+.fx-sim .kkey.lit:hover { box-shadow: inset 0 0 0 1px var(--ink-3), inset 0 -3px 0 var(--led); }
 @keyframes led-breathe { 50% { opacity: .3; } }
 
 /* Keycode picker */
@@ -699,7 +676,27 @@ kbd {
 .kgroup + .kopts { margin-top: 6px; }
 .kreset { margin: 8px 0 12px; }
 .choices.one { grid-template-columns: 1fr; }
-.fx-list { max-height: 280px; overflow-y: auto; }
+
+/* Effect picker: groups as tabs, effects as cards with a picture of the board. */
+.fxtabs { display: flex; flex-wrap: wrap; gap: 4px; }
+.fxtabs button { position: relative; height: 26px; padding: 0 9px; border-radius: 3px; box-shadow: inset 0 0 0 1px var(--rule-2); color: var(--ink-3); font-size: 12.5px; transition: background .15s, color .15s; }
+.fxtabs button:hover:not(.on) { background: var(--raise-2); color: var(--ink); }
+.fxtabs button.on { background: var(--ink); color: var(--ground); box-shadow: none; }
+.fxtabs button.has:not(.on)::after { content: ""; position: absolute; top: 4px; right: 4px; width: 4px; height: 4px; border-radius: 50%; background: var(--ink-2); }
+.fxabout { margin: 8px 0 10px; }
+.sec-head + .fxcards { margin-top: 10px; }
+.fxcards { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; }
+.fxcard { display: flex; flex-direction: column; gap: 5px; padding: 5px 5px 6px; border-radius: 3px; box-shadow: inset 0 0 0 1px var(--rule-2); color: var(--ink-2); text-align: left; transition: box-shadow .15s, color .15s; }
+.fxcard:hover { box-shadow: inset 0 0 0 1px var(--rule-3); color: var(--ink); }
+.fxcard.on { box-shadow: inset 0 0 0 1.5px var(--ink); color: var(--ink); }
+.fxthumb { display: block; width: 100%; aspect-ratio: 16 / 5; border-radius: 2px; background: #0c0d0f center / 100% 100% no-repeat; image-rendering: pixelated; }
+.fxname { padding: 0 2px; overflow: hidden; font-size: 12.5px; white-space: nowrap; text-overflow: ellipsis; }
+.fxdesc { margin-top: 2px; }
+.fxcolor:not(:first-child) { margin-top: 14px; }
+.fxcolor + .swatches { margin-top: 8px; }
+.fxsingle { margin-top: 10px; }
+.fxsingle small { display: block; color: var(--ink-4); font-size: 11.5px; }
+.hint.warn { color: var(--warn); }
 
 /* Color swatches: the color itself is the content, so it is shown plainly. */
 .swatches { display: flex; flex-wrap: wrap; gap: 6px; }

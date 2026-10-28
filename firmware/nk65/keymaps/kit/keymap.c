@@ -37,7 +37,7 @@ const uint16_t PROGMEM keymaps[][MATRIX_ROWS][MATRIX_COLS] = {
 //  get 0x6B ('k'): [firmware version, number of kit effects, first kit effect number,
 //                   PCB pins that have seen a key press (bit 0 v1, bit 1 v1.4; from version 2)]
 //  set 0x62 ('b'): restart into the bootloader, so kit can offer flashing without a key combo
-#define KIT_FIRMWARE_VERSION 2
+#define KIT_FIRMWARE_VERSION 3
 #define KIT_VALUE_INFO 0x6B
 #define KIT_VALUE_BOOTLOADER 0x62
 
@@ -61,6 +61,21 @@ void via_custom_value_command_kb(uint8_t *data, uint8_t length) {
         }
     }
     data[0] = id_unhandled;
+}
+
+// QMK's NK65 layout flags every LED as a plain key, so Alphas / mods had
+// nothing to give the second color. Mark the modifiers, Esc, Backspace, Enter,
+// the arrows and the right-hand column (from version 3).
+static const uint8_t kit_mods[][2] = {
+    {0, 0}, {0, 13}, {0, 14}, {1, 0}, {1, 14}, {2, 0}, {2, 13}, {2, 14}, {3, 0}, {3, 12}, {3, 13}, {3, 14},
+    {4, 0}, {4, 1}, {4, 2}, {4, 9}, {4, 10}, {4, 11}, {4, 12}, {4, 13}, {4, 14},
+};
+
+void keyboard_post_init_user(void) {
+    for (uint8_t i = 0; i < sizeof(kit_mods) / sizeof(kit_mods[0]); i++) {
+        uint8_t led = g_led_config.matrix_co[kit_mods[i][0]][kit_mods[i][1]];
+        if (led != NO_LED) g_led_config.flags[led] |= LED_FLAG_MODIFIER;
+    }
 }
 
 void housekeeping_task_user(void) {

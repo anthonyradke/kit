@@ -14,7 +14,8 @@ effects of my own.
   (Fn + Q/W/E effect, A/S/D/F hue and saturation, Z/X/C/V brightness and speed). It also answers two values on
   VIA's custom channel: `0x6B` (get) returns the firmware version, the number of kit effects, the first kit
   effect number and (from version 2) which PCB's pins have seen a key press; `0x62` (set) restarts the board into
-  its bootloader.
+  its bootloader. From version 3 it flags Esc, Backspace, Enter, the modifiers, the arrows and the right-hand column
+  as modifiers: QMK's NK65 layout flags every key the same, which left Alphas / mods with one color.
 - `rgb_matrix_user.inc`: kit's effects, appended after QMK's own, so the stock effect numbers don't move. Ripple,
   Prism ripple, Ink and Afterglow react to key presses; Aurora, Lava, Tide and Fireflies are ambient. They use the
   color, brightness and speed set in kit, and do their math in floats (the STM32F303 has an FPU).
@@ -39,6 +40,12 @@ the qmk CLI if it's installed or QMK's Docker image if not. The release workflow
   back. Keycodes from before protocol 12 are translated (`crates/via/src/keycodes.rs`); a key with no equivalent keeps
   the new default. Bump `KIT_FIRMWARE_VERSION` for every firmware release, because a new build wipes the EEPROM and
   the version is what tells kit to offer the restore.
+- QMK takes one color (hue and saturation) and a speed for every effect, and each effect uses them its own way, so
+  kit translates: rainbow effects get full saturation, Alphas / mods gets its second color as a hue step in the speed
+  value, and the Lighting page shows only the controls an effect uses. The catalog and a port of each effect's math
+  (QMK's and kit's) are in `app/ui/lighting.js`, which also draws the preview; keep it in step with the firmware.
+- QMK's Splash, Solid splash and the wide, cross and nexus reactive effects come in pairs: one draws only the latest
+  press, its multi version every remembered press. kit shows each pair as one effect with a switch.
 - "Restart into flash mode" on the Device page sends `0x62` on kit's firmware, or VIA's old bootloader command on
   older firmware (it may not exist there; then Fn+\ or Esc held while plugging in).
 
