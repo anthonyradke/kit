@@ -31,6 +31,8 @@ pub struct HeadsetSettings {
     pub volume_limiter: bool,
     /// Minutes of inactivity before the headset turns off; 0 = never.
     pub auto_off: u8,
+    /// dB added to every preset as a low shelf (see `Preset::to_eq`).
+    pub bass: f32,
 }
 
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
@@ -86,7 +88,7 @@ impl Default for Config {
 
 impl Default for HeadsetSettings {
     fn default() -> Self {
-        HeadsetSettings { sidetone: 1, mic_volume: 15, mic_led: 3, volume_limiter: true, auto_off: 30 }
+        HeadsetSettings { sidetone: 1, mic_volume: 15, mic_led: 3, volume_limiter: true, auto_off: 30, bass: 0.0 }
     }
 }
 
@@ -294,6 +296,7 @@ impl Config {
         h.sidetone = h.sidetone.min(arctis::SIDETONE_MAX);
         h.mic_volume = h.mic_volume.min(arctis::MIC_VOLUME_MAX);
         h.mic_led = h.mic_led.min(3);
+        h.bass = if h.bass.is_finite() { (h.bass.clamp(arctis::GAIN_MIN, arctis::GAIN_MAX) * 2.0).round() / 2.0 } else { 0.0 };
         self.mic.strength = self.mic.strength.min(100);
     }
 
@@ -302,16 +305,41 @@ impl Config {
     }
 }
 
+/// Corner and slope of the bass slider's shelf.
+pub const BASS_FREQ: u16 = 100;
+const BASS_Q: f32 = 0.707;
+
 impl Preset {
-    /// The bands in the headset's format; disabled bands become unused slots.
-    pub fn to_eq(&self) -> arctis::Eq {
+    /// The bands in the headset's format with the bass slider applied;
+    /// disabled bands become unused slots.
+    pub fn to_eq(&self, bass: f32) -> arctis::Eq {
         let mut eq = [None; arctis::BANDS];
-        for (slot, b) in eq.iter_mut().zip(&self.bands) {
+        for (slot, b) in eq.iter_mut().zip(self.with_bass(bass)) {
             if b.enabled {
                 *slot = Some(arctis::Band { filter: b.filter.into(), freq: b.freq, gain: b.gain, q: b.q });
             }
         }
         eq
+    }
+
+    /// The bands with the bass slider's low shelf added. It takes a band that
+    /// is off or does nothing (0 dB); with none free it is added to the
+    /// preset's own low shelf. A preset with neither gets no bass change.
+    /// `headset.js` (`withBass`) mirrors this for the graph.
+    pub fn with_bass(&self, bass: f32) -> Vec<Band> {
+        let mut bands = self.bands.clone();
+        if bass == 0.0 {
+            return bands;
+        }
+        let idle = |b: &Band| {
+            !b.enabled || (b.gain == 0.0 && matches!(b.filter, Filter::Peaking | Filter::LowShelf | Filter::HighShelf))
+        };
+        if let Some(b) = bands.iter_mut().find(|b| idle(b)) {
+            *b = Band { enabled: true, filter: Filter::LowShelf, freq: BASS_FREQ, gain: bass, q: BASS_Q };
+        } else if let Some(b) = bands.iter_mut().find(|b| b.filter == Filter::LowShelf) {
+            b.gain = (b.gain + bass).clamp(arctis::GAIN_MIN, arctis::GAIN_MAX);
+        }
+        bands
     }
 }
 
@@ -341,5 +369,24 @@ mod tests {
             assert_eq!(p.bands.len(), arctis::BANDS);
         }
         assert_eq!(c.active_preset().name, "Main");
+    }
+
+    #[test]
+    fn bass_takes_a_free_band_or_joins_the_low_shelf() {
+        let c = Config::default();
+        let flat = &c.presets[0];
+        assert_eq!(flat.with_bass(0.0), flat.bands);
+        let bands = flat.with_bass(4.0);
+        assert_eq!(bands[0], Band { enabled: true, filter: Filter::LowShelf, freq: BASS_FREQ, gain: 4.0, q: BASS_Q });
+        assert_eq!(bands[1..], flat.bands[1..]);
+
+        let full = Preset {
+            bands: (0..arctis::BANDS as u16)
+                .map(|i| if i == 3 { shelf(Filter::LowShelf, 80, 8.0) } else { peak(200 + i * 100, 1.0, 1.0) })
+                .collect(),
+            ..Preset::default()
+        };
+        assert_eq!(full.with_bass(4.0)[3].gain, arctis::GAIN_MAX);
+        assert_eq!(full.with_bass(-4.0)[3].gain, 4.0);
     }
 }

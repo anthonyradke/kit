@@ -8,6 +8,7 @@ const F_MIN = 20;
 const F_MAX = 20000;
 const DB_RANGE = 12; // graph shows ±12 dB
 const SAMPLE_RATE = 48000;
+const BASS_FREQ = 100; // corner of the bass slider's low shelf
 const FILTERS = [
   ["peaking", "Peak", "PK"],
   ["lowShelf", "Low shelf", "LS"],
@@ -44,7 +45,7 @@ function preview() {
   if (previewTimer) return;
   previewTimer = setTimeout(() => {
     previewTimer = null;
-    invoke("preview_eq", { bands: preset().bands });
+    invoke("preview_eq", { bands: preset().bands, bass: hcfg().headset.bass });
   }, 40);
 }
 
@@ -52,6 +53,7 @@ function fmtFreq(f) {
   if (f >= 1000) return `${+(f / 1000).toFixed(f >= 10000 ? 1 : 2)}k`;
   return `${Math.round(f)}`;
 }
+const fmtBass = (g) => (g ? `${fmtGain(g)}<small> dB</small>` : "Off");
 const fmtGain = (g) => `${g > 0 ? "+" : g < 0 ? "−" : ""}${Math.abs(g).toFixed(1)}`;
 const filterInfo = (f) => FILTERS.find((x) => x[0] === f) || FILTERS[0];
 
@@ -129,6 +131,25 @@ function bandDb(c, f) {
   return 10 * Math.log10((nr * nr + ni * ni) / (dr * dr + di * di));
 }
 
+// The bands the headset gets once the bass slider is applied. Mirrors
+// `Preset::with_bass` in config.rs: a low shelf in the first band that is off
+// or at 0 dB, else added to the preset's own low shelf, else nothing.
+function withBass(bands, bass) {
+  if (!bass) return bands;
+  const out = bands.map((b) => ({ ...b }));
+  const idle = out.find((b) => !b.enabled || (b.gain === 0 && hasGain(b)));
+  if (idle) {
+    Object.assign(idle, { enabled: true, filter: "lowShelf", freq: BASS_FREQ, gain: bass, q: 0.707 });
+    return out;
+  }
+  const shelf = out.find((b) => b.filter === "lowShelf");
+  if (shelf) shelf.gain = clamp(shelf.gain + bass, -GAIN_MAX, GAIN_MAX);
+  return out;
+}
+
+// False when the preset uses every band and has no low shelf to add bass to.
+const bassFits = (p) => p.bands.some((b) => !b.enabled || (b.gain === 0 && hasGain(b)) || b.filter === "lowShelf");
+
 // ---------- sound page ----------
 
 function presetStrip() {
@@ -150,10 +171,11 @@ function graphSvg(p) {
   const lf0 = Math.log10(F_MIN), lf1 = Math.log10(F_MAX);
   const x = (f) => L + ((Math.log10(f) - lf0) / (lf1 - lf0)) * (W - L - R);
   const y = (db) => T + ((DB_RANGE - clamp(db, -DB_RANGE - 1, DB_RANGE + 1)) / (2 * DB_RANGE)) * (Ht - T - B);
-  const active = p.bands.map((b, i) => ({ b, i, c: coeffs(b) })).filter((e) => e.b.enabled);
+  const active = p.bands.map((b, i) => ({ b, i })).filter((e) => e.b.enabled);
+  const heard = withBass(p.bands, hcfg().headset.bass).filter((b) => b.enabled).map(coeffs);
   const N = 220;
   const freqs = Array.from({ length: N + 1 }, (_, k) => Math.pow(10, lf0 + ((lf1 - lf0) * k) / N));
-  const total = (f) => active.reduce((s, e) => s + bandDb(e.c, f), 0);
+  const total = (f) => heard.reduce((s, c) => s + bandDb(c, f), 0);
   const pts = freqs.map((f) => [x(f), y(total(f))]);
   const line = pts.map(([px, py], k) => `${k ? "L" : "M"}${px.toFixed(1)},${py.toFixed(1)}`).join("");
   const zero = y(0);
@@ -215,6 +237,7 @@ function soundPage() {
   const deleting = confirmDelete === p.id;
   const lastPreset = hcfg().presets.length < 2;
   const used = p.bands.filter((x) => x.enabled).length;
+  const bass = hcfg().headset.bass;
   const filterOpts = FILTERS.map(([id, label]) => `<button class="choice ${b.filter === id ? "on" : ""}" data-act="filter" data-filter="${id}" role="radio" aria-checked="${b.filter === id}">${label}</button>`).join("");
   return `<div class="page devpage" data-key="headset-sound">
     ${presetStrip()}
@@ -248,6 +271,12 @@ function soundPage() {
             <label><span class="cap">Width (Q)</span><input class="field" type="number" step="0.1" data-field="band-q" value="${b.q}" /></label>
           </div>
           <p class="hint">Drag a point on the curve to move it. Scroll over the graph to widen or narrow the selected band. Double-click empty space to turn on a free band there.</p>
+        </section>
+        <section class="sec">
+          <div class="sec-head"><span class="sec-title">Bass<small>all presets</small></span><span class="rval" id="v-bass">${fmtBass(bass)}</span></div>
+          ${slider("bass", bass, GAIN_MAX, false, "Bass", -GAIN_MAX, 0.5)}
+          <div class="scale"><span>Less</span><span>More</span></div>
+          <p class="hint">${bassFits(p) ? `A low shelf below ${BASS_FREQ} Hz added on top of the preset.` : "This preset uses all 10 bands and has no low shelf, so the bass slider can't apply. Turn a band off to make room."}</p>
         </section>
         <section class="sec">
           <button class="tbtn" data-act="band-reset">${icons.reset}Flatten band ${hv.band + 1}</button>
@@ -512,7 +541,22 @@ for (const f of ["strength", "micVolume", "sidetone"]) {
   };
 }
 
+// The bass slider redraws only the graph, so the slider keeps the pointer.
+inputFields.bass = (el) => {
+  const v = Number(el.value);
+  el.style.setProperty("--p", `${((v + GAIN_MAX) / (2 * GAIN_MAX)) * 100}%`);
+  hcfg().headset.bass = v;
+  $("#v-bass").innerHTML = fmtBass(v);
+  $("#eq-wrap").innerHTML = graphSvg(preset());
+  preview();
+};
+
 Object.assign(changeFields, {
+  bass(el) {
+    hcfg().headset.bass = Number(el.value);
+    headsetSaver.save(0);
+    render();
+  },
   "band-enabled"(el) {
     band().enabled = el.checked;
     bandChanged(0);

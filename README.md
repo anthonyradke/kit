@@ -44,6 +44,7 @@ Keyboard
 Headset
 - A 10-band parametric EQ with a draggable curve, stored and applied on the headset itself, so it covers every app
   with no virtual audio device and keeps working when kit isn't running.
+- A bass slider that adds a low shelf on top of whichever EQ preset is active.
 - RNNoise microphone noise suppression installed on the real "Headset Microphone" endpoint, so every app gets the
   clean signal.
 - Keeps the headset as the default playback and recording device whenever it reconnects.

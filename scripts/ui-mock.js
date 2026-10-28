@@ -29,7 +29,7 @@
   };
   const bands = [32, 64, 125, 250, 500, 1000, 2000, 4000, 8000, 16000].map((freq, i) => ({ enabled: true, filter: "peaking", freq, gain: [3, 2, 0, -1, 0, 0, 1, 2, 1, 0][i], q: 1.414 }));
   const H = {
-    config: { presets: [{ id: "h1", name: "Main", bands }, { id: "h2", name: "Footsteps", bands }], active: "h1", headset: { sidetone: 1, micVolume: 15, micLed: 3, volumeLimiter: true, autoOff: 30 }, mic: { denoise: true, strength: 90 }, keepDefault: true },
+    config: { presets: [{ id: "h1", name: "Main", bands }, { id: "h2", name: "Footsteps", bands }], active: "h1", headset: { sidetone: 1, micVolume: 15, micLed: 3, volumeLimiter: true, autoOff: 30, bass: 0 }, mic: { denoise: true, strength: 90 }, keepDefault: true },
     headset: { present: true, connected: true, battery: 64, charging: false, error: null },
     audio: { output: "Headphones (Arctis Nova 5)", input: "Headset Microphone (Arctis Nova 5)", defaultOutput: "Headphones (Arctis Nova 5)", defaultInput: "Headset Microphone (Arctis Nova 5)", headsetIsDefault: true, apoInstalled: true, error: null },
     configPath: "C:\\Users\\you\\AppData\\Roaming\\com.anthonyradke.kit\\headset.json",

@@ -65,7 +65,7 @@ pub fn emit_state(app: &AppHandle) {
 fn apply(app: &AppHandle) {
     let shared = app.state::<Shared>();
     let config = shared.core.lock().unwrap().clone();
-    let eq = config.active_preset().to_eq();
+    let eq = config.active_preset().to_eq(config.headset.bass);
     let _ = shared.headset_tx.send(device::Cmd::Apply { eq, settings: config.headset.clone() });
     // Fails harmlessly until the APO is installed (the key doesn't exist yet).
     let _ = sysaudio::apo::set_mic_settings(config.mic.denoise, config.mic.strength as u32);
@@ -128,11 +128,12 @@ pub fn update_config(app: &AppHandle, mut config: Config) {
 }
 
 /// Send an EQ to the headset without saving it (live preview while dragging).
-pub fn preview_eq(app: &AppHandle, bands: Vec<Band>) {
+pub fn preview_eq(app: &AppHandle, bands: Vec<Band>, bass: f32) {
     let preset = Preset { bands, ..Preset::default() };
     let mut config = Config { presets: vec![preset], ..Config::default() };
+    config.headset.bass = bass;
     config.normalize();
-    let eq = config.presets[0].to_eq();
+    let eq = config.presets[0].to_eq(config.headset.bass);
     let _ = app.state::<Shared>().headset_tx.send(device::Cmd::PreviewEq(eq));
 }
 

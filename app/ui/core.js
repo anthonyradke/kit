@@ -252,7 +252,7 @@ function keysHtml(keys) {
   return `<span class="keys">${keys.map((k) => `<kbd>${esc(k.name)}</kbd>`).join('<span class="plus">+</span>')}</span>`;
 }
 
-function slider(field, value, max, disabled = false, label = "") {
-  const pct = (value / max) * 100;
-  return `<input class="slider" type="range" min="0" max="${max}" step="1" value="${value}" data-field="${field}" style="--p:${pct}%" aria-label="${esc(label)}" ${disabled ? "disabled" : ""} />`;
+function slider(field, value, max, disabled = false, label = "", min = 0, step = 1) {
+  const pct = ((value - min) / (max - min)) * 100;
+  return `<input class="slider" type="range" min="${min}" max="${max}" step="${step}" value="${value}" data-field="${field}" style="--p:${pct}%" aria-label="${esc(label)}" ${disabled ? "disabled" : ""} />`;
 }

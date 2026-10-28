@@ -33,8 +33,8 @@ pub fn activate_preset(app: AppHandle, id: String) -> UiState {
 }
 
 #[tauri::command]
-pub fn preview_eq(app: AppHandle, bands: Vec<Band>) {
-    state::preview_eq(&app, bands);
+pub fn preview_eq(app: AppHandle, bands: Vec<Band>, bass: f32) {
+    state::preview_eq(&app, bands, bass);
 }
 
 #[tauri::command]
