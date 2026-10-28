@@ -4,7 +4,7 @@
 // and the PRO X TKL LIGHTSPEED (kit drives its lighting; kit's input hook handles its keys).
 
 let K = null; // backend state: { config, status, configPath }
-const kv = { layer: 0, key: null, pick: "keys", listening: false, brush: "#ffffff", erase: false, painting: false, macroMode: "board", fxGroup: null };
+const kv = { layer: 0, key: null, pick: "keys", listening: false, brush: "#ffffff", erase: false, painting: false, macroMode: "board", fxGroup: null, colorSlot: "color1" };
 
 const kcfg = () => K.config;
 const kst = () => K.status;
@@ -492,19 +492,24 @@ function tklKeyPanel(k, b) {
 const kitFirst = () => (isNk() && kst().kitFirmware ? (kst().kitEffects || [0, 0])[0] : null);
 function fxCatalog() {
   if (!isNk()) {
-    if (!kst().effects.length) return LIGHTSYNC_FX;
+    const tag = (f) => ({ ...f, key: `l${f.id}` });
+    if (!kst().effects.length) return LIGHTSYNC_FX.map(tag);
     // Only what this keyboard offers (cycle, wave and ripple each have two firmware ids).
     const have = new Set(kst().effects);
     const ids = { 0: [0], 1: [1], 10: [10, 2], 3: [3, 0x15], 4: [4, 0x16], 11: [11, 0x17] };
-    return LIGHTSYNC_FX.filter((f) => ids[f.id].some((x) => have.has(x)));
+    return LIGHTSYNC_FX.filter((f) => ids[f.id].some((x) => have.has(x))).map(tag);
   }
-  if (kst().lighting !== "rgbMatrix") return [...WILBA_FX, ...KIT_FX];
+  const app = (onKitFw) => KIT_FX.map((f) => ({ ...f, key: `a${f.id}`, hidden: f.hidden || (onKitFw && f.onKitFw === false) }));
+  if (kst().lighting !== "rgbMatrix") return [...WILBA_FX.map((f) => ({ ...f, key: `w${f.id}` })), ...app(false)];
   const first = kitFirst();
   const count = (kst().kitEffects || [0, 0])[1];
-  const fw = first == null ? [] : KITFW_FX.slice(0, count).map((f) => ({ ...f, id: first + f.id, onBoard: true }));
-  return [...fw, ...RGBM_FX, ...KIT_FX];
+  const fw = first == null ? [] : KITFW_FX.slice(0, count).map((f) => ({ ...f, id: first + f.id, key: `k${f.id}`, onBoard: true }));
+  // kit's two-color Gradient replaces QMK's rainbow one.
+  const kitGradient = count > 8;
+  const qmk = RGBM_FX.map((f) => ({ ...f, key: `q${f.id}`, hidden: f.hidden || (f.qmkGradient && kitGradient) }));
+  return [...fw, ...qmk, ...app(first != null)];
 }
-const fxOf = (p) => fxCard(fxCatalog(), p.effect) || fxCatalog()[1];
+const fxOf = (p) => fxCard(fxCatalog(), p.effect) || fxCatalog().find((f) => !f.hidden && f.id !== 0);
 // The NK65 preview runs the effect itself (lighting.js); the others use CSS stand-ins.
 const simulated = (p) => isNk() && (kst().lighting === "rgbMatrix" || p.effect >= 200);
 const LEGACY_PREVIEW = {
@@ -644,20 +649,27 @@ function lightingPage() {
   </div>`;
 }
 
-// Effects as picture cards, one group at a time.
+// Effects as picture cards, one group at a time, with starred ones first.
 function fxPicker(p, fx) {
   const all = fxCatalog();
+  // Hidden effects only show while a preset uses them.
+  const shown = all.filter((f) => !f.hidden || f.id === fx.id);
+  const favs = kcfg().favorites || [];
+  const starred = shown.filter((f) => favs.includes(f.key));
   // A short list (the PRO X TKL) shows every card; longer ones a group at a time.
-  const groups = all.length > 8 ? FX_GROUPS.filter(([g]) => all.some((f) => f.group === g)) : [];
-  const group = groups.some(([g]) => g === kv.fxGroup) ? kv.fxGroup : fx.group;
+  const groups = shown.length > 8 ? FX_GROUPS.filter(([g]) => shown.some((f) => f.group === g)) : [];
+  if (groups.length && starred.length) groups.unshift(["fav", "★ Favorites", "Effects you starred. Click the star on any card to add or remove it."]);
+  const fxFav = starred.some((f) => f.key === fx.key);
+  const group = groups.some(([g]) => g === kv.fxGroup) ? kv.fxGroup : fxFav ? "fav" : fx.group;
   const about = groups.find(([g]) => g === group)?.[2] || "";
-  const tabs = groups.map(([g, name]) => `<button class="${g === group ? "on" : ""} ${g === fx.group ? "has" : ""}" data-act="fx-group" data-v="${g}">${esc(name)}</button>`).join("");
-  const cards = all
-    .filter((f) => !groups.length || f.group === group)
+  const tabs = groups.map(([g, name]) => `<button class="${g === group ? "on" : ""} ${g === fx.group || (g === "fav" && fxFav) ? "has" : ""}" data-act="fx-group" data-v="${g}">${esc(name)}</button>`).join("");
+  const list = !groups.length ? shown : group === "fav" ? starred : shown.filter((f) => f.group === group);
+  const cards = list
     .map((f) => {
-      const on = f === fx;
+      const on = f.id === fx.id;
+      const fav = favs.includes(f.key);
       const thumb = isNk() && (kst().lighting === "rgbMatrix" || f.id >= 200) ? fxThumb(f.id, p, kitFirst(), kst().kitFirmware || 0) : drawThumb(["lg", isNk(), f.id, p.color1, p.color2, JSON.stringify(p.keys)].join("|"), layout(), (k) => ledColor(k, { ...p, effect: f.id, brightness: 100 }));
-      return `<button class="fxcard ${on ? "on" : ""}" data-act="light-fx" data-v="${f.id}" role="radio" aria-checked="${on}"><span class="fxthumb" style="background-image:url(${thumb})"></span><span class="fxname">${esc(f.name)}</span></button>`;
+      return `<button class="fxcard ${on ? "on" : ""}" data-act="light-fx" data-v="${f.id}" role="radio" aria-checked="${on}"><span class="fxthumb" style="background-image:url(${thumb})"></span><span class="fxname">${esc(f.name)}</span><span class="fxstar ${fav ? "on" : ""}" data-act="fx-fav" data-key="${f.key}" title="${fav ? "Remove from favorites" : "Add to favorites"}">${fav ? "★" : "☆"}</span></button>`;
     })
     .join("");
   return `<section class="sec">
@@ -667,44 +679,85 @@ function fxPicker(p, fx) {
   </section>`;
 }
 
+// The colors an effect uses, by role: [field, label].
+function colorSlots(fx) {
+  switch (fx.color) {
+    case "one": return [["color1", fx.c1 || "Color"]];
+    case "base": return [["color1", fx.c1 || "Base color"]];
+    case "two":
+    case "mods": return [["color1", fx.c1 || "First color"], ["color2", fx.c2 || "Second color"]];
+    default: return [];
+  }
+}
+
+// Plain hue (degrees) and saturation (0-1) of a color, and back at full value.
+function hexHs(hex) {
+  const [r, g, b] = hexToRgb(hex).map((v) => v / 255);
+  const max = Math.max(r, g, b);
+  const d = max - Math.min(r, g, b);
+  let h = 0;
+  if (d) h = max === r ? ((g - b) / d + 6) % 6 : max === g ? (b - r) / d + 2 : (r - g) / d + 4;
+  return [Math.round(h * 60) % 360, max ? d / max : 0];
+}
+function hsHex(h, s) {
+  const f = (n) => {
+    const k = (n + h / 60) % 6;
+    return 255 * (1 - s * Math.max(0, Math.min(k, 4 - k, 1)));
+  };
+  return rgbHex([f(5), f(3), f(1)]);
+}
+
+// One color slot open at a time: chips for each role, then swatches and hue/saturation sliders.
+function colorPicker(p, fx) {
+  const slots = colorSlots(fx);
+  if (!slots.length) return "";
+  const field = slots.some(([f]) => f === kv.colorSlot) ? kv.colorSlot : slots[0][0];
+  const value = boardColor(p[field]);
+  const [h, sat] = hexHs(value);
+  const chips = slots.length > 1
+    ? `<div class="cslots" role="tablist">${slots.map(([f, label]) => `<button class="cslot ${f === field ? "on" : ""}" data-act="color-slot" data-v="${f}"><span class="cdot" style="--c:${boardColor(p[f])}"></span>${esc(label)}</button>`).join("")}</div>`
+    : `<div class="row-head"><span class="sec-title">${esc(slots[0][1])}</span></div>`;
+  const sw = isNk() ? SWATCHES.map(fullValue) : SWATCHES;
+  const hint = fx.color === "mods" && field === "color2" ? `<p class="hint">Modifiers take their hue from this color and the saturation of the letter keys' color.</p>` : fx.color === "base" ? `<p class="hint">The effect moves a little either side of this color.</p>` : "";
+  return `<section class="sec">
+    ${chips}
+    <div class="cpick">
+      <span class="cbig" style="--c:${value}"></span>
+      <div class="cbars">
+        <input class="cbar hue" type="range" min="0" max="359" step="1" value="${h}" data-field="hs-hue" data-slot="${field}" aria-label="Hue" />
+        <input class="cbar sat" type="range" min="0" max="100" step="1" value="${Math.round(sat * 100)}" data-field="hs-sat" data-slot="${field}" style="--hue:${hsHex(h, 1)}" aria-label="Saturation" />
+      </div>
+    </div>
+    <div class="swatches">${sw.map((c) => `<button class="sw ${value === c ? "on" : ""}" style="--c:${c}" data-act="light-color" data-field="${field}" data-c="${c}" title="${c}" aria-label="Color ${c}"></button>`).join("")}</div>
+    ${hint}
+  </section>`;
+}
+
 // What the chosen effect does, and only the controls it uses.
 function fxSettings(p, fx) {
-  const swatchRow = (field, value) => {
-    const shown = boardColor(value);
-    const sw = isNk() ? SWATCHES.map(fullValue) : SWATCHES;
-    return `<div class="swatches">${sw.map((c) => `<button class="sw ${shown === c ? "on" : ""}" style="--c:${c}" data-act="light-color" data-field="${field}" data-c="${c}" title="${c}" aria-label="Color ${c}"></button>`).join("")}<label class="sw custom ${sw.includes(shown) ? "" : "on"}" style="--c:${shown}" title="Custom color"><input type="color" value="${shown}" data-field="light-${field}" aria-label="Custom color" /></label></div>`;
-  };
-  const colorRow = (field, label, hint = "") => `<div class="row-head fxcolor"><span class="sec-title">${esc(label)}</span><span class="cap">${boardColor(p[field])}</span></div>${swatchRow(field, p[field])}${hint ? `<p class="hint">${hint}</p>` : ""}`;
-  let colors = "";
-  switch (fx.color) {
-    case "one": colors = colorRow("color1", fx.c1 || "Color"); break;
-    case "base": colors = colorRow("color1", fx.c1 || "Base color", "The effect moves a little either side of this color."); break;
-    case "two": colors = colorRow("color1", fx.c1 || "Color 1") + colorRow("color2", fx.c2 || "Color 2"); break;
-    case "mods": colors = colorRow("color1", fx.c1) + colorRow("color2", fx.c2, "Modifiers take their hue from this color and the saturation of the letter keys' color."); break;
-  }
+  const fw = kst().kitFirmware || 0;
   const notes = [];
   if (fx.single != null) {
     notes.push(`<div class="ind-row fxsingle"><label class="switch"><input type="checkbox" data-field="fx-single" ${p.effect === fx.single ? "checked" : ""} aria-label="Only the latest press" /><span></span></label><span class="grow">Only the latest press<small>A new press cuts off the one before</small></span></div>`);
   }
-  if (fx.fw && (kst().kitFirmware || 0) < fx.fw) notes.push(`<p class="hint warn">Needs kit's firmware ${fx.fw} or newer. Older firmware counts every key as a letter key, so the whole board shows the letter color.</p>`);
+  if (fx.fw && fw < fx.fw) notes.push(`<p class="hint warn">Needs kit's firmware ${fx.fw} or newer. Older firmware counts every key as a letter key, so the whole board shows the letter color.</p>`);
+  if (fx.onBoard && fw < 4) notes.push(`<p class="hint warn">The second color, background and smooth fades need kit's firmware 4. This keyboard has version ${fw}, so it shows one color with a dim glow left over.</p>`);
   if (fx.onBoard) notes.push(`<p class="hint">Runs on the keyboard itself, so it works without kit too.</p>`);
   if (fx.group === "kit") notes.push(`<p class="hint">Runs while kit is running (the window can be closed). Typing in kit's own window doesn't count. Without kit, the keyboard shows the first color.</p>`);
   if (fx.color === "fixed") notes.push(`<p class="hint">Always green, so it has no color setting.</p>`);
-  const speed = fx.speed
-    ? `<div class="row-head" style="margin-top:12px"><span class="sec-title">${esc(fx.speed)}</span><span class="rval" id="v-light-speed">${p.speed}%</span></div>${slider("light-speed", p.speed, 100, false, fx.speed)}`
-    : "";
-  const brightHint = isNk() && fx.color !== "none" ? `<p class="hint">The brightest the effect gets. Effects with dark moments look dimmer overall, and white or pale colors look brighter than deep ones, since they light the red, green and blue of each LED at once.</p>` : "";
+  const row = (field, label, value) => `<div class="row-head" style="margin-top:12px"><span class="sec-title">${esc(label)}</span><span class="rval" id="v-${field}">${value}%</span></div>${slider(field, value, 100, false, label)}`;
+  const background = fx.bg ? row("light-bg", "Background", p.background || 0) + `<p class="hint">How lit the board stays ${fx.group === "typing" ? "between presses" : "in the effect's dark parts"}. 0% is fully off.</p>` : "";
   return `<section class="sec">
       <div class="sec-head"><span class="sec-title">${esc(fx.name)}<small>${esc(FX_GROUPS.find(([g]) => g === fx.group)?.[1] || "")}</small></span></div>
       <p class="hint fxdesc">${esc(fx.about)}</p>
       ${notes.join("")}
     </section>
-    ${colors ? `<section class="sec">${colors}</section>` : ""}
+    ${colorPicker(p, fx)}
     ${fx.color === "none" ? "" : `<section class="sec">
       <div class="row-head"><span class="sec-title">Brightness</span><span class="rval" id="v-light-bright">${p.brightness}%</span></div>
       ${slider("light-bright", p.brightness, 100, false, "Brightness")}
-      ${brightHint}
-      ${speed}
+      ${background}
+      ${fx.speed ? row("light-speed", fx.speed, p.speed) : ""}
     </section>`}`;
 }
 
@@ -1071,6 +1124,20 @@ Object.assign(handlers, {
     kv.fxGroup = el.dataset.v;
     render();
   },
+  "fx-fav"(el, e) {
+    // The star sits on the card: don't also pick the effect.
+    e.stopPropagation();
+    const favs = (kcfg().favorites ||= []);
+    const i = favs.indexOf(el.dataset.key);
+    if (i >= 0) favs.splice(i, 1);
+    else favs.push(el.dataset.key);
+    keyboardSaver.save(0);
+    render();
+  },
+  "color-slot"(el) {
+    kv.colorSlot = el.dataset.v;
+    render();
+  },
   "light-hit"(el) {
     sim.hit(el.dataset.k);
   },
@@ -1127,7 +1194,28 @@ Object.assign(inputFields, {
   "light-speed"(el) {
     sliderInput(el, "speed", "#v-light-speed");
   },
+  "light-bg"(el) {
+    sliderInput(el, "background", "#v-light-bg");
+  },
+  // Hue and saturation drag live, like the sliders; the change event saves.
+  "hs-hue"(el) {
+    hsInput(el);
+  },
+  "hs-sat"(el) {
+    hsInput(el);
+  },
 });
+
+function hsInput(el) {
+  const box = el.closest(".cpick");
+  const h = Number(box.querySelector(".hue").value);
+  const s = Number(box.querySelector(".sat").value) / 100;
+  const c = hsHex(h, s);
+  lightPreset()[el.dataset.slot] = c;
+  box.querySelector(".cbig").style.setProperty("--c", c);
+  box.querySelector(".sat").style.setProperty("--hue", hsHex(h, 1));
+  invoke("preview_lighting", { preset: lightPreset() });
+}
 
 function sliderInput(el, field, label) {
   const v = Number(el.value);
@@ -1145,12 +1233,13 @@ Object.assign(changeFields, {
   "light-speed"() {
     lightChanged();
   },
-  "light-color1"(el) {
-    lightPreset().color1 = boardColor(el.value);
+  "light-bg"() {
     lightChanged();
   },
-  "light-color2"(el) {
-    lightPreset().color2 = boardColor(el.value);
+  "hs-hue"() {
+    lightChanged();
+  },
+  "hs-sat"() {
     lightChanged();
   },
   "fx-single"(el) {

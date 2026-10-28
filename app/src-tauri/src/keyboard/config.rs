@@ -36,6 +36,8 @@ pub struct Config {
     /// NK65: the lighting already on the board was taken in as a preset
     /// (done once, so kit's first run doesn't overwrite it).
     pub adopted: bool,
+    /// Effects starred in the effect picker, by the picker's key ("q1", "k6", "a203", ...).
+    pub favorites: Vec<String>,
 }
 
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
@@ -53,6 +55,9 @@ pub struct Preset {
     pub speed: u8,
     /// 0..=100
     pub brightness: u8,
+    /// NK65 kit effects (firmware 4 on): how lit the board stays between
+    /// presses or in an effect's dark parts, 0..=100.
+    pub background: u8,
     /// PRO X TKL per-key paint over Static, zone id -> "#rrggbb".
     pub keys: BTreeMap<u8, String>,
     /// NK65 (original PCB) indicator lights: caps lock, layers 1-3. `None` = off.
@@ -82,6 +87,7 @@ impl Default for Preset {
             color2: "#ffffff".into(),
             speed: 50,
             brightness: 80,
+            background: 0,
             keys: BTreeMap::new(),
             indicators: Default::default(),
         }
@@ -119,6 +125,7 @@ impl Config {
             kit_keys: vec![None; KIT_KEYS],
             onboard: BTreeMap::new(),
             adopted: false,
+            favorites: vec![],
         }
     }
 

@@ -14,11 +14,17 @@ effects of my own.
   (Fn + Q/W/E effect, A/S/D/F hue and saturation, Z/X/C/V brightness and speed). It also answers two values on
   VIA's custom channel: `0x6B` (get) returns the firmware version, the number of kit effects, the first kit
   effect number and (from version 2) which PCB's pins have seen a key press; `0x62` (set) restarts the board into
-  its bootloader. From version 3 it flags Esc, Backspace, Enter, the modifiers, the arrows and the right-hand column
+  its bootloader; `0x63` (get/set, from version 4) is the second color's hue and saturation and the background
+  level, and VIA's save on the custom channel stores it in the user EEPROM word. From version 3 it flags Esc, Backspace, Enter, the modifiers, the arrows and the right-hand column
   as modifiers: QMK's NK65 layout flags every key the same, which left Alphas / mods with one color.
 - `rgb_matrix_user.inc`: kit's effects, appended after QMK's own, so the stock effect numbers don't move. Ripple,
-  Prism ripple, Ink and Afterglow react to key presses; Aurora, Lava, Tide and Fireflies are ambient. They use the
-  color, brightness and speed set in kit, and do their math in floats (the STM32F303 has an FPU).
+  Prism ripple, Ink and Afterglow react to key presses; Aurora, Lava, Tide and Fireflies are ambient; Gradient (from
+  version 4) is still. They do their math in floats (the STM32F303 has an FPU). From version 4 they use two colors
+  (QMK's own and a second one), a background level that defaults to off, brightness and speed. Prism ripple is
+  still in the firmware so the numbers after it don't move, but kit no longer offers it.
+- Version 4 also puts every effect's brightness through a CIE 1931 lightness curve (`rgb_matrix_hsv_to_rgb` in
+  `keymap.c`), so the brightness setting looks even and fades glide; unlike QMK's own table, its lowest steps round
+  down to off, so fades don't end on a faint glow.
 - `config.h`: remembers 16 key presses for ripples (QMK's default is 8) and starts on Ripple after a flash.
 - `matrix.c`: the key matrix. The two PCB revisions differ only in the pins of columns 7-9 (7 8 9, U I O, J K L,
   N M , and right Alt): C13 C14 C15 on v1, B1 B0 A7 on v1.4. Columns are inputs with pull-ups, so it reads both sets
@@ -45,7 +51,8 @@ the qmk CLI if it's installed or QMK's Docker image if not. The release workflow
   value, and the Lighting page shows only the controls an effect uses. The catalog and a port of each effect's math
   (QMK's and kit's) are in `app/ui/lighting.js`, which also draws the preview; keep it in step with the firmware.
 - QMK's Splash, Solid splash and the wide, cross and nexus reactive effects come in pairs: one draws only the latest
-  press, its multi version every remembered press. kit shows each pair as one effect with a switch.
+  press, its multi version every remembered press. kit shows each pair as one effect with a switch. kit offers only
+  the smoother effects; the others stay in the firmware and show on the Lighting page only while a preset uses one.
 - "Restart into flash mode" on the Device page sends `0x62` on kit's firmware, or VIA's old bootloader command on
   older firmware (it may not exist there; then Fn+\ or Esc held while plugging in).
 

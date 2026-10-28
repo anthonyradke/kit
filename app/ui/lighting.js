@@ -8,89 +8,90 @@
 // Groups, in the order the effect picker shows them.
 const FX_GROUPS = [
   ["typing", "Typing", "These react to the keys you press."],
+  ["calm", "Calm", "Slow, smooth movement."],
   ["still", "Still", "Fixed colors that don't move."],
-  ["calm", "Calm", "Slow movement in one color."],
-  ["pattern", "Pattern", "Bands, spirals and pixels in one color."],
   ["rainbow", "Rainbow", "These run through every color on their own, so there's no color to pick."],
   ["kit", "From kit", "kit plays these by changing the whole board's color while it runs."],
 ];
 
 // Color modes:
 //   one      a color, used as is
-//   base     a color the effect moves a little either side of
 //   two      two colors (labels in c1/c2)
 //   mods     letters color + modifiers color (QMK: hue offset kept in speed)
 //   rainbow  no color: the effect makes its own
 //   fixed    no color: always the same (Digital rain is green)
 //   none     Off
-// speed: the label of the speed slider, or null when the effect has no speed.
-// multi: the id of the version that keeps every press (shown as one card).
+// c1, c2: what each color is for in this effect. speed: the speed slider's label, or null.
+// single: the id of QMK's version that draws only the latest press (the card is the multi one).
+// bg: has a background level (kit's firmware 4). hidden: jumpy or confusing, so not
+// offered (still shown when a preset already uses it).
 const fx = (id, name, group, color, about, o = {}) => ({ id, name, group, color, about, speed: "Speed", ...o });
 
 const RGBM_FX = [
   fx(0, "Off", "still", "none", "All lights off.", { speed: null }),
   fx(1, "Solid", "still", "one", "Every key in one color.", { speed: null }),
   fx(2, "Alphas / mods", "still", "mods", "Letter keys in one color, modifiers, arrows and the right column in another.", { speed: null, c1: "Letter keys", c2: "Modifier keys", fw: 3 }),
-  fx(3, "Gradient up-down", "still", "one", "A rainbow from top to bottom, starting at this color. Spread sets how much of the rainbow it covers.", { speed: "Spread", c1: "Top color" }),
-  fx(4, "Gradient left-right", "still", "one", "A rainbow from left to right, starting at this color. Spread sets how much of the rainbow it covers.", { speed: "Spread", c1: "Left color" }),
-  fx(5, "Breathing", "calm", "one", "The whole board slowly fades in and out."),
-  fx(6, "Band saturation", "pattern", "one", "A white band sweeps across the board."),
-  fx(7, "Band brightness", "pattern", "one", "A bright band sweeps across a dark board."),
-  fx(8, "Pinwheel saturation", "pattern", "one", "White spokes turn around the middle."),
-  fx(9, "Pinwheel brightness", "pattern", "one", "Bright spokes turn around the middle."),
-  fx(10, "Spiral saturation", "pattern", "one", "A white spiral turns around the middle."),
-  fx(11, "Spiral brightness", "pattern", "one", "A bright spiral turns around the middle."),
+  fx(3, "Gradient up-down", "still", "one", "A rainbow from top to bottom, starting at this color. Spread sets how much of the rainbow it covers.", { speed: "Spread", c1: "Top color", hidden: true }),
+  fx(4, "Gradient left-right", "still", "one", "A rainbow from left to right, starting at this color. Spread sets how much of the rainbow it covers.", { speed: "Spread", c1: "Left color", qmkGradient: true }),
+  fx(5, "Breathing", "calm", "one", "The whole board slowly fades in and out.", { c1: "Color" }),
+  fx(6, "Band saturation", "calm", "one", "A white band sweeps across the board.", { hidden: true }),
+  fx(7, "Band brightness", "calm", "one", "A bright band sweeps across a dark board.", { hidden: true }),
+  fx(8, "Pinwheel saturation", "calm", "one", "White spokes turn around the middle.", { hidden: true }),
+  fx(9, "Pinwheel brightness", "calm", "one", "Bright spokes turn around the middle.", { hidden: true }),
+  fx(10, "Spiral saturation", "calm", "one", "A white spiral turns around the middle.", { hidden: true }),
+  fx(11, "Spiral brightness", "calm", "one", "A bright spiral turns around the middle.", { hidden: true }),
   fx(12, "Cycle", "rainbow", "rainbow", "The whole board changes color together."),
   fx(13, "Cycle across", "rainbow", "rainbow", "A rainbow rolls from left to right."),
-  fx(14, "Cycle down", "rainbow", "rainbow", "A rainbow rolls from top to bottom."),
-  fx(15, "Rainbow chevron", "rainbow", "rainbow", "A rainbow in a V shape rolls across."),
+  fx(14, "Cycle down", "rainbow", "rainbow", "A rainbow rolls from top to bottom.", { hidden: true }),
+  fx(15, "Rainbow chevron", "rainbow", "rainbow", "A rainbow in a V shape rolls across.", { hidden: true }),
   fx(16, "Cycle out-in", "rainbow", "rainbow", "Rainbow rings move in toward the middle."),
-  fx(17, "Cycle out-in dual", "rainbow", "rainbow", "Two sets of rainbow rings, one on each half."),
+  fx(17, "Cycle out-in dual", "rainbow", "rainbow", "Two sets of rainbow rings, one on each half.", { hidden: true }),
   fx(18, "Cycle pinwheel", "rainbow", "rainbow", "A rainbow wheel turns around the middle."),
-  fx(19, "Cycle spiral", "rainbow", "rainbow", "A rainbow spiral turns around the middle."),
-  fx(20, "Dual beacon", "rainbow", "rainbow", "A rainbow that turns like a lighthouse beam."),
-  fx(21, "Rainbow beacon", "rainbow", "rainbow", "A tighter rainbow that turns like a lighthouse beam."),
-  fx(22, "Rainbow pinwheels", "rainbow", "rainbow", "Two rainbow wheels turning, one on each half."),
-  fx(23, "Raindrops", "calm", "base", "Keys change one at a time between this color and two neighbors on the color wheel.", { speed: "Rate" }),
-  fx(24, "Jellybean", "rainbow", "rainbow", "Keys change one at a time to random colors.", { speed: "Rate" }),
-  fx(25, "Hue breathing", "calm", "base", "The whole board shifts a little either side of this color and back."),
-  fx(26, "Hue pendulum", "calm", "base", "A small color shift that swings left and right."),
-  fx(27, "Hue wave", "calm", "base", "A small color shift that rolls across the board."),
-  fx(28, "Pixel rain", "rainbow", "rainbow", "Random keys light up in random colors or go dark.", { speed: "Rate" }),
-  fx(29, "Pixel flow", "rainbow", "rainbow", "Random colors stream through the keys in a line.", { speed: "Rate" }),
-  fx(30, "Pixel fractal", "pattern", "one", "Lit keys flow out from the middle to both sides, mirrored.", { speed: "Rate" }),
-  fx(31, "Typing heatmap", "typing", "rainbow", "Keys you press often warm from blue to red, then cool off.", { speed: null }),
-  fx(32, "Digital rain", "calm", "fixed", "Green drops falling down the board, like the film.", { speed: null }),
-  fx(33, "Reactive", "typing", "one", "Only the key you press lights up, then fades out.", { speed: "Fade speed" }),
-  fx(34, "Reactive fade", "typing", "one", "The board shows this color; a pressed key jumps a quarter of the way around the color wheel and fades back.", { speed: "Fade speed" }),
-  fx(36, "Reactive wide", "typing", "one", "A glow spreads a little around each key you press.", { speed: "Fade speed", single: 35 }),
-  fx(38, "Reactive cross", "typing", "one", "Each press lights its row and column.", { speed: "Fade speed", single: 37 }),
-  fx(40, "Reactive nexus", "typing", "base", "Lines shoot out along the row and column of each press.", { speed: "Fade speed", single: 39 }),
-  fx(42, "Splash", "typing", "rainbow", "Each press sends out a ring that runs through the rainbow.", { speed: "Fade speed", single: 41 }),
-  fx(44, "Solid splash", "typing", "one", "Each press sends out a ring of this color across a dark board.", { speed: "Fade speed", single: 43 }),
+  fx(19, "Cycle spiral", "rainbow", "rainbow", "A rainbow spiral turns around the middle.", { hidden: true }),
+  fx(20, "Dual beacon", "rainbow", "rainbow", "A rainbow that turns like a lighthouse beam.", { hidden: true }),
+  fx(21, "Rainbow beacon", "rainbow", "rainbow", "A tighter rainbow that turns like a lighthouse beam.", { hidden: true }),
+  fx(22, "Rainbow pinwheels", "rainbow", "rainbow", "Two rainbow wheels turning, one on each half.", { hidden: true }),
+  fx(23, "Raindrops", "calm", "base", "Keys change one at a time between this color and two neighbors on the color wheel.", { speed: "Rate", hidden: true }),
+  fx(24, "Jellybean", "rainbow", "rainbow", "Keys change one at a time to random colors.", { speed: "Rate", hidden: true }),
+  fx(25, "Hue breathing", "calm", "base", "The whole board shifts a little either side of this color and back.", { hidden: true }),
+  fx(26, "Hue pendulum", "calm", "base", "A small color shift that swings left and right.", { hidden: true }),
+  fx(27, "Hue wave", "calm", "base", "A small color shift that rolls across the board.", { hidden: true }),
+  fx(28, "Pixel rain", "rainbow", "rainbow", "Random keys light up in random colors or go dark.", { speed: "Rate", hidden: true }),
+  fx(29, "Pixel flow", "rainbow", "rainbow", "Random colors stream through the keys in a line.", { speed: "Rate", hidden: true }),
+  fx(30, "Pixel fractal", "calm", "one", "Lit keys flow out from the middle to both sides, mirrored.", { speed: "Rate", hidden: true }),
+  fx(31, "Typing heatmap", "typing", "rainbow", "Keys you press often warm from blue to red, then cool off.", { speed: null, hidden: true }),
+  fx(32, "Digital rain", "calm", "fixed", "Green drops falling down the board, like the film.", { speed: null, hidden: true }),
+  fx(33, "Reactive", "typing", "one", "Only the key you press lights up, then fades to off.", { speed: "Fade speed", c1: "Key color" }),
+  fx(34, "Reactive fade", "typing", "one", "The board shows this color; a pressed key jumps a quarter of the way around the color wheel and fades back.", { speed: "Fade speed", hidden: true }),
+  fx(36, "Reactive wide", "typing", "one", "A soft glow spreads a little around each key you press, then fades to off.", { speed: "Fade speed", single: 35, c1: "Glow color" }),
+  fx(38, "Reactive cross", "typing", "one", "Each press lights its row and column.", { speed: "Fade speed", single: 37, hidden: true }),
+  fx(40, "Reactive nexus", "typing", "base", "Lines shoot out along the row and column of each press.", { speed: "Fade speed", single: 39, hidden: true }),
+  fx(42, "Splash", "typing", "rainbow", "Each press sends out a ring that runs through the rainbow.", { speed: "Fade speed", single: 41, hidden: true }),
+  fx(44, "Solid splash", "typing", "one", "Each press sends out a ring of this color across a dark board.", { speed: "Fade speed", single: 43, hidden: true }),
 ];
 
 // kit's firmware effects, in the firmware's order (numbers start at the first kit effect).
 const KITFW_FX = [
-  fx(0, "Ripple", "typing", "base", "Each press sends a ring across a dim board, tinted by where on the board it started."),
-  fx(1, "Prism ripple", "typing", "rainbow", "Thin rings on a dark board that run through the rainbow as they spread."),
-  fx(2, "Ink", "typing", "base", "Every press drops a blot of color that spreads and fades; overlapping blots mix. Each key has its own shade near this color."),
-  fx(3, "Afterglow", "typing", "base", "Pressed keys light up hot and cool off slowly, glowing a little onto their neighbors."),
-  fx(4, "Aurora", "calm", "base", "Slow curtains of light swaying across the board."),
-  fx(5, "Lava", "calm", "base", "Blobs that drift, merge and split like a lava lamp."),
-  fx(6, "Tide", "calm", "base", "Waves rolling across the board, with pale crests."),
-  fx(7, "Fireflies", "calm", "base", "Keys glow up and fade on their own, each at its own pace."),
+  fx(0, "Ripple", "typing", "two", "Each press sends a ring across the board. It starts in the ring color and turns to the second color as it spreads and fades.", { c1: "Ring", c2: "Fades to", bg: true }),
+  fx(1, "Prism ripple", "typing", "rainbow", "Thin rings on a dark board that run through the rainbow as they spread.", { hidden: true }),
+  fx(2, "Ink", "typing", "two", "Every press drops a blot of ink that spreads softly and fades; overlapping blots mix. Each key's blot has its own shade between the two inks, so pick the same color twice for one ink.", { c1: "Ink", c2: "Second ink", bg: true }),
+  fx(3, "Afterglow", "typing", "two", "Pressed keys light up hot and cool off slowly through the second color, glowing a little onto their neighbors.", { c1: "Hot", c2: "Cooling", bg: true }),
+  fx(4, "Aurora", "calm", "two", "Slow curtains of light swaying across the board, drifting between the two colors.", { c1: "First color", c2: "Second color", bg: true }),
+  fx(5, "Lava", "calm", "two", "Blobs that drift, merge and split like a lava lamp.", { c1: "Blobs", c2: "Between blobs", bg: true }),
+  fx(6, "Tide", "calm", "two", "Waves rolling across the board, with crests in the second color.", { c1: "Water", c2: "Crests", bg: true }),
+  fx(7, "Fireflies", "calm", "two", "Keys glow up and fade on their own, each at its own pace and its own shade between the two colors.", { c1: "First color", c2: "Second color", bg: true }),
+  fx(8, "Gradient", "still", "two", "Fades from one color on the left to the other on the right.", { c1: "Left", c2: "Right", speed: null }),
 ];
 
 // Played by kit on either NK65 firmware: one color and brightness for the whole board, streamed.
 const KIT_FX = [
-  fx(200, "Keystrike", "kit", "two", "Every key press flashes the board to the flash color, then it fades back.", { c1: "Resting color", c2: "Flash color" }),
-  fx(201, "Typing heat", "kit", "two", "Warms up and gets brighter the faster you type, then cools off.", { c1: "Cool color", c2: "Hot color" }),
-  fx(202, "Hue step", "kit", "one", "Each key press nudges the color along the rainbow, starting from this color.", { c1: "Starting color" }),
+  fx(200, "Keystrike", "kit", "two", "Every key press flashes the board to the flash color, then it fades back.", { onKitFw: false, c1: "Resting color", c2: "Flash color" }),
+  fx(201, "Typing heat", "kit", "two", "Warms up and gets brighter the faster you type, then cools off.", { onKitFw: false, c1: "Cool color", c2: "Hot color" }),
+  fx(202, "Hue step", "kit", "one", "Each key press nudges the color along the rainbow, starting from this color.", { onKitFw: false, c1: "Starting color" }),
   fx(203, "Music", "kit", "two", "Pulses with whatever is playing on the default output: louder is brighter and closer to the loud color.", { c1: "Quiet color", c2: "Loud color" }),
-  fx(204, "Heartbeat", "kit", "two", "A slow double pulse. Speed sets the heart rate.", { c1: "Resting color", c2: "Beat color" }),
-  fx(205, "Candle", "kit", "two", "Flickers like a flame; the dim moments lean to the ember color.", { c1: "Flame color", c2: "Ember color" }),
-  fx(206, "Color drift", "kit", "two", "Drifts slowly back and forth between the two colors.", { c1: "First color", c2: "Second color" }),
+  fx(204, "Heartbeat", "kit", "two", "A slow double pulse. Speed sets the heart rate.", { onKitFw: false, c1: "Resting color", c2: "Beat color" }),
+  fx(205, "Candle", "kit", "two", "Flickers like a flame; the dim moments lean to the ember color.", { onKitFw: false, c1: "Flame color", c2: "Ember color" }),
+  fx(206, "Color drift", "kit", "two", "Drifts slowly back and forth between the two colors.", { onKitFw: false, c1: "First color", c2: "Second color" }),
 ];
 
 // The NK65's stock firmware (wilba's RGB backlight) and the PRO X TKL.
@@ -132,11 +133,21 @@ const cos8 = (t) => sin8(t + 64);
 const atan2_8 = (dy, dx) => u8(Math.round((Math.atan2(dy, dx) / (2 * Math.PI)) * 256));
 const sqrt16 = (x) => Math.floor(Math.sqrt(x));
 
-// QMK's hsv_to_rgb (quantum/color.c), all values 0-255.
-function qmkRgb(h, s, v) {
+// kit's firmware 4 lightness curve (keymap.c kit_make_curve): CIE 1931, low steps round to off.
+const CURVE = Array.from({ length: 256 }, (_, v) => {
+  const l = (v * 100) / 255;
+  const y = l <= 8 ? l / 903.3 : ((l + 16) / 116) ** 3;
+  return Math.floor(y * 255 + 0.5);
+});
+// Whether QMK's effects go through that curve (set per frame from the firmware version).
+let simCurve = false;
+
+// QMK's hsv_to_rgb (quantum/color.c), all values 0-255; `raw` skips kit's curve.
+function qmkRgb(h, s, v, raw = false) {
   h = u8(h);
   s = clamp(Math.round(s), 0, 255);
   v = clamp(Math.round(v), 0, 255);
+  if (simCurve && !raw) v = CURVE[v];
   if (s === 0) return [v, v, v];
   const region = Math.floor((h * 6) / 255);
   const rem = u8((h * 2 - region * 85) * 3);
@@ -357,41 +368,58 @@ const RGBM_DRAW = {
 const dist = (l) => u8(sqrt16((l.x - CX) * (l.x - CX) + (l.y - CY) * (l.y - CY)));
 const pixelInterval = (ctx) => 3000 / Math.max(1, scale16by8(qadd8(ctx.speed, 16), 16));
 
-// kit's firmware effects (rgb_matrix_user.inc), in floats like the firmware.
+// kit's firmware effects (rgb_matrix_user.inc, version 4), in floats like the firmware.
 const kitSpeed = (ctx) => 0.25 + (1.75 * ctx.speed) / 255;
 const kitTime = (ctx) => ((ctx.t % 65536000) / 1000) * kitSpeed(ctx);
 const c01 = (x) => (x < 0 ? 0 : x > 1 ? 1 : x);
 const smooth = (x) => ((x = c01(x)), x * x * (3 - 2 * x));
-const kitSet = (ctx, hue, sat, v) => qmkRgb(ctx.h + Math.trunc(hue), Math.floor(ctx.s * c01(sat)), Math.floor(ctx.v * c01(v)));
 const kitDist = (l, x, y) => Math.hypot(l.x - x, l.y - y);
-function kitRipple(ctx, l, prism) {
-  const speed = 70 + 110 * kitSpeed(ctx);
-  const width = prism ? 11 : 16;
-  const reach = prism ? 200 : 160;
-  let best = 0;
-  let hue = 0;
-  for (const hit of ctx.hits) {
-    const r = (hit.tick / 1000) * speed;
-    const fade = 1 - r / reach;
-    if (fade <= 0) continue;
-    const d = kitDist(l, hit.x, hit.y);
-    const off = Math.abs(d - r);
-    if (off >= width) continue;
-    const a = smooth(1 - off / width) * fade * fade;
-    if (a > best) {
-      best = a;
-      hue = prism ? d * 1.2 : hit.x * 0.3;
-    }
-  }
-  const base = prism ? 0 : 0.12;
-  return kitSet(ctx, hue, 1, base + (1 - base) * best);
+// `t` of the way from color 1 to color 2 at full value, `v` of the set brightness (kit_px).
+function kitPx(ctx, t, v) {
+  t = c01(t);
+  const c = ctx.c1.map((a, i) => a + (ctx.c2[i] - a) * t);
+  const m = Math.max(...c);
+  const k = m > 0 ? (CURVE[ctx.v] * c01(v)) / m : 0;
+  return c.map((x) => Math.floor(x * k + 0.5));
 }
+const kitLift = (ctx, a) => ctx.bg + (1 - ctx.bg) * a;
+const kitSet = (ctx, hue, sat, v) => qmkRgb(ctx.h + Math.trunc(hue), Math.floor(ctx.s * c01(sat)), Math.floor(ctx.v * c01(v)));
 const KITFW_DRAW = [
-  (ctx, l) => kitRipple(ctx, l, false),
-  (ctx, l) => kitRipple(ctx, l, true),
+  (ctx, l) => {
+    const speed = 70 + 110 * kitSpeed(ctx);
+    let best = 0;
+    let travel = 1;
+    for (const hit of ctx.hits) {
+      const r = (hit.tick / 1000) * speed;
+      const fade = 1 - r / 160;
+      if (fade <= 0) continue;
+      const off = Math.abs(kitDist(l, hit.x, hit.y) - r);
+      if (off >= 20) continue;
+      const a = smooth(1 - off / 20) * fade * fade;
+      if (a > best) [best, travel] = [a, r / 160];
+    }
+    return kitPx(ctx, 1 - best * (1 - travel), kitLift(ctx, best));
+  },
+  (ctx, l) => {
+    const speed = 70 + 110 * kitSpeed(ctx);
+    let best = 0;
+    let hue = 0;
+    for (const hit of ctx.hits) {
+      const r = (hit.tick / 1000) * speed;
+      const fade = 1 - r / 200;
+      if (fade <= 0) continue;
+      const d = kitDist(l, hit.x, hit.y);
+      const off = Math.abs(d - r);
+      if (off >= 11) continue;
+      const a = smooth(1 - off / 11) * fade * fade;
+      if (a > best) [best, hue] = [a, d * 1.2];
+    }
+    return kitSet(ctx, hue, 1, best);
+  },
   (ctx, l) => {
     const sp = kitSpeed(ctx);
-    let [r, g, b] = [0, 0, 0];
+    let sum = 0;
+    let tsum = 0;
     for (const hit of ctx.hits) {
       const age = hit.tick / 1000;
       const amp = Math.exp((-age * sp) / 1.4);
@@ -399,14 +427,10 @@ const KITFW_DRAW = [
       const radius = 8 + 34 * (1 - Math.exp(-age * sp * 2.5));
       const a = smooth((radius - kitDist(l, hit.x, hit.y)) / 14 + 0.5) * amp;
       if (a <= 0) continue;
-      const c = qmkRgb(ctx.h + u8((hit.i * 53) % 96) - 48, ctx.s, 255);
-      r += c[0] * a;
-      g += c[1] * a;
-      b += c[2] * a;
+      sum += a;
+      tsum += a * hash01(hit.i, 3);
     }
-    const c = qmkRgb(ctx.h, ctx.s, 255);
-    const v = ctx.v / 255;
-    return [(r + c[0] * 0.05) * v, (g + c[1] * 0.05) * v, (b + c[2] * 0.05) * v].map((x) => Math.min(255, Math.floor(x)));
+    return kitPx(ctx, sum > 0 ? tsum / sum : 0, kitLift(ctx, c01(sum)));
   },
   (ctx, l) => {
     const tau = 2 / kitSpeed(ctx);
@@ -417,13 +441,13 @@ const KITFW_DRAW = [
       const near = c01(1 - (kitDist(l, hit.x, hit.y) - 4) / 18);
       best = Math.max(best, amp * near * near);
     }
-    return kitSet(ctx, 40 * best, 1 - 0.35 * best * best, 0.07 + 0.93 * best);
+    return kitPx(ctx, 1 - best, kitLift(ctx, best));
   },
   (ctx, l) => {
     const t = kitTime(ctx);
     const curtain = 0.5 + 0.5 * Math.sin(l.x * 0.035 + t * 0.6 + 1.6 * Math.sin(l.y * 0.05 + t * 0.3));
     const swell = 0.5 + 0.5 * Math.sin(l.x * 0.018 - t * 0.45);
-    return kitSet(ctx, 28 * Math.sin(l.x * 0.012 + t * 0.2), 1, 0.06 + 0.94 * curtain * curtain * (0.35 + 0.65 * swell));
+    return kitPx(ctx, 0.5 + 0.5 * Math.sin(l.x * 0.012 + t * 0.2), kitLift(ctx, curtain * curtain * (0.35 + 0.65 * swell)));
   },
   (ctx, l) => {
     const t = kitTime(ctx) * 0.6;
@@ -431,21 +455,22 @@ const KITFW_DRAW = [
     const cy = 32 + 22 * Math.sin(t * 0.53);
     const { x, y } = l;
     const p = Math.sin(x * 0.045 + t) + Math.sin(y * 0.09 - t * 0.7) + Math.sin((x + y) * 0.03 + t * 0.5) + Math.sin(Math.hypot(x - cx, y - cy) * 0.06 - t);
-    const n = 0.5 + p / 8;
-    return kitSet(ctx, 36 * (n - 0.5), 1, 0.25 + 0.75 * smooth(n * 1.3 - 0.15));
+    const n = smooth((0.5 + p / 8) * 1.3 - 0.15);
+    return kitPx(ctx, 1 - n, kitLift(ctx, 0.3 + 0.7 * n));
   },
   (ctx, l) => {
     const t = kitTime(ctx) * 1.4;
     const wave = 0.5 + 0.5 * Math.sin(l.x * 0.04 - t + 0.8 * Math.sin(l.y * 0.08 + t * 0.5));
     const crest = wave * wave * wave;
-    return kitSet(ctx, 18 * crest, 1 - 0.6 * crest * crest, 0.18 + 0.82 * crest);
+    return kitPx(ctx, crest * crest, kitLift(ctx, 0.18 + 0.82 * crest));
   },
   (ctx, l) => {
     const t = kitTime(ctx);
     const e = Math.sin(t * (0.35 + 0.6 * hash01(l.i, 0)) + 6.2832 * hash01(l.i, 1));
     const glow = e > 0.55 ? smooth((e - 0.55) / 0.45) : 0;
-    return kitSet(ctx, 32 * (hash01(l.i, 2) - 0.5), 1, 0.03 + 0.97 * glow);
+    return kitPx(ctx, hash01(l.i, 2), kitLift(ctx, glow));
   },
+  (ctx, l) => kitPx(ctx, (l.x - 8) / 207, 1),
 ];
 
 // kit's whole-board effects (app/src-tauri/src/keyboard/anim.rs): one color for every key.
@@ -568,6 +593,7 @@ class LightSim {
   }
   // Advance by dt ms and return each LED's [r, g, b] (LED order).
   step(dt, p, kitFirst, kitFw, typing = true) {
+    simCurve = kitFw >= 4;
     if (p.effect !== this.effect) {
       this.effect = p.effect;
       this.state = { heat: this.state.heat };
@@ -588,8 +614,12 @@ class LightSim {
     this.presses = 0;
     const [h, s] = hueSat(p.color1);
     const speed = Math.round((p.speed * 255) / 100);
+    const [h2, s2] = hueSat(p.color2);
     const ctx = {
       t: this.t,
+      c1: qmkRgb(h, s, 255, true),
+      c2: qmkRgb(h2, s2, 255, true),
+      bg: (p.background || 0) / 100,
       h,
       s: rainbowFx(p.effect, kitFirst) ? 255 : s,
       v: Math.round((p.brightness * 255) / 100),
@@ -663,7 +693,7 @@ function drawThumb(cacheKey, L, colorOf, w = 112) {
 
 // The NK65 a moment into `effect`, a few presses in, as the simulation draws it.
 function fxThumb(effect, p, kitFirst, kitFw) {
-  const key = ["nk", effect, p.color1, p.color2, p.speed, kitFirst, kitFw].join("|");
+  const key = ["nk", effect, p.color1, p.color2, p.speed, p.background, kitFirst, kitFw].join("|");
   if (thumbCache.has(key)) return thumbCache.get(key);
   const q = { ...p, effect, brightness: 100 };
   let leds;

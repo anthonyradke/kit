@@ -65,6 +65,7 @@ pub struct KitFirmware {
 const KIT_CHANNEL: u8 = 0;
 const KIT_INFO: u8 = 0x6B;
 const KIT_BOOTLOADER: u8 = 0x62;
+const KIT_COLORS: u8 = 0x63;
 
 /// The first known board that is plugged in, without opening it.
 pub fn find() -> Option<&'static Known> {
@@ -131,6 +132,24 @@ impl Board {
     /// press since it started (bit 0 v1, bit 1 v1.4). 0 until a key in 7-9 / U-O / J-L / N-, is pressed.
     pub fn kit_pcb(&mut self) -> Result<u8> {
         Ok(self.command(&[cmd::GET_VALUE, KIT_CHANNEL, KIT_INFO])?[6])
+    }
+
+    /// kit's firmware (version 4 on): its effects' second color (hue,
+    /// saturation) and background level.
+    pub fn kit_colors(&mut self) -> Result<[u8; 3]> {
+        let r = self.command(&[cmd::GET_VALUE, KIT_CHANNEL, KIT_COLORS])?;
+        Ok([r[3], r[4], r[5]])
+    }
+
+    pub fn set_kit_colors(&mut self, v: [u8; 3]) -> Result<()> {
+        self.command(&[cmd::SET_VALUE, KIT_CHANNEL, KIT_COLORS, v[0], v[1], v[2]])?;
+        Ok(())
+    }
+
+    /// Store the kit colors in the board's EEPROM.
+    pub fn save_kit_colors(&mut self) -> Result<()> {
+        self.command(&[cmd::SAVE, KIT_CHANNEL, KIT_COLORS])?;
+        Ok(())
     }
 
     pub fn layer_count(&mut self) -> Result<u8> {

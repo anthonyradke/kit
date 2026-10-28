@@ -686,12 +686,31 @@ kbd {
 .fxabout { margin: 8px 0 10px; }
 .sec-head + .fxcards { margin-top: 10px; }
 .fxcards { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; }
-.fxcard { display: flex; flex-direction: column; gap: 5px; padding: 5px 5px 6px; border-radius: 3px; box-shadow: inset 0 0 0 1px var(--rule-2); color: var(--ink-2); text-align: left; transition: box-shadow .15s, color .15s; }
+.fxcard { position: relative; display: flex; flex-direction: column; gap: 5px; padding: 5px 5px 6px; border-radius: 3px; box-shadow: inset 0 0 0 1px var(--rule-2); color: var(--ink-2); text-align: left; transition: box-shadow .15s, color .15s; }
 .fxcard:hover { box-shadow: inset 0 0 0 1px var(--rule-3); color: var(--ink); }
 .fxcard.on { box-shadow: inset 0 0 0 1.5px var(--ink); color: var(--ink); }
 .fxthumb { display: block; width: 100%; aspect-ratio: 16 / 5; border-radius: 2px; background: #0c0d0f center / 100% 100% no-repeat; image-rendering: pixelated; }
 .fxname { padding: 0 2px; overflow: hidden; font-size: 12.5px; white-space: nowrap; text-overflow: ellipsis; }
+.fxstar { position: absolute; right: 9px; bottom: 5px; padding: 0 2px; color: var(--ink-4); font-size: 14px; line-height: 1; opacity: 0; transition: opacity .15s, color .15s; }
+.fxcard:hover .fxstar, .fxstar.on { opacity: 1; }
+.fxstar:hover, .fxstar.on { color: var(--live); }
+.fxcard .fxname { padding-right: 18px; }
 .fxdesc { margin-top: 2px; }
+
+/* Color picker: a chip per color the effect uses, then hue and saturation for the open one. */
+.cslots { display: flex; flex-wrap: wrap; gap: 6px; }
+.cslot { display: inline-flex; align-items: center; gap: 7px; height: 28px; padding: 0 10px 0 7px; border-radius: 3px; box-shadow: inset 0 0 0 1px var(--rule-2); color: var(--ink-3); font-size: 12.5px; transition: box-shadow .15s, color .15s; }
+.cslot:hover { color: var(--ink); box-shadow: inset 0 0 0 1px var(--rule-3); }
+.cslot.on { color: var(--ink); box-shadow: inset 0 0 0 1.5px var(--ink); }
+.cdot { width: 14px; height: 14px; border-radius: 2px; background: var(--c); box-shadow: inset 0 0 0 1px rgba(255, 255, 255, .14); }
+.cpick { display: flex; align-items: center; gap: 12px; margin: 12px 0 10px; }
+.cbig { flex: none; width: 40px; height: 40px; border-radius: 3px; background: var(--c); box-shadow: inset 0 0 0 1px rgba(255, 255, 255, .14); }
+.cbars { flex: 1; display: flex; flex-direction: column; gap: 10px; }
+.cbar { width: 100%; height: 14px; margin: 0; appearance: none; background: transparent; cursor: pointer; }
+.cbar::-webkit-slider-runnable-track { height: 10px; border-radius: 2px; box-shadow: inset 0 0 0 1px rgba(255, 255, 255, .1); }
+.cbar.hue::-webkit-slider-runnable-track { background: linear-gradient(to right, #f00, #ff0 16.7%, #0f0 33.3%, #0ff 50%, #00f 66.7%, #f0f 83.3%, #f00); }
+.cbar.sat::-webkit-slider-runnable-track { background: linear-gradient(to right, #fff, var(--hue, #f00)); }
+.cbar::-webkit-slider-thumb { appearance: none; width: 8px; height: 16px; margin-top: -3px; border-radius: 2px; background: var(--ink); box-shadow: 0 0 0 1.5px var(--ground), 0 1px 3px rgba(0, 0, 0, .6); }
 .fxcolor:not(:first-child) { margin-top: 14px; }
 .fxcolor + .swatches { margin-top: 8px; }
 .fxsingle { margin-top: 10px; }

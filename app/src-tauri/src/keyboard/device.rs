@@ -150,6 +150,8 @@ struct Worker {
     save: bool,
     /// NK65: lighting values last read from or written to the board.
     via_values: BTreeMap<u8, [u8; 2]>,
+    /// NK65 on kit's firmware 4+: second color and background level, as on the board.
+    kit_colors: Option<[u8; 3]>,
     /// NK65: the raw macro buffer as on the board.
     macro_buffer: Vec<u8>,
     /// NK65: a kit effect playing, the key press count it last saw and the
@@ -178,6 +180,7 @@ impl Worker {
             dirty: false,
             save: false,
             via_values: BTreeMap::new(),
+            kit_colors: None,
             macro_buffer: vec![],
             anim: None,
             presses: 0,
@@ -311,6 +314,7 @@ impl Worker {
         self.set_anim(None);
         self.dev = None;
         self.via_values.clear();
+        self.kit_colors = None;
         self.status = Status { error, ..Status::default() };
         self.next_open = Instant::now() + OPEN_RETRY;
         if self.desired.is_some() {
@@ -556,17 +560,28 @@ impl Worker {
                 self.via_values.insert(value as u8, v);
             }
         }
+        if self.kit_colors_supported() {
+            self.kit_colors = self.with_via(|b| b.kit_colors());
+        }
+    }
+
+    fn kit_colors_supported(&self) -> bool {
+        self.status.kit_firmware.is_some_and(|v| v >= KIT_COLORS_FROM)
     }
 
     fn apply_via(&mut self) {
         self.dirty = false;
         let Some((p, _)) = self.desired.clone() else { return };
         let wrote = self.write_via(&p);
+        let colors = self.write_kit_colors(&p);
         let kit = anim::is_kit(p.effect);
         // A kit effect's base may already be on the board while EEPROM holds another preset.
-        if (wrote || kit) && self.save {
+        if (wrote || colors || kit) && self.save {
             self.save = false;
             let _ = self.with_via(|b| b.save_lighting());
+            if colors || (kit && self.kit_colors_supported()) {
+                let _ = self.with_via(|b| b.save_kit_colors());
+            }
         }
         self.set_anim(kit.then(|| Anim::new(&p, Instant::now())));
     }
@@ -588,6 +603,23 @@ impl Worker {
             }
         }
         wrote
+    }
+
+    /// kit's firmware 4+: the second color and background level its effects use. True if sent.
+    fn write_kit_colors(&mut self, p: &Preset) -> bool {
+        if !self.kit_colors_supported() || self.lighting_kind() != Some(via::Lighting::RgbMatrix) {
+            return false;
+        }
+        let [h, s] = to_hue_sat(parse_color(&p.color2).unwrap_or([255, 255, 255]));
+        let want = [h, s, (p.background.min(100) as u16 * 255 / 100) as u8];
+        if self.kit_colors == Some(want) {
+            return false;
+        }
+        let sent = self.with_via(|b| b.set_kit_colors(want)).is_some();
+        if sent {
+            self.kit_colors = Some(want);
+        }
+        sent
     }
 
     /// Start or stop a kit effect, with the key counting and sound meter it needs.
@@ -859,6 +891,9 @@ fn via_target(kind: via::Lighting, p: &Preset, kit_first: Option<u8>) -> Vec<(vi
 }
 
 const ALPHAS_MODS: u8 = 2;
+
+/// kit's firmware version that has a second color and background level.
+const KIT_COLORS_FROM: u8 = 4;
 
 /// RGB matrix effects that run through the rainbow by themselves: the cycles,
 /// beacons and pinwheels (12-22), Typing heatmap (31), Splash and Multi-splash

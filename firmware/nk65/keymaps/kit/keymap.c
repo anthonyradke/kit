@@ -2,6 +2,7 @@
 // small VIA channel that tells kit which effects this firmware has.
 // SPDX-License-Identifier: GPL-2.0-or-later
 #include QMK_KEYBOARD_H
+#include <math.h>
 
 const uint16_t PROGMEM keymaps[][MATRIX_ROWS][MATRIX_COLS] = {
 [0] = LAYOUT_65_ansi(
@@ -37,9 +38,17 @@ const uint16_t PROGMEM keymaps[][MATRIX_ROWS][MATRIX_COLS] = {
 //  get 0x6B ('k'): [firmware version, number of kit effects, first kit effect number,
 //                   PCB pins that have seen a key press (bit 0 v1, bit 1 v1.4; from version 2)]
 //  set 0x62 ('b'): restart into the bootloader, so kit can offer flashing without a key combo
-#define KIT_FIRMWARE_VERSION 3
+//  get/set 0x63 ('c'): [second color hue, saturation, background level] for kit's
+//                   effects (from version 4); save stores it in the user EEPROM word
+#define KIT_FIRMWARE_VERSION 4
 #define KIT_VALUE_INFO 0x6B
 #define KIT_VALUE_BOOTLOADER 0x62
+#define KIT_VALUE_COLORS 0x63
+
+// Read by kit's effects (rgb_matrix_user.inc).
+uint8_t kit_color2[2] = {0, 0};
+uint8_t kit_bg        = 0;
+uint8_t kit_curve[256];
 
 static bool kit_jump = false;
 extern uint8_t kit_pcb_seen; // matrix.c
@@ -52,6 +61,22 @@ void via_custom_value_command_kb(uint8_t *data, uint8_t length) {
             data[4] = RGB_MATRIX_EFFECT_MAX - RGB_MATRIX_CUSTOM_KIT_RIPPLE;
             data[5] = RGB_MATRIX_CUSTOM_KIT_RIPPLE;
             data[6] = kit_pcb_seen;
+            return;
+        }
+        if (data[0] == id_custom_get_value && data[2] == KIT_VALUE_COLORS) {
+            data[3] = kit_color2[0];
+            data[4] = kit_color2[1];
+            data[5] = kit_bg;
+            return;
+        }
+        if (data[0] == id_custom_set_value && data[2] == KIT_VALUE_COLORS) {
+            kit_color2[0] = data[3];
+            kit_color2[1] = data[4];
+            kit_bg        = data[5];
+            return;
+        }
+        if (data[0] == id_custom_save) {
+            eeconfig_update_user(kit_color2[0] | (uint32_t)kit_color2[1] << 8 | (uint32_t)kit_bg << 16);
             return;
         }
         if (data[0] == id_custom_set_value && data[2] == KIT_VALUE_BOOTLOADER) {
@@ -71,7 +96,28 @@ static const uint8_t kit_mods[][2] = {
     {4, 0}, {4, 1}, {4, 2}, {4, 9}, {4, 10}, {4, 11}, {4, 12}, {4, 13}, {4, 14},
 };
 
+// Brightness as the eye sees it (CIE 1931 lightness), so 50% looks half as
+// bright and fades glide out. Unlike QMK's own table, the lowest steps round
+// down to fully off instead of a faint glow (from version 4).
+static void kit_make_curve(void) {
+    for (uint16_t v = 0; v < 256; v++) {
+        float l = v * 100.0f / 255.0f;
+        float y = l <= 8.0f ? l / 903.3f : powf((l + 16.0f) / 116.0f, 3.0f);
+        kit_curve[v] = (uint8_t)(y * 255.0f + 0.5f);
+    }
+}
+
+rgb_t rgb_matrix_hsv_to_rgb(hsv_t hsv) {
+    hsv.v = kit_curve[hsv.v];
+    return hsv_to_rgb_nocie(hsv);
+}
+
 void keyboard_post_init_user(void) {
+    kit_make_curve();
+    uint32_t saved = eeconfig_read_user();
+    kit_color2[0]  = saved & 0xFF;
+    kit_color2[1]  = saved >> 8 & 0xFF;
+    kit_bg         = saved >> 16 & 0xFF;
     for (uint8_t i = 0; i < sizeof(kit_mods) / sizeof(kit_mods[0]); i++) {
         uint8_t led = g_led_config.matrix_co[kit_mods[i][0]][kit_mods[i][1]];
         if (led != NO_LED) g_led_config.flags[led] |= LED_FLAG_MODIFIER;
