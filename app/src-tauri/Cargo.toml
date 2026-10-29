@@ -1,6 +1,6 @@
 [package]
 name = "kit"
-version = "0.4.1"
+version = "0.5.0"
 description = "Lightweight G HUB, SteelSeries GG and VIA replacement for a PRO X Superlight, an Arctis Nova 5 and an NK65 or PRO X TKL"
 edition.workspace = true
 license.workspace = true
