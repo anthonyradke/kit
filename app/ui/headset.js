@@ -8,7 +8,7 @@ const F_MIN = 20;
 const F_MAX = 20000;
 const DB_RANGE = 12; // graph shows ±12 dB
 const SAMPLE_RATE = 48000;
-const BASS_FREQ = 100; // corner of the bass slider's low shelf
+const BASS_FREQ = 60; // corner of the bass slider's low shelf
 const FILTERS = [
   ["peaking", "Peak", "PK"],
   ["lowShelf", "Low shelf", "LS"],

@@ -111,6 +111,7 @@ pub fn update_config(app: &AppHandle, mut config: Config) {
         let mut core = shared.core.lock().unwrap();
         // Only `activate` switches presets, so a save racing a tray click can't undo it.
         config.active = core.active.clone();
+        config.seeds = core.seeds;
         config.normalize();
         let menu_changed = tray_entries(&core) != tray_entries(&config) || core.mic.denoise != config.mic.denoise;
         let keep_default_on = config.keep_default && !core.keep_default;

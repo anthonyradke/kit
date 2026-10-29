@@ -16,6 +16,9 @@ pub struct Config {
     /// Make the Nova 5 the Windows default output and input whenever it
     /// (re)appears, so a reconnect never leaves sound on the wrong device.
     pub keep_default: bool,
+    /// `SEED_VERSION` the built-in presets in this file were last upgraded to.
+    #[serde(default)]
+    pub seeds: u32,
 }
 
 /// Settings stored on the headset. Defaults match what SteelSeries GG had set.
@@ -82,6 +85,7 @@ impl Default for Config {
             headset: HeadsetSettings::default(),
             mic: MicSettings::default(),
             keep_default: true,
+            seeds: SEED_VERSION,
         }
     }
 }
@@ -125,8 +129,20 @@ fn shelf(filter: Filter, freq: u16, gain: f32) -> Band {
     Band { enabled: true, filter, freq, gain, q: 0.707 }
 }
 
+/// Bumped whenever the built-in presets change; see `Config::upgrade_presets`.
+const SEED_VERSION: u32 = 1;
+
 /// Flat, the user's two Sonar game presets converted to headset bands, and a
-/// few purpose-built ones. Boosts stay near +5 dB: the headset has no preamp.
+/// few purpose-built ones.
+///
+/// Two facts shape every curve. The headset has no preamp, so a boost is
+/// extra level on top of music that is already mastered near full scale: big
+/// boosts clip or trip the volume limiter. Every preset here stays at or below
+/// +3 dB and gets the rest of its tilt by cutting. And the Nova 5 is already
+/// bass heavy: reviews measure a ~+4.5 dB high-bass peak around 80 Hz with
+/// less below 60 Hz and a low-mid dip after it. Boosting that peak again is
+/// what makes bass boomy and muffled, so the bass presets cut 80-100 Hz and
+/// add their low end under 60 Hz instead, turning the peak into a clean shelf.
 fn seed_presets() -> Vec<Preset> {
     let pad = |mut bands: Vec<Band>| {
         bands.resize(arctis::BANDS, Band::default());
@@ -135,17 +151,27 @@ fn seed_presets() -> Vec<Preset> {
     vec![
         Preset { id: "flat".into(), name: "Flat".into(), bands: flat_bands() },
         Preset {
+            // The user's Sonar preset: deep bass, a narrow 600 Hz lift and
+            // extra air, trimmed to fit without a preamp.
             id: "main".into(),
             name: "Main".into(),
             bands: pad(vec![
-                peak(55, 4.0, 0.707),
-                peak(100, 3.0, 0.707),
-                peak(600, 4.0, 4.0),
-                peak(5000, 2.0, 0.707),
-                peak(8000, 3.0, 0.707),
-                peak(12000, 3.0, 0.707),
-                // Sonar's "bass boost" at 1.5.
-                Band { enabled: true, filter: Filter::LowShelf, freq: 80, gain: 1.5, q: 0.707 },
+                shelf(Filter::LowShelf, 55, 3.0),
+                peak(90, -2.0, 1.0),
+                peak(600, 2.5, 4.0),
+                peak(5000, 1.5, 0.707),
+                shelf(Filter::HighShelf, 9000, 2.0),
+            ]),
+        },
+        Preset {
+            // Everyday listening: the 80 Hz boom flattened into an even +2 dB
+            // below 100 Hz, the low-mid dip filled, nothing else touched.
+            id: "balanced".into(),
+            name: "Balanced".into(),
+            bands: pad(vec![
+                shelf(Filter::LowShelf, 45, 2.5),
+                peak(85, -3.0, 1.0),
+                peak(300, 1.5, 1.0),
             ]),
         },
         Preset {
@@ -170,9 +196,9 @@ fn seed_presets() -> Vec<Preset> {
             bands: pad(vec![
                 shelf(Filter::LowShelf, 120, -4.0),
                 peak(250, -2.0, 1.0),
-                peak(2000, 2.0, 1.2),
-                peak(3500, 4.0, 1.4),
-                peak(6000, 2.0, 1.4),
+                peak(2000, 1.5, 1.2),
+                peak(3500, 3.0, 1.4),
+                peak(6000, 1.5, 1.4),
             ]),
         },
         Preset {
@@ -189,30 +215,31 @@ fn seed_presets() -> Vec<Preset> {
             ]),
         },
         Preset {
-            // Music: a gentle bass shelf, otherwise close to neutral.
+            // Music: a little more body in the upper bass and low mids,
+            // softer upper treble.
             id: "warm".into(),
             name: "Warm".into(),
             bands: pad(vec![
-                shelf(Filter::LowShelf, 105, 4.5),
-                peak(400, -1.0, 1.0),
-                peak(2500, 1.0, 1.4),
+                shelf(Filter::LowShelf, 60, 2.0),
+                peak(85, -1.5, 1.2),
+                peak(250, 1.5, 0.9),
                 peak(6000, -1.5, 2.0),
                 shelf(Filter::HighShelf, 10000, 1.0),
             ]),
         },
         Preset {
-            // Music with much more low end than Warm (about +8 dB from 25-100 Hz),
-            // with the low mids cut so it stays clean and a vocal lift so the mix
-            // isn't buried.
+            // Music with a lot of clean low end: an even ~+7 dB shelf from 20
+            // to 80 Hz over the mids with no boom peak. Most of it comes from
+            // cutting everything above 160 Hz, so turn the volume up a notch.
             id: "bass-music".into(),
             name: "Bass Music".into(),
             bands: pad(vec![
-                shelf(Filter::LowShelf, 100, 6.5),
-                peak(50, 2.5, 1.2),
-                peak(300, -2.0, 1.0),
-                peak(2500, 1.5, 1.2),
-                peak(6500, -1.0, 2.0),
-                shelf(Filter::HighShelf, 10000, 1.5),
+                shelf(Filter::LowShelf, 45, 3.0),
+                peak(90, -1.5, 1.2),
+                shelf(Filter::HighShelf, 160, -4.0),
+                peak(350, 1.0, 1.0),
+                peak(3000, 1.0, 1.0),
+                shelf(Filter::HighShelf, 10000, 1.0),
             ]),
         },
         Preset {
@@ -220,10 +247,10 @@ fn seed_presets() -> Vec<Preset> {
             id: "cinema".into(),
             name: "Cinema".into(),
             bands: pad(vec![
-                shelf(Filter::LowShelf, 70, 5.0),
-                peak(250, -1.5, 1.0),
-                peak(2000, 2.5, 1.0),
-                shelf(Filter::HighShelf, 9000, 2.0),
+                shelf(Filter::LowShelf, 45, 3.0),
+                peak(90, -1.5, 1.0),
+                peak(2000, 2.0, 1.0),
+                shelf(Filter::HighShelf, 9000, 1.5),
             ]),
         },
         Preset {
@@ -231,12 +258,67 @@ fn seed_presets() -> Vec<Preset> {
             id: "late-night".into(),
             name: "Late night".into(),
             bands: pad(vec![
-                shelf(Filter::LowShelf, 100, 5.0),
+                shelf(Filter::LowShelf, 60, 3.0),
+                peak(90, -1.0, 1.0),
                 peak(1000, -1.0, 0.707),
-                shelf(Filter::HighShelf, 8000, 3.5),
+                shelf(Filter::HighShelf, 8000, 3.0),
             ]),
         },
     ]
+}
+
+/// The built-in presets as `SEED_VERSION` 0 shipped them, for the ones that
+/// changed since. Those boosted up to +8.6 dB and stacked on the headset's
+/// own bass peak.
+fn seed_bands_v0(id: &str) -> Option<Vec<Band>> {
+    let bands = match id {
+        "main" => vec![
+            peak(55, 4.0, 0.707),
+            peak(100, 3.0, 0.707),
+            peak(600, 4.0, 4.0),
+            peak(5000, 2.0, 0.707),
+            peak(8000, 3.0, 0.707),
+            peak(12000, 3.0, 0.707),
+            shelf(Filter::LowShelf, 80, 1.5),
+        ],
+        "footsteps" => vec![
+            shelf(Filter::LowShelf, 120, -4.0),
+            peak(250, -2.0, 1.0),
+            peak(2000, 2.0, 1.2),
+            peak(3500, 4.0, 1.4),
+            peak(6000, 2.0, 1.4),
+        ],
+        "warm" => vec![
+            shelf(Filter::LowShelf, 105, 4.5),
+            peak(400, -1.0, 1.0),
+            peak(2500, 1.0, 1.4),
+            peak(6000, -1.5, 2.0),
+            shelf(Filter::HighShelf, 10000, 1.0),
+        ],
+        "bass-music" => vec![
+            shelf(Filter::LowShelf, 100, 6.5),
+            peak(50, 2.5, 1.2),
+            peak(300, -2.0, 1.0),
+            peak(2500, 1.5, 1.2),
+            peak(6500, -1.0, 2.0),
+            shelf(Filter::HighShelf, 10000, 1.5),
+        ],
+        "cinema" => vec![
+            shelf(Filter::LowShelf, 70, 5.0),
+            peak(250, -1.5, 1.0),
+            peak(2000, 2.5, 1.0),
+            shelf(Filter::HighShelf, 9000, 2.0),
+        ],
+        "late-night" => vec![
+            shelf(Filter::LowShelf, 100, 5.0),
+            peak(1000, -1.0, 0.707),
+            shelf(Filter::HighShelf, 8000, 3.5),
+        ],
+        _ => return None,
+    };
+    let mut bands = bands;
+    bands.resize(arctis::BANDS, Band::default());
+    Some(bands)
 }
 
 pub fn new_id() -> String {
@@ -259,7 +341,38 @@ impl Config {
             },
         };
         config.normalize();
+        if config.upgrade_presets() {
+            let _ = config.save(path);
+        }
         config
+    }
+
+    /// Bring built-in presets from an older release up to date. A built-in
+    /// the user edited keeps their bands as a "(yours)" copy next to it.
+    /// Returns whether anything changed.
+    pub fn upgrade_presets(&mut self) -> bool {
+        if self.seeds >= SEED_VERSION {
+            return false;
+        }
+        let seeds = seed_presets();
+        let mut kept = Vec::new();
+        for p in &mut self.presets {
+            let (Some(seed), Some(old)) = (seeds.iter().find(|s| s.id == p.id), seed_bands_v0(&p.id)) else {
+                continue;
+            };
+            if p.bands != old {
+                kept.push(Preset { id: new_id() + &p.id, name: format!("{} (yours)", p.name), bands: p.bands.clone() });
+            }
+            p.bands = seed.bands.clone();
+        }
+        self.presets.extend(kept);
+        // Balanced is new in version 1; it goes after Main like in the seeds.
+        if !self.presets.iter().any(|p| p.id == "balanced") {
+            let at = self.presets.iter().position(|p| p.id == "main").map_or(self.presets.len(), |i| i + 1);
+            self.presets.insert(at, seeds.into_iter().find(|s| s.id == "balanced").unwrap());
+        }
+        self.seeds = SEED_VERSION;
+        true
     }
 
     pub fn save(&self, path: &Path) -> std::io::Result<()> {
@@ -305,8 +418,9 @@ impl Config {
     }
 }
 
-/// Corner and slope of the bass slider's shelf.
-pub const BASS_FREQ: u16 = 100;
+/// Corner and slope of the bass slider's shelf. Below the headset's own
+/// 80 Hz peak, so more bass means more rumble rather than more boom.
+pub const BASS_FREQ: u16 = 60;
 const BASS_Q: f32 = 0.707;
 
 impl Preset {
@@ -369,6 +483,43 @@ mod tests {
             assert_eq!(p.bands.len(), arctis::BANDS);
         }
         assert_eq!(c.active_preset().name, "Main");
+    }
+
+    #[test]
+    fn seeds_leave_headroom() {
+        // Without a preamp a boost is level on top of full-scale music.
+        for p in seed_presets() {
+            for b in p.bands.iter().filter(|b| b.enabled) {
+                assert!(b.gain <= 3.0, "{} boosts {} dB at {} Hz", p.name, b.gain, b.freq);
+            }
+        }
+    }
+
+    #[test]
+    fn upgrade_replaces_old_seeds_and_keeps_edits() {
+        let old = |id: &str, name: &str| Preset { id: id.into(), name: name.into(), bands: seed_bands_v0(id).unwrap() };
+        let mut edited = old("warm", "Warm");
+        edited.bands[0].gain = 2.0;
+        let mut c = Config {
+            presets: vec![old("main", "Main"), edited.clone(), old("cinema", "Cinema")],
+            active: "main".into(),
+            seeds: 0,
+            ..Config::default()
+        };
+        c.normalize();
+        assert!(c.upgrade_presets());
+        let seeds = seed_presets();
+        let seed = |id: &str| seeds.iter().find(|s| s.id == id).unwrap().bands.clone();
+        let ids: Vec<_> = c.presets.iter().map(|p| p.id.as_str()).collect();
+        assert_eq!(&ids[..4], ["main", "balanced", "warm", "cinema"]);
+        assert_eq!(c.presets[0].bands, seed("main"));
+        assert_eq!(c.presets[2].bands, seed("warm"));
+        assert_eq!(c.presets[4].name, "Warm (yours)");
+        assert_eq!(c.presets[4].bands, edited.bands);
+        assert!(!c.upgrade_presets());
+
+        let mut fresh = Config::default();
+        assert!(!fresh.upgrade_presets());
     }
 
     #[test]
