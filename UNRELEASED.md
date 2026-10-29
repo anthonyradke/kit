@@ -7,3 +7,4 @@ this list into the release notes and empties it for the next batch.
 - New Balanced preset: the headset's bass peak flattened into an even lift, for everyday listening.
 - The Bass slider's shelf now starts at 60 Hz, below the headset's 80 Hz peak, so turning it up adds rumble instead of boom.
 - An update button in the title bar checks GitHub on demand and turns into an Update button when a new version is waiting.
+- Themes: pick one in Settings. Graphite (the original), Field, Phosphor and Blueprint, plus plain Dark and Light.

@@ -128,7 +128,7 @@ function mouseSvg(p, dpi, rate, live) {
   return `<svg class="mouse-svg" viewBox="-310 -64 1100 874" role="img" aria-label="PRO X Superlight, top view">
     <defs>
       <filter id="drop" x="-30%" y="-20%" width="160%" height="150%">
-        <feDropShadow dx="0" dy="22" stdDeviation="22" flood-color="#000" flood-opacity="0.6" />
+        <feDropShadow dx="0" dy="22" stdDeviation="22" flood-color="#000" style="flood-opacity: var(--shadow-a)" />
       </filter>
     </defs>
     <image href="${productImg("mouse", "top")}" x="${i.x}" y="${i.y}" width="${i.w}" height="${i.h}" preserveAspectRatio="xMidYMid meet" filter="url(#drop)" />

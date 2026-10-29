@@ -373,6 +373,9 @@ function settingsPage() {
       <label class="switch"><input type="checkbox" data-field="autostart" ${autostart ? "checked" : ""} aria-label="Launch at startup" /><span></span></label>
     </div>
 
+    <h2 class="h2">Theme</h2>
+    ${themePicker()}
+
     <h2 class="h2">Devices</h2>
     <div class="row col">
       ${deviceRow("Mouse", PRODUCTS.mouse.name, A.mouse && cap(A.mouse.color))}
@@ -396,6 +399,32 @@ function settingsPage() {
     <h2 class="h2">About</h2>
     <p class="hint">Closing this window keeps kit running in the tray; use Quit in the tray menu to exit. Keep Logitech G HUB, SteelSeries GG and VIA closed: they fight kit for the same devices.</p>
   </div></div>`;
+}
+
+const THEMES = [
+  ["graphite", "Graphite", "Warm graphite and label ink"],
+  ["field", "Field", "Olive drab and stencil cream"],
+  ["phosphor", "Phosphor", "Oscilloscope green on a dark tube"],
+  ["blueprint", "Blueprint", "White lines on Prussian blue"],
+  ["dark", "Dark", "Plain neutral dark"],
+  ["light", "Light", "Plain neutral light"],
+];
+
+// Each card's sample sets data-theme, so it draws a small plate in that theme's own colours.
+function themePicker() {
+  const now = document.documentElement.dataset.theme;
+  const card = ([id, name, about]) => `<button class="theme-card${id === now ? " on" : ""}" data-act="set-theme" data-id="${id}" aria-pressed="${id === now}">
+      <span class="theme-sample" data-theme="${id}">
+        <span class="ts-bar"><b>kit</b></span>
+        <span class="plate ts-plate">
+          <span class="cell"><span class="cap">DPI</span><span class="val">1600</span></span>
+          <span class="cell r-end"><span class="cap">Status</span><span class="val text"><span class="live-mark">On</span></span></span>
+        </span>
+      </span>
+      <span class="theme-name">${name}</span>
+      <span class="theme-about">${about}</span>
+    </button>`;
+  return `<div class="row col"><div class="themes">${THEMES.map(card).join("")}</div></div>`;
 }
 
 function updateRow() {
@@ -436,6 +465,11 @@ Object.assign(handlers, {
   },
   go(el) {
     go(el.dataset.page, el.dataset.tab);
+  },
+  "set-theme"(el) {
+    document.documentElement.dataset.theme = el.dataset.id;
+    localStorage.setItem("kit.theme", el.dataset.id);
+    render();
   },
   "mouse-tab"(el) {
     go("mouse", el.dataset.tab);

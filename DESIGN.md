@@ -173,6 +173,9 @@ A near-monochrome warm graphite world with one signal colour and three state col
 - **Fault Red** (`fault-red`): low battery, destructive buttons and confirmations, delete hovers.
 - **Record Red** (`record-red`): the macro recording dot and recording bar only.
 
+### Themes
+Graphite above is the default. Settings offers five more that keep the same structure and only swap the tokens (`app/ui/style.css`, `[data-theme]`): **Field** (olive drab, stencil cream, signal orange live), **Phosphor** (oscilloscope green ink, amber live), **Blueprint** (white on Prussian blue, yellow live), and plain **Dark** and **Light** (green live). Each theme picks its own live colour, but it still means only "live on the hardware right now" and stays distinct from its warn colour. Selection, floor light and state text shades are mixed from the tokens, so a new theme only sets the base list.
+
 ### Named Rules
 **The One Meaning Rule.** Safety yellow means "live on the hardware right now" and is never used for selection, emphasis, hover, focus, links or decoration. If a yellow element would still be yellow with the device unplugged, it is wrong.
 
