@@ -35,6 +35,8 @@ const icons = {
   shield: '<svg viewBox="0 0 24 24"><path d="M12 3l7 3v6c0 4.5-3 7.5-7 9-4-1.5-7-4.5-7-9V6z"/></svg>',
   check: '<svg viewBox="0 0 24 24"><path d="M5 12.5l4.5 4.5L19 7.5"/></svg>',
   brush: '<svg viewBox="0 0 24 24"><path d="M14.5 4.5l5 5-8 8-5-5zM6.5 12.5L4 20l7.5-2.5"/></svg>',
+  update: '<svg viewBox="0 0 24 24"><path d="M19.8 12A7.8 7.8 0 1 1 17.4 6.4"/><path d="M18.3 2.8V7h-4.2"/></svg>',
+  download: '<svg viewBox="0 0 24 24"><path d="M12 4v11M7 10.5l5 5 5-5M5 20h14"/></svg>',
   eraser: '<svg viewBox="0 0 24 24"><path d="M8 20h12M5 15l9-9 5 5-9 9H8z"/></svg>',
 };
 

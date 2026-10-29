@@ -31,6 +31,7 @@ function go(page, tab) {
 function render() {
   if (!M || !H || !K || !A) return;
   document.body.classList.toggle("in-setup", !A.setupDone);
+  renderUpdate();
   if (!A.setupDone) {
     morph($("#rail"), "");
     morph($("#tb-title"), "Setup");
@@ -67,6 +68,37 @@ function renderTitle() {
   morph($("#tb-title"), p ? esc(p.title()) : view.page === "settings" ? "Settings" : "");
   const tabs = p ? p.tabs.map(([id, label]) => `<button class="tab ${view[view.page] === id ? "on" : ""}" data-act="${view.page}-tab" data-tab="${id}">${label}</button>`).join("") : "";
   morph($("#tabs"), tabs);
+}
+
+// Always in the title bar: a quiet icon that checks for updates, which turns into a labelled
+// button when a new version is waiting, and shows the download while it installs.
+function renderUpdate() {
+  const el = $("#upd");
+  if (!upd.current) {
+    el.hidden = true;
+    return;
+  }
+  el.hidden = false;
+  let cls = "", title, html = icons.update;
+  if (upd.progress != null) {
+    cls = "busy";
+    title = "kit restarts on its own when it's done.";
+    html = `${icons.update}<span>Updating ${upd.progress}%</span>`;
+  } else if (upd.available) {
+    cls = "ready";
+    title = `Update to kit ${upd.available} and restart. Your settings stay.${upd.notes ? `\n\n${upd.notes}` : ""}`;
+    html = `${icons.download}<span>Update</span>`;
+  } else if (upd.checking) {
+    cls = "spin";
+    title = "Checking for updates…";
+  } else {
+    title = `Check for updates (kit ${upd.current})`;
+  }
+  el.className = `tb-upd ${cls}`;
+  el.disabled = upd.progress != null;
+  el.title = title;
+  el.setAttribute("aria-label", title);
+  morph(el, html);
 }
 
 function renderRail() {
@@ -416,6 +448,15 @@ Object.assign(handlers, {
     render();
     upd = await invoke("check_update");
     render();
+  },
+  // The title bar's update button: installs a waiting update, otherwise checks GitHub now.
+  async update() {
+    if (upd.progress != null || upd.checking) return;
+    if (upd.available) return handlers["install-update"]();
+    await handlers["check-update"]();
+    if (upd.available) toast(`kit ${upd.available} is available`);
+    else if (upd.error) toast(`Couldn't check for updates: ${upd.error}`);
+    else toast("kit is up to date");
   },
   async "install-update"() {
     try {

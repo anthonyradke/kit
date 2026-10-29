@@ -92,6 +92,21 @@ svg { width: 16px; height: 16px; fill: none; stroke: currentColor; stroke-width:
 .tab.on { color: var(--ink); }
 .tab.on::after { content: ""; position: absolute; left: 14px; right: 14px; bottom: -1px; height: 2px; background: var(--ink); }
 .tb-spacer { flex: 1; }
+.tb-upd {
+  align-self: center; display: flex; align-items: center; justify-content: center; gap: 6px;
+  height: 26px; min-width: 26px; margin-right: 8px; padding: 0 6px; border-radius: 3px;
+  color: var(--ink-3); font-size: 12.5px; font-weight: 600; white-space: nowrap; transition: background .12s, color .12s;
+}
+.tb-upd[hidden] { display: none; }
+.tb-upd svg { width: 14px; height: 14px; }
+.tb-upd:hover:not(:disabled) { background: var(--raise-2); color: var(--ink); }
+.tb-upd.ready, .tb-upd.busy { padding: 0 11px 0 9px; }
+.tb-upd.ready { background: var(--ink); color: var(--ground); }
+.tb-upd.ready:hover { background: #fff; color: var(--ground); }
+.tb-upd.busy { color: var(--ink-2); box-shadow: inset 0 0 0 1px var(--rule-3); }
+.tb-upd.busy:disabled { opacity: 1; }
+.tb-upd.spin svg, .tb-upd.busy svg { animation: upd-spin .9s linear infinite; }
+@keyframes upd-spin { to { transform: rotate(360deg); } }
 .win-controls { display: flex; }
 .win-btn { width: 46px; display: grid; place-items: center; color: var(--ink-3); transition: background .12s, color .12s; }
 .win-btn svg { width: 11px; height: 11px; stroke-width: 1.3; }
@@ -691,5 +706,6 @@ body.in-setup .rail { display: none; }
 }
 
 @media (prefers-reduced-motion: reduce) {
+  .tb-upd svg { animation: none !important; }
   .leds .kkey.lit { animation: none !important; }
 }
