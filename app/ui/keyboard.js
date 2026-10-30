@@ -1,15 +1,17 @@
 "use strict";
 // Keyboard pages: Keys (remap and bind), Lighting (presets, effects, per-key paint), Device.
-// Two boards: the NK65 (VIA firmware: keymap, macros and lighting live on the board)
-// and the PRO X TKL LIGHTSPEED (kit drives its lighting; kit's input hook handles its keys).
+// Two boards: the NK65 (VIA firmware: macros, lighting and the active profile's keymap
+// live on the board, kit keeps every profile) and the PRO X TKL LIGHTSPEED (kit drives its lighting; kit's input hook handles its keys).
 
 let K = null; // backend state: { config, status, configPath }
-const kv = { layer: 0, key: null, pick: "keys", listening: false, brush: "#ffffff", erase: false, painting: false, macroMode: "board", fxGroup: null, colorSlot: "color1" };
+const kv = { profileId: null, layer: 0, key: null, pick: "keys", listening: false, brush: "#ffffff", erase: false, painting: false, macroMode: "board", fxGroup: null, colorSlot: "color1" };
 
 const kcfg = () => K.config;
 const kst = () => K.status;
 const isNk = () => (A.keyboard?.model || "nk65") === "nk65";
 const lightPreset = () => kcfg().presets.find((p) => p.id === kcfg().active) || kcfg().presets[0];
+const activeKeyProfile = () => kcfg().profiles.find((p) => p.id === kcfg().activeProfile) || kcfg().profiles[0];
+const keyProfile = () => kcfg().profiles.find((p) => p.id === kv.profileId) || activeKeyProfile();
 const KIT_KEYS = 12;
 const F13 = 0x68;
 
@@ -72,17 +74,17 @@ const PLAIN = { " ": 0x2c, "\n": 0x28, "\t": 0x2b, "-": 0x2d, "=": 0x2e, "[": 0x
 // VIA protocol 12 (QMK 0.19+) renumbered layers, macros and lighting keys.
 
 const v12 = () => (kst().protocol || 0) >= 12;
-// [name, picker heading, key sub-label, v12 base, older base]
+// [name, key sub-label, v12 base, older base]
 const LAYER_FNS = [
-  ["MO", "Hold for layer", "hold", 0x5220, 0x5100],
-  ["TG", "Toggle layer", "toggle", 0x5260, 0x5300],
-  ["TO", "Switch to layer", "switch", 0x5200, 0x5010],
-  ["DF", "Default layer", "default", 0x5240, 0x5200],
-  ["OSL", "Next key on layer", "one shot", 0x5280, 0x5400],
+  ["MO", "hold", 0x5220, 0x5100],
+  ["TG", "toggle", 0x5260, 0x5300],
+  ["TO", "switch", 0x5200, 0x5010],
+  ["DF", "default", 0x5240, 0x5200],
+  ["OSL", "one shot", 0x5280, 0x5400],
 ];
 const layerCode = (fn, n) => {
   const f = LAYER_FNS.find((x) => x[0] === fn);
-  return (v12() ? f[3] : f[4]) + n;
+  return (v12() ? f[2] : f[3]) + n;
 };
 const macroCode = (n) => (v12() ? 0x7700 : 0x5f12) + n;
 const customCode = (n) => (v12() ? 0x7e00 : 0x5f80) + n;
@@ -107,6 +109,7 @@ function kcInfo(code) {
   if (code === 1) return { text: "▽", sub: "Falls through", cls: "trns" };
   if (code <= 0xff) {
     const i = code - F13;
+    if (isNk() && i >= 0 && i < KIT_KEYS && kcfg().switchKeys[i]) return { text: switchName(kcfg().switchKeys[i]), sub: "profile", cls: "kitm" };
     if (isNk() && i >= 0 && i < KIT_KEYS && kcfg().kitKeys[i]) {
       const m = mcfg().macros.find((x) => x.id === kcfg().kitKeys[i]);
       return { text: m ? m.name : "Macro", sub: "kit macro", cls: "kitm" };
@@ -115,7 +118,8 @@ function kcInfo(code) {
   }
   if (code < 0x2000) return { text: USAGE[code & 0xff] || hex, sub: modNames(code >> 8), cls: "mod" };
   if (code >= 0x4000 && code < 0x5000) return { text: USAGE[code & 0xff] || hex, sub: `hold: layer ${(code >> 8) & 0xf}`, cls: "layer" };
-  for (const [fn, , sub, a, b] of LAYER_FNS) {
+  if (code === layerCode("MO", 1)) return { text: "Fn", sub: "", cls: "layer" };
+  for (const [fn, sub, a, b] of LAYER_FNS) {
     const base = v12() ? a : b;
     const span = v12() ? 0x20 : fn === "TO" ? 0x10 : 0x20;
     if (code >= base && code < base + span) return { text: `${fn} ${code - base}`, sub, cls: "layer" };
@@ -220,10 +224,17 @@ const layout = () => LAYOUT[isNk() ? "nk65" : "proxtkl"];
 // Per-key lighting zone of a HID usage on the PRO X TKL.
 const zoneOf = (usage) => (usage >= 0xe0 ? usage - 120 : usage - 3);
 
-function keycodeAt(layer, r, c) {
+function keycodeAt(layer, r, c, p = keyProfile()) {
   const s = kst();
-  return s.keymap[(layer * s.rows + r) * s.cols + c] ?? 0;
+  return p.keymap[(layer * s.rows + r) * s.cols + c] ?? 0;
 }
+
+const NEXT_PROFILE = "next";
+const switchName = (v) => (v === NEXT_PROFILE ? "Next profile" : kcfg().profiles.find((p) => p.id === v)?.name || "Profile");
+const layerName = (l) => (l === 0 ? "Base" : l === 1 ? "Fn" : `Layer ${l}`);
+// Base and Fn always; a higher layer only if something is on it.
+const shownLayers = () => Array.from({ length: kst().layers }, (_, l) => l).filter((l) => l < 2 || LAYOUT.nk65.keys.some((k) => keycodeAt(l, k.r, k.c) !== 1));
+const codeInUse = (code) => kcfg().profiles.some((p) => p.keymap.includes(code));
 
 // ---------- the keyboard drawing ----------
 // Keys are ruled cells like the rating plates; an LED color shows as a tint
@@ -263,7 +274,7 @@ function keyboardPlateCells() {
   const s = kst();
   const p = lightPreset();
   const cells = [keyStatusCell("k-status")];
-  cells.push(isNk() ? cell("k-layers", "Layers", s.layers ? s.layers : "—", { cls: s.layers ? "" : "dim" }) : battery("k-bat", s.connected ? s.battery : null, s.charging));
+  cells.push(isNk() ? cell("k-profile", "Profile", esc(activeKeyProfile().name), { cls: "text" }) : battery("k-bat", s.connected ? s.battery : null, s.charging));
   cells.push(cell("k-fx", "Effect", esc(fxOf(p).name), { cls: "text" }));
   cells.push(cell("k-bright", "Brightness", `${p.brightness}<small>%</small>`));
   cells.push(lightingCell("k-light"));
@@ -295,13 +306,18 @@ function keyboardMacroUses(id) {
   return out;
 }
 
-// "A (layer 1)" for every key holding `code`.
+// "A (Fn) · Games" for every key holding `code`, in any profile.
 function keysWithCode(code) {
   const s = kst();
   const out = [];
   if (!s.keymap.length) return out;
-  for (let l = 0; l < s.layers; l++) {
-    for (const k of LAYOUT.nk65.keys) if (keycodeAt(l, k.r, k.c) === code) out.push(`${USAGE[keycodeAt(0, k.r, k.c)] || k.id}${l ? ` (layer ${l})` : ""}`);
+  const many = kcfg().profiles.length > 1;
+  for (const p of kcfg().profiles) {
+    for (let l = 0; l < s.layers; l++) {
+      for (const k of LAYOUT.nk65.keys) {
+        if (keycodeAt(l, k.r, k.c, p) === code) out.push(`${USAGE[keycodeAt(0, k.r, k.c, p)] || k.id}${l ? ` (${layerName(l)})` : ""}${many ? ` · ${p.name}` : ""}`);
+      }
+    }
   }
   return out;
 }
@@ -312,45 +328,72 @@ function keysPage() {
   return isNk() ? nkKeysPage() : tklKeysPage();
 }
 
-function layerStrip() {
-  const n = kst().layers || 4;
-  const tabs = Array.from({ length: n }, (_, i) => `<button class="stab ${kv.layer === i ? "sel" : ""}" data-act="layer" data-v="${i}">${i ? `Layer ${i}` : "Base layer"}</button>`).join("");
-  return `<nav class="strip" aria-label="Layers">${tabs}</nav>`;
+function keyProfileStrip() {
+  const tabs = kcfg().profiles.map((p) => {
+    const cls = ["stab"];
+    if (p.id === keyProfile().id) cls.push("sel");
+    if (p.id === activeKeyProfile().id) cls.push(kst().connected ? "live" : "stored");
+    const title = p.id === activeKeyProfile().id ? ' title="Active profile"' : "";
+    return `<button class="${cls.join(" ")}" data-act="kprofile-open" data-id="${p.id}"${title}><span class="pdot"></span>${esc(p.name || "Untitled")}</button>`;
+  });
+  return `<nav class="strip" aria-label="Keyboard profiles">${tabs.join("")}<button class="tbtn" data-act="kprofile-new">${icons.plus}New profile</button></nav>`;
 }
 
 function nkKeysPage() {
   const s = kst();
+  const p = keyProfile();
   const sel = LAYOUT.nk65.keys.find((k) => k.id === kv.key);
-  const ready = s.connected && s.keymap.length;
+  const ready = s.connected && s.keymap.length && p.keymap.length;
+  const isActive = p.id === activeKeyProfile().id;
+  const layers = ready ? shownLayers() : [];
+  if (ready && !layers.includes(kv.layer)) kv.layer = 0;
+  const hint = !isActive ? "This profile is stored in kit. Your changes go on the keyboard when you activate it." : kv.layer ? "Keys showing ▽ do what they do on the Base keys. Hold Fn to reach these." : "Click a key, then pick what it does. Changes go on the keyboard right away and work on any computer.";
   const board = ready
     ? boardHtml((k, box) => {
         const info = kcInfo(keycodeAt(kv.layer, k.r, k.c));
         const cls = ["kkey", info.cls || "", k.id === kv.key ? "sel" : ""].join(" ");
         return `<button class="${cls}" style="${box}" data-act="key-pick" data-k="${k.id}" title="${esc(info.text)}${info.sub ? ` · ${esc(info.sub)}` : ""}"><span class="kl">${esc(info.text)}</span>${info.sub ? `<span class="ks">${esc(info.sub)}</span>` : ""}</button>`;
-      }, "", kv.layer ? "Keys showing ▽ fall through to the layer below. Hold a layer key (MO) on the base layer to reach this one." : "Click a key, then pick what it does. Changes are written to the keyboard right away and work on any computer.")
-    : `<div class="empty"><b>${s.present ? "The NK65 isn't answering" : "Plug in the NK65"}</b>${keyStatus().hint || "kit reads the keymap straight from the keyboard."}</div>`;
-  const kitUsed = kcfg().kitKeys.filter(Boolean).length;
+      }, "", hint)
+    : `<div class="empty"><b>${s.present ? "The NK65 isn't answering" : "Plug in the NK65"}</b>${keyStatus().hint || "kit needs the keyboard to edit its keys."}</div>`;
+  const kitUsed = KIT_KEYS - freeKitKeys().length;
+  const only = kcfg().profiles.length === 1;
+  const deleting = confirmDelete === p.id;
   const resetting = confirmDelete === `layer-${kv.layer}`;
   return `<div class="page devpage" data-key="kb-keys">
-    ${layerStrip()}
+    ${keyProfileStrip()}
     <div class="work">
       <section class="canvas">
-        <div class="canvas-head"><h1 class="h1 inline-h">${kv.layer ? `Layer ${kv.layer}` : "Base layer"}</h1>
-          <div class="pactions">${s.connected ? `<span class="live-mark">Stored on keyboard</span>` : ""}${ready ? `<button class="tbtn ${resetting ? "confirm" : ""}" data-act="layer-reset">${icons.reset}${resetting ? "Confirm reset" : "Reset layer"}</button>` : ""}</div></div>
+        <div class="canvas-head">
+          <input class="pname" value="${esc(p.name)}" data-field="kprofile-name" spellcheck="false" aria-label="Profile name" />
+          <div class="pactions">
+            ${isActive ? (s.connected ? `<span class="live-mark">Active on keyboard</span>` : `<span class="off-mark" title="Written when the keyboard connects">Active profile</span>`) : `<button class="btn" data-act="kprofile-activate">Activate</button>`}
+            <button class="tbtn" data-act="kprofile-duplicate">${icons.copy}Duplicate</button>
+            <button class="tbtn ${deleting ? "confirm" : "danger"}" data-act="kprofile-delete" ${only ? "disabled" : ""}>${icons.trash}${deleting ? "Confirm delete" : "Delete"}</button>
+          </div>
+        </div>
         ${plate([
           keyStatusCell("status"),
           cell("fw", "Firmware", s.kitFirmware ? `kit <small>v${s.kitFirmware}</small>` : s.protocol ? `VIA <small>v${s.protocol}</small>` : "—", { cls: s.protocol ? "" : "dim" }),
-          cell("kit", "kit-run macros", `${kitUsed}<small>of ${KIT_KEYS}</small>`),
+          cell("kit", "kit-run keys", `${kitUsed}<small>of ${KIT_KEYS}</small>`),
           cell("board", "Onboard macros", s.macros.length ? `${s.macros.filter((m) => m.length).length}<small>of ${s.macros.length}</small>` : "—", { cls: s.macros.length ? "" : "dim" }),
         ])}
+        ${ready ? `<div class="kbar"><div class="seg" role="tablist" aria-label="Keys">${layers.map((l) => `<button class="${kv.layer === l ? "on" : ""}" data-act="layer" data-v="${l}" role="tab" aria-selected="${kv.layer === l}">${layerName(l)}</button>`).join("")}</div><button class="tbtn ${resetting ? "confirm" : ""}" data-act="layer-reset">${icons.reset}${resetting ? "Confirm reset" : `Reset ${layerName(kv.layer)} keys`}</button></div>` : ""}
         ${board}
       </section>
-      <aside class="panel">${sel && ready ? nkKeyPanel(sel) : `<section class="sec"><div class="sec-title">No key selected</div><p class="hint">Click a key on the drawing.</p></section>`}</aside>
+      <aside class="panel">
+        <section class="sec">
+          <div class="sec-head"><span class="sec-title">Profile shortcut</span></div>
+          ${hotkeyField("kprofile", p.hotkey)}
+          ${errorsHtml()}
+          <p class="hint">Switch to this profile from anywhere, even in games.</p>
+        </section>
+        ${sel && ready ? nkKeyPanel(sel) : `<section class="sec"><div class="sec-title">No key selected</div><p class="hint">Click a key on the drawing.</p></section>`}
+      </aside>
     </div>
   </div>`;
 }
 
-const PICKS = [["keys", "Key"], ["media", "Media"], ["layers", "Layers"], ["macro", "Macro"], ["light", "Lighting"]];
+const PICKS = [["keys", "Key"], ["media", "Media"], ["profile", "Profile"], ["macro", "Macro"], ["light", "Lighting"]];
 
 function nkKeyPanel(k) {
   const code = keycodeAt(kv.layer, k.r, k.c);
@@ -370,15 +413,11 @@ function nkKeyPanel(k) {
       ${group("Editing", [0x29, 0x2a, 0x28, 0x2b, 0x2c, 0x39, 0x49, 0x4c], "")}
       ${group("Navigation", [0x4a, 0x4d, 0x4b, 0x4e, 0x52, 0x51, 0x50, 0x4f, 0x46, 0x47, 0x48, 0x65], "")}
       ${group("Modifiers", range(0xe0, 8), "")}
-      <div class="kopts">${opt(0, "Nothing")}${kv.layer ? opt(1, "Fall through", "▽") : ""}</div>`;
+      <div class="kopts">${opt(layerCode("MO", 1), "Fn", "hold")}${opt(0, "Nothing")}${kv.layer ? opt(1, "Fall through", "▽") : ""}</div>`;
   } else if (pick === "media") {
     body = `<div class="kopts">${MEDIA.map((c) => opt(c, USAGE[c])).join("")}</div>`;
-  } else if (pick === "layers") {
-    const n = kst().layers || 4;
-    body = LAYER_FNS.slice(0, 3)
-      .map(([fn, label]) => `<div class="cap kgroup">${label}</div><div class="kopts">${Array.from({ length: n }, (_, i) => opt(layerCode(fn, i), `${fn} ${i}`)).join("")}</div>`)
-      .join("");
-    body += `<p class="hint">MO: the layer is on while the key is held (the usual Fn key). TG: each press turns it on or off. TO: stays on that layer.</p>`;
+  } else if (pick === "profile") {
+    body = profilePick(code);
   } else if (pick === "light") {
     const wilba = kst().lighting === "wilba";
     body = `<div class="kopts">${(wilba ? WILBA_KEYS : rgbKeys()).map((n, i) => opt(wilba ? customCode(i) : rgbCode(i), n)).join("")}</div>`;
@@ -393,6 +432,14 @@ function nkKeyPanel(k) {
       <div class="seg fill">${PICKS.map(([id, label]) => `<button class="${pick === id ? "on" : ""}" data-act="kc-pick" data-v="${id}">${label}</button>`).join("")}</div>
     </section>
     <section class="sec">${body}</section>`;
+}
+
+// Keys that switch profiles, like a mouse side button.
+function profilePick(code) {
+  const held = kcfg().switchKeys[code - F13];
+  const choice = (v, label) => `<button class="kopt wide ${held === v ? "on" : ""}" data-act="kc-switch" data-v="${v}">${esc(label)}</button>`;
+  return `<div class="kopts">${choice(NEXT_PROFILE, "Next profile")}${kcfg().profiles.map((p) => choice(p.id, `Switch to ${p.name || "Untitled"}`)).join("")}</div>
+    <p class="hint">Works while kit runs. Uses one of 12 spare keys (F13-F24), shared with kit-run macros. A profile only has the switch keys you put on it, so add one to every profile you switch away from.</p>`;
 }
 
 function macroPick(code) {
@@ -786,7 +833,7 @@ function indicatorSection(p) {
 function restoreSection(s) {
   if (s.restore == null || !s.connected) return "";
   return `<h2 class="h2">Put your keys back</h2>
-    <p class="hint">The keyboard is on different firmware now and came back with the default keymap. kit kept a copy of your keymap and onboard macros from before (VIA v${s.restore}), translated for this firmware.</p>
+    <p class="hint">The keyboard is on different firmware now and came back with the default keymap. kit kept a copy of your active profile and onboard macros from before (VIA v${s.restore}), translated for this firmware. Your other profiles are safe in kit either way.</p>
     <div class="btn-row"><button class="btn" data-act="nk-restore">Restore my keymap and macros</button><button class="btn quiet" data-act="nk-restore-skip">Keep the defaults</button></div>`;
 }
 
@@ -831,17 +878,24 @@ function keyboardDevicePage() {
         keyStatusCell("status"),
         cell("pcb", "Board", `${esc(s.name || "—")}${s.pcb ? ` <small>PCB ${s.pcb}</small>` : ""}`, { cls: "text" }),
         cell("fw", "Firmware", s.kitFirmware ? `kit <small>v${s.kitFirmware}</small>` : s.protocol ? `VIA <small>v${s.protocol}</small>` : "—", { cls: s.protocol ? "" : "dim" }),
-        cell("layers", "Layers", s.layers || "—", { cls: s.layers ? "" : "dim" }),
+        cell("profile", "Profile", esc(activeKeyProfile().name), { cls: "text" }),
       ])}
       ${st.hint && !s.flashing ? `<p class="hint">${st.hint}</p>` : ""}
       ${restoreSection(s)}
       ${firmwareSection(s)}
+      <h2 class="h2">Profiles</h2>
+      <div class="row">
+        <div><div class="rtitle">Next-profile shortcut</div><p class="hint">Cycle through every keyboard profile with one shortcut.</p></div>
+        ${hotkeyField("knext", kcfg().nextProfileHotkey)}
+      </div>
+      ${errorsHtml()}
+      <p class="hint">Profiles also switch from the tray menu, each profile's own shortcut, or a key set to switch profiles. The keyboard holds the active profile and keeps it on any computer; kit keeps the others and writes the keys that differ when you switch.</p>
       <h2 class="h2">Onboard macros</h2>
       <p class="hint">What the keyboard has stored. Macros you put on keys from kit use the last free slots, so ones made in VIA stay as they are.</p>
       <div class="mlines">${rows || '<span class="muted">Connect the keyboard to see them.</span>'}</div>
       ${importable ? `<div style="margin-top:12px"><button class="btn quiet" data-act="nk-import">Copy them into kit's macros</button></div>` : ""}
       <h2 class="h2">Good to know</h2>
-      <p class="hint">Keep VIA closed while kit runs; both talk to the keyboard over the same channel. Everything here is stored on the NK65 itself, except macros set to run through kit.</p>
+      <p class="hint">Keep VIA closed while kit runs; both talk to the keyboard over the same channel. Keys changed in VIA go into whichever profile the keyboard holds. The active profile, lighting and onboard macros are stored on the NK65 itself; other profiles and macros set to run through kit need kit.</p>
     </div></div>`;
   }
   const IDLE = [[60, "1 min"], [120, "2 min"], [300, "5 min"], [600, "10 min"], [900, "15 min"]];
@@ -874,39 +928,65 @@ async function activateLighting(id) {
   render();
 }
 
-// Write one keycode on the NK65 and keep kit's bookkeeping in step.
-function setKeycode(code) {
-  const k = LAYOUT.nk65.keys.find((x) => x.id === kv.key);
-  if (!k) return;
-  freeIfUnused(writeKey(kv.layer, k, code));
+async function activateKeyProfile(id) {
+  await keyboardSaver.flush();
+  K = await invoke("activate_key_profile", { id });
+  kv.profileId = id;
   render();
 }
 
-// Returns the keycode that was there.
-function writeKey(layer, k, code) {
+// Put one keycode on the selected key and keep kit's bookkeeping in step.
+function setKeycode(code) {
+  const k = LAYOUT.nk65.keys.find((x) => x.id === kv.key);
+  if (!k) return;
+  freeIfUnused(writeKeys(kv.layer, [[k, code]])[0]);
+  render();
+}
+
+// Change keys of the open profile; the active one goes on the board too.
+// Returns the keycodes that were there.
+function writeKeys(layer, entries) {
   const s = kst();
-  const old = keycodeAt(layer, k.r, k.c);
-  if (old !== code) {
-    s.keymap[(layer * s.rows + k.r) * s.cols + k.c] = code;
-    invoke("keyboard_set_key", { layer, row: k.r, col: k.c, code });
-  }
-  return old;
+  const p = keyProfile();
+  const changes = [];
+  const olds = entries.map(([k, code]) => {
+    const i = (layer * s.rows + k.r) * s.cols + k.c;
+    const old = p.keymap[i];
+    if (old !== code) {
+      p.keymap[i] = code;
+      changes.push([i, code]);
+    }
+    return old;
+  });
+  if (changes.length) invoke("keyboard_set_keys", { profile: p.id, keys: changes });
+  return olds;
 }
 
 // Every key on a layer back to the factory keymap.
 function resetLayer(layer) {
-  const olds = LAYOUT.nk65.keys.map((k) => writeKey(layer, k, defaultKeycode(layer, k)));
+  const olds = writeKeys(layer, LAYOUT.nk65.keys.map((k) => [k, defaultKeycode(layer, k)]));
   new Set(olds).forEach(freeIfUnused);
   render();
 }
 
-// A kit macro slot (F13+i or an onboard slot) no key uses any more is free again.
+// The factory keymap, for a new profile. Matrix spots with no key keep what they have.
+function factoryKeymap() {
+  const s = kst();
+  const keymap = [...activeKeyProfile().keymap];
+  for (let l = 0; l < s.layers; l++) {
+    for (const k of LAYOUT.nk65.keys) keymap[(l * s.rows + k.r) * s.cols + k.c] = defaultKeycode(l, k);
+  }
+  return keymap;
+}
+
+// A kit-run key (F13+i or an onboard slot) no key in any profile uses any more is free again.
 function freeIfUnused(code) {
-  if (kst().keymap.includes(code)) return;
+  if (codeInUse(code)) return;
   const i = code - F13;
   let changed = false;
-  if (i >= 0 && i < KIT_KEYS && kcfg().kitKeys[i]) {
+  if (i >= 0 && i < KIT_KEYS && (kcfg().kitKeys[i] || kcfg().switchKeys[i])) {
     kcfg().kitKeys[i] = null;
+    kcfg().switchKeys[i] = null;
     changed = true;
   }
   const slot = code - macroCode(0);
@@ -917,13 +997,29 @@ function freeIfUnused(code) {
   if (changed) keyboardSaver.save(0);
 }
 
+const freeKitKeys = () => Array.from({ length: KIT_KEYS }, (_, i) => i).filter((i) => !kcfg().kitKeys[i] && !kcfg().switchKeys[i]);
+
+async function bindSwitchKey(target) {
+  let i = kcfg().switchKeys.indexOf(target);
+  if (i < 0) i = freeKitKeys()[0] ?? -1;
+  if (i < 0) {
+    toast("All 12 kit-run keys are in use. Free one up first.", 4000);
+    return;
+  }
+  kcfg().switchKeys[i] = target;
+  // kit has to know the key before the board sends it.
+  keyboardSaver.save(0);
+  await keyboardSaver.flush();
+  setKeycode(F13 + i);
+}
+
 async function bindMacroToKey(macroId) {
   let code;
   if (kv.macroMode === "kit") {
     let i = kcfg().kitKeys.indexOf(macroId);
-    if (i < 0) i = kcfg().kitKeys.indexOf(null);
+    if (i < 0) i = freeKitKeys()[0] ?? -1;
     if (i < 0) {
-      toast("All 12 kit-run macro keys are in use. Store this one on the keyboard instead.", 4000);
+      toast("All 12 kit-run keys are in use. Store this one on the keyboard instead.", 4000);
       return;
     }
     kcfg().kitKeys[i] = macroId;
@@ -934,7 +1030,7 @@ async function bindMacroToKey(macroId) {
     let slot = owned ? Number(owned[0]) : -1;
     // Free slots from the top down, so the ones made in VIA (M0, M1, ...) are kept.
     for (let n = s.macros.length - 1; slot < 0 && n >= 0; n--) {
-      if (!kcfg().onboard[n] && !s.macros[n].length && !s.keymap.includes(macroCode(n))) slot = n;
+      if (!kcfg().onboard[n] && !s.macros[n].length && !codeInUse(macroCode(n))) slot = n;
     }
     if (slot < 0) {
       toast("The keyboard's macro slots are full.", 4000);
@@ -1034,6 +1130,46 @@ Object.assign(handlers, {
     kv.layer = Number(el.dataset.v);
     render();
   },
+  "kprofile-open"(el) {
+    setHotkeyCapture(null);
+    kv.profileId = el.dataset.id;
+    render();
+  },
+  "kprofile-new"() {
+    const p = { id: newId(), name: `Profile ${kcfg().profiles.length + 1}`, keymap: kst().keymap.length ? factoryKeymap() : [], hotkey: null };
+    kcfg().profiles.push(p);
+    kv.profileId = p.id;
+    keyboardSaver.save(0);
+    render();
+    focusTitle();
+  },
+  "kprofile-duplicate"() {
+    const p = structuredClone(keyProfile());
+    p.id = newId();
+    p.name = `${p.name} copy`;
+    p.hotkey = null;
+    kcfg().profiles.splice(kcfg().profiles.indexOf(keyProfile()) + 1, 0, p);
+    kv.profileId = p.id;
+    keyboardSaver.save(0);
+    render();
+  },
+  "kprofile-delete"() {
+    const p = keyProfile();
+    armDelete(p.id, async () => {
+      const i = kcfg().profiles.indexOf(p);
+      const next = kcfg().profiles[i ? i - 1 : 1];
+      if (p.id === kcfg().activeProfile) await activateKeyProfile(next.id);
+      kcfg().profiles = kcfg().profiles.filter((q) => q.id !== p.id);
+      kv.profileId = next.id;
+      new Set(p.keymap).forEach(freeIfUnused);
+      kcfg().switchKeys = kcfg().switchKeys.map((v) => (v === p.id ? null : v));
+      keyboardSaver.save(0);
+      toast(`Deleted "${p.name}"`);
+    });
+  },
+  "kprofile-activate"() {
+    activateKeyProfile(keyProfile().id);
+  },
   "key-pick"(el) {
     kv.key = el.dataset.k;
     stopListening();
@@ -1048,11 +1184,14 @@ Object.assign(handlers, {
     const layer = kv.layer;
     armDelete(`layer-${layer}`, () => {
       resetLayer(layer);
-      toast(`${layer ? `Layer ${layer}` : "Base layer"} is back to the factory keymap`);
+      toast(`${layerName(layer)} keys are back to the factory keymap`);
     });
   },
   "kc-set"(el) {
     setKeycode(Number(el.dataset.code));
+  },
+  "kc-switch"(el) {
+    bindSwitchKey(el.dataset.v);
   },
   "kc-listen"() {
     kv.listening = true;
@@ -1181,6 +1320,11 @@ Object.assign(handlers, {
 });
 
 Object.assign(inputFields, {
+  "kprofile-name"(el) {
+    keyProfile().name = el.value;
+    keyboardSaver.save();
+    render();
+  },
   "light-name"(el) {
     lightPreset().name = el.value;
     keyboardSaver.save();
@@ -1326,12 +1470,16 @@ function captureKeycodeUp(e) {
 
 function leaveKeyboard() {
   stopListening();
+  setHotkeyCapture(null);
   kv.painting = false;
 }
 
 function onKeyboardState(payload) {
   if (keyboardSaver.unsaved()) {
-    K = { ...payload, config: { ...kcfg(), active: payload.config.active } };
+    // Keymaps only change through the backend, so its copy is always the newest.
+    const fresh = new Map(payload.config.profiles.map((p) => [p.id, p.keymap]));
+    for (const p of kcfg().profiles) p.keymap = fresh.get(p.id) ?? p.keymap;
+    K = { ...payload, config: { ...kcfg(), active: payload.config.active, activeProfile: payload.config.activeProfile } };
   } else {
     K = payload;
   }

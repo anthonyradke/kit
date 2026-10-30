@@ -56,6 +56,9 @@ pub enum Action {
     DpiCycle,
     NextProfile,
     Profile { id: String },
+    /// The NK65's profiles (kit-run keys on the board).
+    NextKeyProfile,
+    KeyProfile { id: String },
 }
 
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]

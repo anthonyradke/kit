@@ -623,6 +623,7 @@ kbd {
 /* ---------- keyboard ---------- */
 
 .inline-h { flex: 1; margin: 0; line-height: 38px; }
+.kbar { display: flex; align-items: center; justify-content: space-between; gap: 10px; flex: none; margin-top: 14px; }
 /* The drawing fits the space left in the canvas, keeping the board's shape. */
 .board-wrap { flex: 1; min-height: 0; margin-top: 14px; container-type: size; display: flex; flex-direction: column; justify-content: center; align-items: center; gap: 12px; }
 .board { position: relative; flex: none; width: min(100cqw, calc((100cqh - 56px) * var(--ratio, 3))); }

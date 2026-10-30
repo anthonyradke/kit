@@ -3,6 +3,8 @@
 //!
 //! The NK65 keeps its keymap, macros and lighting in its own EEPROM, so on
 //! connect the worker reads them and only writes lighting values that differ.
+//! It holds one keymap: kit saves the rest as profiles and switching writes
+//! the keys that differ.
 //! kit's own NK65 effects (`anim`) stream color and brightness over a solid
 //! base that is what gets stored.
 //! The PRO X TKL's lighting is driven by kit while it runs: kit takes the LEDs
@@ -17,7 +19,7 @@ use serde::{Deserialize, Serialize};
 use tauri::{AppHandle, Emitter, Manager};
 
 use super::anim::{self, Anim};
-use super::config::{parse_color, to_hue_sat, Model, Preset};
+use super::config::{parse_color, to_hue_sat, Config, Model, Preset};
 use crate::mouse::input;
 use super::state::Shared;
 
@@ -26,7 +28,8 @@ pub enum Cmd {
     Model(Option<Model>),
     /// Lighting to show; `save` stores it on an NK65 (not while dragging a slider).
     Apply { preset: Box<Preset>, idle_off: u16, save: bool },
-    SetKey { layer: u8, row: u8, col: u8, code: u16 },
+    /// NK65: the active profile's keymap changed, bring the board in line.
+    SyncKeymap,
     /// Onboard macro slots kit owns, already encoded. Other slots are kept.
     Macros(BTreeMap<u8, Vec<u8>>),
     /// kit is quitting: give the PRO X TKL's lights back to its onboard profile.
@@ -100,6 +103,9 @@ const OPEN_RETRY: Duration = Duration::from_secs(2);
 const VIA_POLL: Duration = Duration::from_secs(2);
 const BATTERY_EVERY: Duration = Duration::from_secs(60);
 const APPLY_RETRY: Duration = Duration::from_secs(2);
+/// How often to look for all keys being up, and how long to wait for it.
+const KEYS_UP_POLL: Duration = Duration::from_millis(20);
+const KEYS_UP_WAIT: Duration = Duration::from_secs(5);
 const EVENT_WAIT_MS: i32 = 20;
 const EVENT_WAIT_ASLEEP_MS: i32 = 100;
 /// The default output can change; the sound meter is reopened this often.
@@ -152,6 +158,10 @@ struct Worker {
     via_values: BTreeMap<u8, [u8; 2]>,
     /// NK65 on kit's firmware 4+: second color and background level, as on the board.
     kit_colors: Option<[u8; 3]>,
+    /// NK65: the board has to take the active profile's keymap, by this time
+    /// at the latest. A key remapped while held would stick (it's released as
+    /// its new keycode), so this waits for every key to be up.
+    keymap_due: Option<Instant>,
     /// NK65: the raw macro buffer as on the board.
     macro_buffer: Vec<u8>,
     /// NK65: a kit effect playing, the key press count it last saw and the
@@ -181,6 +191,7 @@ impl Worker {
             save: false,
             via_values: BTreeMap::new(),
             kit_colors: None,
+            keymap_due: None,
             macro_buffer: vec![],
             anim: None,
             presses: 0,
@@ -211,6 +222,9 @@ impl Worker {
             if self.dirty && Instant::now() >= self.next_apply {
                 self.apply();
             }
+            if self.keymap_due.is_some_and(|by| Instant::now() >= by || input::keys_up()) {
+                self.write_keymap();
+            }
             if self.status != shown {
                 self.publish();
                 shown = self.status.clone();
@@ -239,6 +253,7 @@ impl Worker {
     fn wait(&mut self, until: Instant) {
         // Pending lighting only matters once a keyboard is open (opening re-sends it).
         let until = if self.dirty && self.dev.is_some() { until.min(self.next_apply) } else { until };
+        let until = if self.keymap_due.is_some() { until.min(Instant::now() + KEYS_UP_POLL) } else { until };
         let wait = if self.model.is_none() { Duration::from_secs(3600) } else { until.saturating_duration_since(Instant::now()) };
         match self.rx.recv_timeout(wait) {
             Ok(cmd) => self.handle(cmd),
@@ -262,17 +277,9 @@ impl Worker {
                 self.save |= save;
                 self.next_apply = Instant::now();
             }
-            Cmd::SetKey { layer, row, col, code } => {
-                let ok = self.with_via(|b| b.set_keycode(layer, row, col, code)).is_some();
-                if ok {
-                    let s = &mut self.status;
-                    let i = (layer as usize * s.rows as usize + row as usize) * s.cols as usize + col as usize;
-                    if let Some(k) = s.keymap.get_mut(i) {
-                        *k = code;
-                    }
-                    if self.status.restore.is_none() {
-                        self.save_backup();
-                    }
+            Cmd::SyncKeymap => {
+                if matches!(self.dev, Some(Dev::Via(_))) {
+                    self.keymap_due = Some(Instant::now() + KEYS_UP_WAIT);
                 }
             }
             Cmd::Macros(owned) => self.write_macros(owned),
@@ -287,6 +294,7 @@ impl Worker {
                     self.status.restore = None;
                     self.save_backup();
                 }
+                self.take_in_keymap();
             }
             Cmd::Bootloader => {
                 if self.with_via(|b| b.enter_bootloader()).is_some() {
@@ -313,6 +321,7 @@ impl Worker {
     fn drop_dev(&mut self, error: Option<String>) {
         self.set_anim(None);
         self.dev = None;
+        self.keymap_due = None;
         self.via_values.clear();
         self.kit_colors = None;
         self.status = Status { error, ..Status::default() };
@@ -416,6 +425,48 @@ impl Worker {
         self.save_backup();
     }
 
+    /// The board's keymap goes into the profiles, then the active profile on
+    /// the board. Waits while the board has a backup to offer: until that's
+    /// answered it holds firmware defaults, not a profile.
+    fn take_in_keymap(&mut self) {
+        if self.status.restore.is_some() || self.status.keymap.is_empty() {
+            return;
+        }
+        super::state::board_read(&self.app, &self.status.keymap, self.status.protocol.unwrap_or(0));
+        self.keymap_due = Some(Instant::now() + KEYS_UP_WAIT);
+    }
+
+    fn write_keymap(&mut self) {
+        self.keymap_due = None;
+        if self.status.restore.is_some() {
+            return;
+        }
+        let (rows, cols) = (self.status.rows as usize, self.status.cols as usize);
+        let (id, keymap) = super::state::active_keymap(&self.app);
+        if rows * cols == 0 || keymap.len() != self.status.keymap.len() {
+            return;
+        }
+        let changes = Config::keymap_changes(&self.status.keymap, &keymap);
+        if !changes.is_empty() {
+            super::state::set_on_board(&self.app, "");
+        }
+        for &(i, code) in &changes {
+            let (layer, row, col) = ((i / (rows * cols)) as u8, ((i / cols) % rows) as u8, (i % cols) as u8);
+            if self.with_via(|board| board.set_keycode(layer, row, col, code)).is_none() {
+                // A lost board reconnects and comes back here; anything else tries again.
+                if self.dev.is_some() {
+                    self.keymap_due = Some(Instant::now() + APPLY_RETRY);
+                }
+                return;
+            }
+            self.status.keymap[i] = code;
+        }
+        super::state::set_on_board(&self.app, &id);
+        if !changes.is_empty() {
+            self.save_backup();
+        }
+    }
+
     fn open_via(&mut self) {
         let mut board = match via::Board::open() {
             Ok(b) => b,
@@ -459,6 +510,7 @@ impl Worker {
         self.dev = Some(Dev::Via(board));
         self.read_macros();
         self.check_backup();
+        self.take_in_keymap();
         self.read_via_lighting();
         // First time: keep what VIA set (state sends it back as the active preset).
         // Otherwise put the active preset on the board and store it there.

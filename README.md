@@ -29,8 +29,11 @@ Mouse
 - Side buttons bound to a key combination, a macro, a DPI shift (sniper), DPI cycling or a profile switch.
 
 Keyboard
-- NK65: remap any key on every layer (written to the keyboard, so it works on any computer), lighting effects, colors,
-  brightness, speed and indicator lights with a live preview, and saved lighting presets switchable from the tray.
+- NK65: unlimited key profiles, each a full keymap with its Fn keys, switched from the tray, a global shortcut per
+  profile, a "next profile" shortcut or a key on the board. The active profile is written to the keyboard, so it works
+  on any computer; kit keeps the others and writes only the keys that differ when switching.
+- NK65: lighting effects, colors, brightness, speed and indicator lights with a live preview, and saved lighting
+  presets switchable from the tray.
 - A custom NK65 firmware (QMK with VIA) with per-key effects that run on the keyboard itself: Ripple, Prism ripple,
   Ink, Afterglow, Aurora, Lava, Tide and Fireflies, plus QMK's splash and reactive effects. kit backs up the keymap
   and macros before flashing and restores them after. See [docs/nk65-firmware.md](docs/nk65-firmware.md).

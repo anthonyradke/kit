@@ -3,7 +3,7 @@
 pub mod config;
 mod device;
 pub mod exec;
-mod hotkeys;
+pub mod hotkeys;
 pub mod input;
 pub mod state;
 

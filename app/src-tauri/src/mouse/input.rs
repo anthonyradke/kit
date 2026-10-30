@@ -500,6 +500,11 @@ fn bound_key(scan: u16, ext: bool, down: bool) -> bool {
     true
 }
 
+/// No keyboard key is down (mouse buttons, VK 1-7, don't count).
+pub fn keys_up() -> bool {
+    (0x08..=0xFE).all(|vk| unsafe { GetAsyncKeyState(vk) } >= 0)
+}
+
 /// A key event from our own window. Windows does not run low-level keyboard
 /// hooks for input going to our own foreground window, so the UI forwards its
 /// key events here while recording or capturing.

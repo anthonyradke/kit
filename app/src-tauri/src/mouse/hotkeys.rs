@@ -1,4 +1,4 @@
-//! Global keyboard shortcuts for switching profiles.
+//! Global keyboard shortcuts for switching mouse and keyboard profiles.
 
 use std::collections::HashMap;
 use std::sync::atomic::{AtomicBool, Ordering};
@@ -9,11 +9,14 @@ use tauri::{AppHandle, Manager, Wry};
 use tauri_plugin_global_shortcut::{GlobalShortcutExt, Shortcut, ShortcutState};
 
 use super::state::{self, Shared};
+use crate::keyboard;
 
 #[derive(Clone, PartialEq)]
 enum Target {
     Profile(String),
     Next,
+    KeyProfile(String),
+    NextKeyProfile,
 }
 
 static BINDINGS: Mutex<Option<HashMap<u32, Target>>> = Mutex::new(None);
@@ -29,17 +32,12 @@ pub fn plugin() -> TauriPlugin<Wry> {
             if event.state() != ShortcutState::Pressed {
                 return;
             }
-            let target = {
-                let bindings = BINDINGS.lock().unwrap();
-                match bindings.as_ref().and_then(|b| b.get(&shortcut.id())) {
-                    Some(Target::Profile(id)) => Some(Some(id.clone())),
-                    Some(Target::Next) => Some(None),
-                    None => None,
-                }
-            };
+            let target = BINDINGS.lock().unwrap().as_ref().and_then(|b| b.get(&shortcut.id()).cloned());
             match target {
-                Some(Some(id)) => state::activate(app, &id),
-                Some(None) => state::next_profile(app),
+                Some(Target::Profile(id)) => state::activate(app, &id),
+                Some(Target::Next) => state::next_profile(app),
+                Some(Target::KeyProfile(id)) => keyboard::state::activate_profile(app, &id),
+                Some(Target::NextKeyProfile) => keyboard::state::next_profile(app),
                 None => {}
             }
         })
@@ -77,6 +75,11 @@ pub fn register(app: &AppHandle) {
         }
         v
     };
+    let keyboard = keyboard::state::hotkeys(app).into_iter().map(|(h, id, name)| {
+        let target = id.map_or(Target::NextKeyProfile, Target::KeyProfile);
+        (h, target, name)
+    });
+    let wanted: Vec<_> = wanted.into_iter().chain(keyboard).collect();
     let mut registered = REGISTERED.lock().unwrap();
     if registered.as_ref() == Some(&wanted) {
         return;
@@ -107,5 +110,10 @@ pub fn register(app: &AppHandle) {
         }
     }
     *BINDINGS.lock().unwrap() = Some(bindings);
+    let changed = *shared.hotkey_errors.lock().unwrap() != errors;
     *shared.hotkey_errors.lock().unwrap() = errors;
+    // A keyboard save doesn't answer with the mouse state that carries these.
+    if changed {
+        state::emit_state(app);
+    }
 }

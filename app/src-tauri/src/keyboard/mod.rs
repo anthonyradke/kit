@@ -36,10 +36,17 @@ pub fn preview_lighting(app: AppHandle, preset: Preset) {
     state::preview(&app, preset);
 }
 
-/// Write one keycode to the NK65 (it is stored on the board right away).
 #[tauri::command]
-pub fn keyboard_set_key(app: AppHandle, layer: u8, row: u8, col: u8, code: u16) {
-    state::set_key(&app, layer, row, col, code);
+pub fn activate_key_profile(app: AppHandle, id: String) -> UiState {
+    state::activate_profile(&app, &id);
+    state::ui_state(&app)
+}
+
+/// Change keys of an NK65 profile, as (keymap index, keycode). The active
+/// profile's are stored on the board right away.
+#[tauri::command]
+pub fn keyboard_set_keys(app: AppHandle, profile: String, keys: Vec<(usize, u16)>) {
+    state::set_keys(&app, &profile, &keys);
 }
 
 /// NK65: put the keymap and macros from before a firmware change back, or forget them.

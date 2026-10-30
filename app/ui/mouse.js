@@ -24,7 +24,7 @@ const SIDE_NAMES = { back: "Back", forward: "Forward" };
 
 let M = null; // backend state: { config, dpiStage, device, hotkeyErrors, configPath }
 const mv = { profileId: null, macroId: null, side: "back" };
-let hotkeyCapture = null; // "profile" | "next" while listening for a hotkey
+let hotkeyCapture = null; // "profile" | "next" | "kprofile" | "knext" while listening for a hotkey
 let keyCapture = null; // { kind: "back" | "forward" | "step" } while the backend captures keys
 let recording = null; // { start, timer, macroId }
 
@@ -522,10 +522,16 @@ function moveStep(i, dir) {
 }
 
 function setHotkey(target, value) {
-  if (target === "next") mcfg().settings.nextProfileHotkey = value;
-  else profile().hotkey = value;
+  if (target === "kprofile" || target === "knext") {
+    if (target === "knext") kcfg().nextProfileHotkey = value;
+    else keyProfile().hotkey = value;
+    keyboardSaver.save(0);
+  } else {
+    if (target === "next") mcfg().settings.nextProfileHotkey = value;
+    else profile().hotkey = value;
+    mouseSaver.save(0);
+  }
   setHotkeyCapture(null);
-  mouseSaver.save(0);
   render();
 }
 

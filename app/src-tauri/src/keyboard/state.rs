@@ -9,10 +9,10 @@ use std::time::Duration;
 use serde::Serialize;
 use tauri::{AppHandle, Emitter, Manager};
 
-use super::config::{from_hue_sat, Config, Model, Preset, KIT_KEYS};
+use super::config::{from_hue_sat, Config, Model, Preset, KIT_KEYS, NEXT_PROFILE};
 use super::device::{self, Cmd};
 use crate::mouse::config::{Action, Macro, PlayMode, Step};
-use crate::mouse::input;
+use crate::mouse::{hotkeys, input};
 use crate::tray;
 
 pub struct Shared {
@@ -51,6 +51,7 @@ pub fn init(app: &AppHandle, model: Option<Model>) -> tauri::Result<()> {
     device::spawn(app.clone(), rx, model);
     apply(app, false);
     sync_hook(app);
+    hotkeys::register(app);
     Ok(())
 }
 
@@ -107,6 +108,32 @@ pub fn activate(app: &AppHandle, id: &str) {
     emit_state(app);
 }
 
+/// Make a key profile the active one; the worker puts it on the board.
+pub fn activate_profile(app: &AppHandle, id: &str) {
+    {
+        let shared = app.state::<Shared>();
+        let mut config = shared.core.lock().unwrap();
+        if !config.profiles.iter().any(|p| p.id == id) {
+            return;
+        }
+        config.active_profile = id.to_string();
+        save(&shared, &config);
+        let _ = shared.tx.send(Cmd::SyncKeymap);
+    }
+    tray::refresh(app);
+    emit_state(app);
+}
+
+pub fn next_profile(app: &AppHandle) {
+    let next = {
+        let shared = app.state::<Shared>();
+        let config = shared.core.lock().unwrap();
+        let i = config.profiles.iter().position(|p| p.id == config.active_profile).unwrap_or(0);
+        config.profiles[(i + 1) % config.profiles.len()].id.clone()
+    };
+    activate_profile(app, &next);
+}
+
 /// Setup picked a different keyboard (or none).
 pub fn set_model(app: &AppHandle, model: Option<Model>) {
     {
@@ -124,6 +151,7 @@ pub fn set_model(app: &AppHandle, model: Option<Model>) {
     apply(app, true);
     sync_hook(app);
     sync_macros(app);
+    hotkeys::register(app);
     tray::refresh(app);
     emit_state(app);
 }
@@ -136,10 +164,22 @@ pub fn update_config(app: &AppHandle, mut config: Config) {
         let mut core = shared.core.lock().unwrap();
         // Only `activate` switches presets, so a save racing a tray click can't undo it.
         config.active = core.active.clone();
+        config.active_profile = core.active_profile.clone();
+        config.on_board = core.on_board.clone();
+        config.keymap_protocol = core.keymap_protocol;
         config.model = core.model;
         config.adopted = core.adopted;
+        // Keymaps change through `set_keys`; this copy may predate a key write.
+        for p in &mut config.profiles {
+            if let Some(old) = core.profiles.iter().find(|q| q.id == p.id) {
+                p.keymap = old.keymap.clone();
+            }
+        }
         config.normalize();
         config.drop_missing_macros(|id| exists.iter().any(|m| m == id));
+        if core.active_key_profile().keymap != config.active_key_profile().keymap {
+            let _ = shared.tx.send(Cmd::SyncKeymap);
+        }
         let lighting_changed = core.active_preset() != config.active_preset() || core.idle_off != config.idle_off;
         let menu_changed = tray_entries(&core) != tray_entries(&config);
         *core = config;
@@ -151,6 +191,7 @@ pub fn update_config(app: &AppHandle, mut config: Config) {
     }
     sync_hook(app);
     sync_macros(app);
+    hotkeys::register(app);
     if menu_changed {
         tray::refresh(app);
     }
@@ -202,8 +243,71 @@ pub fn send(app: &AppHandle, cmd: Cmd) {
     let _ = app.state::<Shared>().tx.send(cmd);
 }
 
-pub fn set_key(app: &AppHandle, layer: u8, row: u8, col: u8, code: u16) {
-    let _ = app.state::<Shared>().tx.send(Cmd::SetKey { layer, row, col, code });
+/// Change keys of a profile, by keymap index. The active one goes on the board too.
+pub fn set_keys(app: &AppHandle, profile: &str, keys: &[(usize, u16)]) {
+    let shared = app.state::<Shared>();
+    let mut config = shared.core.lock().unwrap();
+    let Some(p) = config.profiles.iter_mut().find(|p| p.id == profile) else { return };
+    for &(i, code) in keys {
+        if let Some(k) = p.keymap.get_mut(i) {
+            *k = code;
+        }
+    }
+    save(&shared, &config);
+    if config.active_profile == profile {
+        let _ = shared.tx.send(Cmd::SyncKeymap);
+    }
+}
+
+/// Take in the keymap the worker just read from the board.
+pub fn board_read(app: &AppHandle, keymap: &[u16], protocol: u16) {
+    let changed = {
+        let shared = app.state::<Shared>();
+        let mut config = shared.core.lock().unwrap();
+        let before = config.clone();
+        config.board_read(keymap, protocol);
+        let changed = *config != before;
+        if changed {
+            save(&shared, &config);
+        }
+        changed
+    };
+    if changed {
+        emit_state(app);
+    }
+}
+
+/// The profile the board should hold: its id and keymap.
+pub fn active_keymap(app: &AppHandle) -> (String, Vec<u16>) {
+    let shared = app.state::<Shared>();
+    let config = shared.core.lock().unwrap();
+    let p = config.active_key_profile();
+    (p.id.clone(), p.keymap.clone())
+}
+
+/// Record which profile is all on the board ("" while it's being written).
+pub fn set_on_board(app: &AppHandle, id: &str) {
+    let shared = app.state::<Shared>();
+    let mut config = shared.core.lock().unwrap();
+    if config.on_board != id {
+        config.on_board = id.to_string();
+        save(&shared, &config);
+    }
+}
+
+/// The hotkeys of the NK65's profiles, as (shortcut, profile id or None for next, name).
+pub fn hotkeys(app: &AppHandle) -> Vec<(String, Option<String>, String)> {
+    let Some(shared) = app.try_state::<Shared>() else { return vec![] };
+    if *shared.model.lock().unwrap() != Some(Model::Nk65) {
+        return vec![];
+    }
+    let config = shared.core.lock().unwrap();
+    let mut v: Vec<_> =
+        config.profiles.iter().filter_map(|p| p.hotkey.clone().map(|h| (h, Some(p.id.clone()), format!("{} (keyboard)", p.name)))).collect();
+    if let Some(h) = config.next_profile_hotkey.clone() {
+        v.push((h, None, "Next keyboard profile".into()));
+    }
+    v
 }
 
 /// Mouse macros were edited or deleted: drop stale bindings, rewrite onboard copies.
@@ -238,7 +342,7 @@ fn sync_hook(app: &AppHandle) {
         match model {
             Some(Model::ProXTkl) => config.bindings.iter().filter_map(|b| via::usage::to_scan(b.usage)).collect(),
             Some(Model::Nk65) => (0..KIT_KEYS)
-                .filter(|&i| config.kit_keys[i].is_some())
+                .filter(|&i| config.kit_keys[i].is_some() || config.switch_keys[i].is_some())
                 .filter_map(|i| via::usage::to_scan(via::usage::F13 + i as u8))
                 .collect(),
             None => vec![],
@@ -257,6 +361,9 @@ pub fn key_action(app: &AppHandle, scan: u16, ext: bool) -> Option<Action> {
         Some(Model::ProXTkl) => config.bindings.iter().find(|b| b.usage == usage).map(|b| b.action.clone()),
         Some(Model::Nk65) => {
             let i = usage.checked_sub(via::usage::F13)? as usize;
+            if let Some(target) = config.switch_keys.get(i)? {
+                return Some(if target == NEXT_PROFILE { Action::NextKeyProfile } else { Action::KeyProfile { id: target.clone() } });
+            }
             let id = config.kit_keys.get(i)?.clone()?;
             Some(Action::Macro { id })
         }
@@ -318,7 +425,9 @@ pub fn release(app: &AppHandle) {
     }
 }
 
-/// What the tray menu shows: the active preset and every preset's name.
-fn tray_entries(config: &Config) -> (&str, Vec<(&str, &str)>) {
-    (&config.active, config.presets.iter().map(|p| (p.id.as_str(), p.name.as_str())).collect())
+/// What the tray menu shows: the active preset and profile, and every one's name.
+fn tray_entries(config: &Config) -> (&str, &str, Vec<(&str, &str)>) {
+    let presets = config.presets.iter().map(|p| (p.id.as_str(), p.name.as_str()));
+    let profiles = config.profiles.iter().map(|p| (p.id.as_str(), p.name.as_str()));
+    (&config.active, &config.active_profile, presets.chain(profiles).collect())
 }

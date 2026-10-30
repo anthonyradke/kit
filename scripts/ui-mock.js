@@ -56,7 +56,7 @@
   const presets = (presetsFor[kb] || presetsFor.nk65).map(([name, effect, c1, c2], i) => ({ id: `l${i}`, name, effect, color1: c1, color2: c2, speed: 50, brightness: i === 3 ? 0 : 80, keys: {}, indicators: [kb === "nk65" ? "#ff4040" : null, null, null, null] }));
   if (kb === "proxtkl") Object.assign(presets[0].keys, { 23: "#ff4040", 4: "#ff4040", 19: "#ff4040", 1: "#ff4040", 38: "#38bdf8" });
   const K = {
-    config: { model: kb === "proxtkl" ? "proxtkl" : "nk65", presets, active: "l0", idleOff: 300, bindings: kb === "proxtkl" ? [{ usage: 0x3a, action: { type: "macro", id: "m1" } }] : [], kitKeys: [null, null, null, null, null, null, null, null, null, null, null, null], onboard: {} },
+    config: { model: kb === "proxtkl" ? "proxtkl" : "nk65", presets, active: "l0", idleOff: 300, bindings: kb === "proxtkl" ? [{ usage: 0x3a, action: { type: "macro", id: "m1" } }] : [], kitKeys: [null, null, null, null, null, null, null, null, null, null, null, null], switchKeys: new Array(12).fill(null), profiles: [{ id: "p1", name: "Default", keymap: [...km], hotkey: null }, { id: "p2", name: "Games", keymap: km.map((c, i) => (i === 30 ? 0xe0 : c)), hotkey: "Ctrl+Alt+Digit2" }], activeProfile: "p1", onBoard: "p1", keymapProtocol: 13, nextProfileHotkey: null, onboard: {} },
     status: kb === "proxtkl"
       ? { present: true, connected: true, name: "PRO X TKL", battery: 81, charging: false, lighting: "lightsync", protocol: null, layers: 0, rows: 0, cols: 0, keymap: [], macros: [], macroSpace: 0, zones: Array.from({ length: 105 }, (_, i) => i + 1).concat([104, 105, 106, 107, 108, 109, 110, 111]), effects: [0, 1, 3, 4, 10, 11, 0x15, 0x16], lightsAsleep: false, error: null }
       : { present: true, connected: true, name: "NK65", battery: null, charging: false, lighting: fw === "old" ? "wilba" : "rgbMatrix", protocol: fw === "old" ? 9 : 13, kitFirmware: fw === "old" ? null : 4, kitEffects: fw === "old" ? [0, 0] : [45, 9], restore: fw === "restore" ? 9 : null, flashing: false, layers: 4, rows: 5, cols: 15, keymap: km, macros: nkMacros, macroSpace: 896, zones: [], effects: [], lightsAsleep: false, error: null },
@@ -79,6 +79,11 @@
     mouse_save: ({ config }) => ((M.config = config), M),
     headset_save: ({ config }) => ((H.config = config), H),
     activate_lighting: ({ id }) => ((K.config.active = id), K),
+    activate_key_profile: ({ id }) => ((K.config.activeProfile = id), K),
+    keyboard_set_keys: ({ profile, keys }) => {
+      const p = K.config.profiles.find((x) => x.id === profile);
+      for (const [i, code] of keys) p.keymap[i] = code;
+    },
     activate_profile: ({ id }) => ((M.config.active = id), M),
     activate_preset: ({ id }) => ((H.config.active = id), H),
   };

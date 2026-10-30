@@ -106,6 +106,8 @@ impl Executor {
             Action::DpiCycle => state::cycle_dpi(&self.app),
             Action::NextProfile => state::next_profile(&self.app),
             Action::Profile { id } => state::activate(&self.app, id),
+            // On release, so the key isn't held while the board's keys change.
+            Action::NextKeyProfile | Action::KeyProfile { .. } => {}
         }
     }
 
@@ -122,6 +124,8 @@ impl Executor {
                     }
                 }
             }
+            Action::NextKeyProfile => crate::keyboard::state::next_profile(&self.app),
+            Action::KeyProfile { id } => crate::keyboard::state::activate_profile(&self.app, id),
             _ => {}
         }
     }

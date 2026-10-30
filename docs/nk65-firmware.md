@@ -41,10 +41,15 @@ the qmk CLI if it's installed or QMK's Docker image if not. The release workflow
 
 - On connect kit asks the board for RGB matrix brightness (channel 3). If it answers, kit treats it as an RGB matrix
   board even though the USB id says wilba. If it also answers `0x6B`, the kit effects show up on the Lighting page.
+- The board holds one keymap, the active profile's. kit keeps every profile in `keyboard.json`, and switching needs
+  no firmware support: kit writes the keycodes that differ over VIA, once every key is up (a key remapped while held
+  would be released as its new keycode and stick). On connect, the board's keymap replaces kit's copy of the profile it
+  holds, so edits made in VIA are kept. A switch that was cut short is finished from kit's copy instead. Keys that
+  switch profiles are spare F13-F24 codes kit catches on release, so they need kit running.
 - kit keeps a copy of the keymap and the raw macro buffer in `nk65-backup.json` next to its config. When the board
   comes back on different firmware (another VIA protocol or kit firmware version), the Device page offers to put them
-  back. Keycodes from before protocol 12 are translated (`crates/via/src/keycodes.rs`); a key with no equivalent keeps
-  the new default. Bump `KIT_FIRMWARE_VERSION` for every firmware release, because a new build wipes the EEPROM and
+  back. Keycodes from before protocol 12 are translated (`crates/via/src/keycodes.rs`), in every saved profile too; a key with
+  no equivalent keeps the new default. Bump `KIT_FIRMWARE_VERSION` for every firmware release, because a new build wipes the EEPROM and
   the version is what tells kit to offer the restore.
 - QMK takes one color (hue and saturation) and a speed for every effect, and each effect uses them its own way, so
   kit translates: rainbow effects get full saturation, Alphas / mods gets its second color as a hue step in the speed
