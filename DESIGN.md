@@ -13,8 +13,8 @@ colors:
   label-ink-2: "#bdb9b0"
   caption-ink: "#8f8c85"
   faint-ink: "#66645f"
+  signal-green: "#4cc96f"
   safety-yellow: "#e8b931"
-  warn-amber: "#ec8a3c"
   fault-red: "#e5574e"
   record-red: "#ef4b4b"
 typography:
@@ -87,7 +87,7 @@ components:
     typography: "{typography.plate-value}"
     padding: "8px 12px 9px"
   plate-cell-live:
-    textColor: "{colors.safety-yellow}"
+    textColor: "{colors.signal-green}"
   button-primary:
     backgroundColor: "{colors.label-ink}"
     textColor: "{colors.graphite-ground}"
@@ -141,14 +141,14 @@ Every device reads its live state off its own rating plate, the printed spec lab
 
 Density is that of a working tool, not a showroom: a 92px rail of device thumbnails, page tabs in the title bar, a canvas with a plate across its top, and a raised side panel of settings sections divided by hairlines. The whole system runs on one variable typeface, Archivo, with the width axis doing the work: condensed caps for captions, semi-condensed tabular figures for values, normal width for reading text.
 
-Colour is almost entirely neutral. Safety yellow appears only where something is live on the hardware right now, so a glance at the window answers "what is actually running" without reading. The vendor default this replaces (near-black with violet-to-blue gradients, glowing tiles, tracked uppercase labels everywhere) is explicitly rejected.
+Colour is almost entirely neutral. Signal green appears only where something is connected or on right now, so a glance at the window answers "what is actually running" without reading; yellow asks for attention and red marks a fault. The vendor default this replaces (near-black with violet-to-blue gradients, glowing tiles, tracked uppercase labels everywhere) is explicitly rejected.
 
 **Key Characteristics:**
 - Warm graphite ground, silver-white label ink, three quieter inks.
 - Rating plates: ruled cells, condensed caps caption over a firm tabular value.
 - Hairline rules and 3px corners; no glows, no gradients except the floor light under product photos.
-- Safety yellow means one thing: live on the hardware right now.
-- Selection is shown in ink (inverted cell), never in yellow.
+- Signal green means one thing: connected or on right now.
+- Selection is shown in ink (inverted cell), never in a signal colour.
 - One variable face (Archivo), differentiated by width rather than by family.
 
 ## Colors
@@ -156,7 +156,7 @@ Colour is almost entirely neutral. Safety yellow appears only where something is
 A near-monochrome warm graphite world with one signal colour and three state colours.
 
 ### Primary
-- **Safety Yellow** (`safety-yellow`): the live signal and nothing else. The active profile dot, the preset that is on the headset, the connected status mark, the live DPI stage tag, the rail pip of a connected device, the text caret, and the in-place flash of a plate value the hardware just changed.
+- **Signal Green** (`signal-green`): the live signal and nothing else. The active profile dot, the preset that is on the headset, the connected status mark, the live DPI stage tag, and the rail pip of a connected device.
 
 ### Neutral
 - **Graphite Ground** (`graphite-ground`): the page background and the ink-on-ink text colour inside inverted (selected) cells and primary buttons.
@@ -169,15 +169,15 @@ A near-monochrome warm graphite world with one signal colour and three state col
 - **Faint Ink** (`faint-ink`): axis labels, step indexes, values that are fixed or switched off.
 
 ### State
-- **Warn Amber** (`warn-amber`): conditions that need attention but are not failures (Sonar holding the defaults notice, warning state lines).
-- **Fault Red** (`fault-red`): low battery, destructive buttons and confirmations, delete hovers.
+- **Safety Yellow** (`safety-yellow`): attention without failure. Warning state lines, the Sonar defaults notice, a device that is asleep, off or being searched for (status mark and rail pip), an available update, plus the favorite star, the text caret and the in-place flash of a plate value the hardware just changed.
+- **Fault Red** (`fault-red`): a device that can't be found (status mark and rail pip), low battery, destructive buttons and confirmations, delete hovers.
 - **Record Red** (`record-red`): the macro recording dot and recording bar only.
 
 ### Themes
-Graphite above is the default. Settings offers five more that keep the same structure and only swap the tokens (`app/ui/style.css`, `[data-theme]`): **Field** (olive drab, stencil cream, signal orange live), **Phosphor** (oscilloscope green ink, amber live), **Blueprint** (white on Prussian blue, yellow live), and plain **Dark** and **Light** (green live). Each theme picks its own live colour, but it still means only "live on the hardware right now" and stays distinct from its warn colour. Selection, floor light and state text shades are mixed from the tokens, so a new theme only sets the base list.
+Graphite above is the default. Settings offers five more that keep the same structure and only swap the tokens (`app/ui/style.css`, `[data-theme]`): **Field** (olive drab, stencil cream), **Phosphor** (oscilloscope green ink), **Blueprint** (white on Prussian blue), and plain **Dark** and **Light**. Each theme tunes its own shades, but live is always a green, warn a yellow and bad a red, so the colours mean the same thing in every theme. Selection, floor light and state text shades are mixed from the tokens, so a new theme only sets the base list.
 
 ### Named Rules
-**The One Meaning Rule.** Safety yellow means "live on the hardware right now" and is never used for selection, emphasis, hover, focus, links or decoration. If a yellow element would still be yellow with the device unplugged, it is wrong.
+**The One Meaning Rule.** Signal green means "connected or on right now" and is never used for selection, emphasis, hover, focus, links or decoration. If a green element would still be green with the device unplugged, it is wrong.
 
 **The Ink Selects Rule.** Selection and the chosen option are shown by inverting a cell to label ink with graphite text (segmented controls, EQ band cells, the default DPI stage, the selected EQ node). Live state and selection can coexist on one element without colliding.
 
@@ -238,9 +238,9 @@ The mouse drawing's callout leaders run at 0 and 90 degrees only, ending in a sm
 ## Components
 
 ### Rating Plate (signature)
-The core component. A grid of ruled cells (`--cols`, usually 4; 10 for EQ bands) inside a 1px hairline-3 border with 3px corners. Inner rules are hairline-2, drawn once (right and bottom edges are dropped on the last column and row). Each cell is a condensed caps caption over a firm tabular value, optionally with a 3px meter bar (label-ink-2 fill, fault red when low). Values can be dim (faint ink), warn, bad or live (yellow). Status values use a 7px live dot in yellow or a 7px ink ring for off.
+The core component. A grid of ruled cells (`--cols`, usually 4; 10 for EQ bands) inside a 1px hairline-3 border with 3px corners. Inner rules are hairline-2, drawn once (right and bottom edges are dropped on the last column and row). Each cell is a condensed caps caption over a firm tabular value, optionally with a 3px meter bar (label-ink-2 fill, fault red when low). Values can be dim (faint ink), warn, bad or live (green). Status values use a 7px filled dot in green when connected, or a 7px ring in yellow while waiting and red on a fault.
 - **Signature motion:** when a backend event changes a cell's value, the cell flashes its new value in safety yellow for 900ms in place, then eases back over 0.5s. Local edits do not flash.
-- **Selectable plates** (EQ bands, DPI stages): hover fills raised-graphite-2; the selected cell inverts to label ink with graphite text. A live DPI stage appends " · live" in yellow to its caption.
+- **Selectable plates** (EQ bands, DPI stages): hover fills raised-graphite-2; the selected cell inverts to label ink with graphite text. A live DPI stage appends " · live" in green to its caption.
 
 ### Keyboard Drawing
 Keyboards are drawn from their real layouts as ruled key cells: raised graphite, 1px hairline-2 inset outline, 3px corners, a semi-condensed 12px legend and an optional condensed caps sub-label (layer function, macro name). Keys bound to a kit macro take an ink-3 outline. The selected key inverts to label ink, like every other selection. On the Lighting page each key shows its LED color as a 24% tint plus a 3px bar of the full color along its lower edge; the color is the content, so it is not a glow. Animated effects are previewed with a slow hue or opacity cycle that stops under reduced motion.
@@ -270,8 +270,8 @@ Two-column list of options, each with a 13px ring mark (hairline-3). The chosen 
 - **Keycap** (`kbd`): 22px raised-graphite-2 chip with a hairline outline and a 2px bottom lip.
 
 ### Navigation
-- **Rail:** 72px items on chrome graphite, a 20px icon or a 56x44 device thumbnail over a condensed caps label, battery figure beneath. Hover fills raised graphite; the current item fills raised-graphite-2 with a hairline-2 inset outline. A 6px pip in the corner: yellow when connected, filled faint ink when known but idle, an ink ring when off.
-- **Title bar tabs and strip tabs:** caption-ink text, label ink on hover and when selected; the selected tab gets a 2px label-ink underline sitting on the bottom hairline. Strip tabs carry a 6px status dot: yellow when live on the device, caption ink when stored, a faint ring otherwise.
+- **Rail:** 72px items on chrome graphite, a 20px icon or a 56x44 device thumbnail over a condensed caps label, battery figure beneath. Hover fills raised graphite; the current item fills raised-graphite-2 with a hairline-2 inset outline. A 6px pip in the corner: green when connected, yellow while asleep, off or searching, red when not found; yellow on Settings when an update is ready.
+- **Title bar tabs and strip tabs:** caption-ink text, label ink on hover and when selected; the selected tab gets a 2px label-ink underline sitting on the bottom hairline. Strip tabs carry a 6px status dot: green when live on the device, caption ink when stored, a faint ring otherwise.
 
 ### Mouse Callout Drawing
 The top-down mouse photo inside an SVG with captioned callouts: condensed caps caption in caption ink, value in label-ink-2, hairline-3 leader to a ringed dot. Rebindable side buttons are clickable; the selected one turns caption, value, leader and button to label ink.
@@ -283,14 +283,14 @@ Grid lines barely above the ground, a hairline-3 zero line, the summed curve in 
 
 ### Do:
 - **Do** put live device state on a rating plate: condensed caps caption over a firm tabular value, in ruled cells that never reflow.
-- **Do** reserve safety yellow for state that is live on the hardware right now, and flash a plate value yellow in place when the hardware changes it.
+- **Do** reserve signal green for state that is connected or on right now, and flash a plate value yellow in place when the hardware changes it.
 - **Do** show selection by inverting to label ink with graphite text.
 - **Do** keep corners at 3px (2px for knobs and small icon buttons, 4px for rail items) and dividers at 1px hairlines.
 - **Do** differentiate type by Archivo's width axis and weight, with tabular figures everywhere values change.
 - **Do** keep depth tonal: chrome darker than the ground, panels one step lighter.
 
 ### Don't:
-- **Don't** use safety yellow for selection, hover, focus, links, headings or decoration.
+- **Don't** use signal green for selection, hover, focus, links, headings or decoration.
 - **Don't** add glows, coloured shadows, or gradient fills; the floor light under product photos is the only gradient.
 - **Don't** bring back the old violet-to-blue gradient, near-black glowing tiles, or tracked uppercase labels used as decoration.
 - **Don't** use condensed caps as a standalone eyebrow over a heading; a caption always names a value or control.

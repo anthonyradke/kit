@@ -175,6 +175,10 @@ function focusTitle() {
 // laid out on a fixed grid so values change in place without reflowing.
 
 // cell(key, caption, valueHtml, { span, cls, meter, low })
+// A device's status as a mark: green when connected, yellow while waiting for it, red on a fault.
+const statusLevel = (s) => (s.live ? "live" : s.bad ? "bad" : "warn");
+const statusMark = (s) => `<span class="${s.live ? "live-mark" : `off-mark ${statusLevel(s)}`}">${s.text}</span>`;
+
 function cell(key, cap, val, o = {}) {
   const cls = ["cell", o.span === 2 ? "span2" : "", o.cellCls || ""].join(" ");
   const meter = o.meter != null ? `<div class="meter ${o.low ? "low" : ""}"><i style="width:${clamp(o.meter, 0, 100)}%"></i></div>` : "";

@@ -103,28 +103,28 @@ function renderUpdate() {
 
 function renderRail() {
   const bat = (b) => (b == null ? "" : `<span class="ri-bat ${b <= 15 ? "low" : ""}">${b}%</span>`);
-  const pip = (live, present) => `<span class="pip ${live ? "live" : present ? "" : "off"}"></span>`;
+  const pip = (s) => `<span class="pip ${statusLevel(s)}"></span>`;
   const item = (page, inner, label) =>
     `<button class="rail-item ${view.page === page ? "on" : ""}" data-act="go" data-page="${page}" title="${label}" aria-label="${label}" ${view.page === page ? 'aria-current="page"' : ""}>${inner}</button>`;
   const dev = {
     mouse: () => {
       const d = M.device;
-      return item("mouse", `${pip(d.connected, d.present)}<img src="${productImg("mouse")}" alt="" />${bat(d.connected ? d.battery : null) || '<span class="ri-label">Mouse</span>'}`, PRODUCTS.mouse.name);
+      return item("mouse", `${pip(mouseStatus())}<img src="${productImg("mouse")}" alt="" />${bat(d.connected ? d.battery : null) || '<span class="ri-label">Mouse</span>'}`, PRODUCTS.mouse.name);
     },
     keyboard: () => {
       const s = kst();
-      return item("keyboard", `${pip(s.connected, s.present)}<img class="wide" src="${productImg("keyboard")}" alt="" />${bat(s.connected ? s.battery : null) || '<span class="ri-label">Keyboard</span>'}`, keyboardName());
+      return item("keyboard", `${pip(keyStatus())}<img class="wide" src="${productImg("keyboard")}" alt="" />${bat(s.connected ? s.battery : null) || '<span class="ri-label">Keyboard</span>'}`, keyboardName());
     },
     headset: () => {
       const h = H.headset;
-      return item("headset", `${pip(h.connected, h.present)}<img src="${productImg("headset")}" alt="" />${bat(h.connected ? h.battery : null) || '<span class="ri-label">Headset</span>'}`, PRODUCTS.headset.name);
+      return item("headset", `${pip(headsetStatus())}<img src="${productImg("headset")}" alt="" />${bat(h.connected ? h.battery : null) || '<span class="ri-label">Headset</span>'}`, PRODUCTS.headset.name);
     },
   };
   morph(
     $("#rail"),
     item("home", `${icons.home}<span class="ri-label">Home</span>`, "Home") +
       devices().map((d) => dev[d]()).join("") +
-      `<div class="rail-foot">${item("settings", `${upd.available ? '<span class="pip"></span>' : ""}${icons.gear}<span class="ri-label">Settings</span>`, "Settings")}</div>`,
+      `<div class="rail-foot">${item("settings", `${upd.available ? '<span class="pip warn"></span>' : ""}${icons.gear}<span class="ri-label">Settings</span>`, "Settings")}</div>`,
   );
 }
 
@@ -258,7 +258,7 @@ function setupPage() {
 function setupDevices(d) {
   const found = setup.found;
   const foundMark = (yes) =>
-    setup.detecting ? `<span class="off-mark">Looking…</span>` : !found ? "" : yes ? `<span class="live-mark">Plugged in</span>` : `<span class="off-mark">Not detected</span>`;
+    setup.detecting ? `<span class="off-mark">Looking…</span>` : !found ? "" : yes ? `<span class="live-mark">Plugged in</span>` : `<span class="off-mark warn">Not detected</span>`;
   const colorSeg = (dev) =>
     `<div class="seg">${["white", "black"].map((c) => `<button class="${d[`${dev}Color`] === c ? "on" : ""}" data-act="setup-color" data-dev="${dev}" data-v="${c}">${c === "white" ? "White" : "Black"}</button>`).join("")}</div>`;
   const card = (dev, name, img, imgCls, options, isFound) => {

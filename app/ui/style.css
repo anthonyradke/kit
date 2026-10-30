@@ -1,6 +1,6 @@
 /* kit: warm graphite, silver label ink, hairline rules. Every device reads its live state off a
-   rating plate (ruled cells, condensed captions). Safety yellow means one thing: live on the
-   hardware right now. Nothing glows. */
+   rating plate (ruled cells, condensed captions). Green means one thing: connected or on right
+   now. Yellow is for attention, red for faults. Nothing glows. */
 
 @font-face {
   font-family: "Archivo";
@@ -28,14 +28,14 @@
   --ink-4: #66645f;
   --ink-hi: #fff;
 
-  --live: #e8b931;
-  --warn: #ec8a3c;
+  --live: #4cc96f;
+  --warn: #e8b931;
   --bad: #e5574e;
   --rec: #ef4b4b;
   --shadow-a: .55;
   color-scheme: dark;
 }
-/* Field: an army field radio. Olive drab, stencil cream, signal orange. */
+/* Field: an army field radio. Olive drab, stencil cream. */
 [data-theme="field"] {
   --ground: #1b1d16;
   --chrome: #15170f;
@@ -49,14 +49,14 @@
   --ink-3: #8f8b74;
   --ink-4: #67654f;
   --ink-hi: #fbf6e2;
-  --live: #ff7a1f;
+  --live: #6fd05a;
   --warn: #e3c13f;
   --bad: #e5574e;
   --rec: #ef4b4b;
   --shadow-a: .55;
   color-scheme: dark;
 }
-/* Phosphor: an oscilloscope. Green trace on a dark tube, amber for live. */
+/* Phosphor: an oscilloscope. Pale green trace on a dark tube. */
 [data-theme="phosphor"] {
   --ground: #0d1411;
   --chrome: #09100d;
@@ -70,8 +70,8 @@
   --ink-3: #66937a;
   --ink-4: #47695a;
   --ink-hi: #e6fff0;
-  --live: #ffb627;
-  --warn: #ff7a45;
+  --live: #39e878;
+  --warn: #ffc72e;
   --bad: #ff5c5c;
   --rec: #ff4b4b;
   --shadow-a: .6;
@@ -91,8 +91,8 @@
   --ink-3: #93afd3;
   --ink-4: #6f8fbb;
   --ink-hi: #fff;
-  --live: #ffd23f;
-  --warn: #ffa04d;
+  --live: #4fe08a;
+  --warn: #ffd23f;
   --bad: #ff6b6b;
   --rec: #ff5a5a;
   --shadow-a: .5;
@@ -113,7 +113,7 @@
   --ink-4: #63636b;
   --ink-hi: #fff;
   --live: #4ade80;
-  --warn: #f59e0b;
+  --warn: #facc15;
   --bad: #ef4444;
   --rec: #ef4444;
   --shadow-a: .55;
@@ -132,8 +132,8 @@
   --ink-3: #707176;
   --ink-4: #9d9ea2;
   --ink-hi: #3b3c40;
-  --live: #15993f;
-  --warn: #c2570c;
+  --live: #15803d;
+  --warn: #8f6a00;
   --bad: #d23b32;
   --rec: #dc2626;
   --shadow-a: .2;
@@ -176,7 +176,7 @@ button { cursor: pointer; background: none; border: none; padding: 0; }
 button:disabled { opacity: .35; cursor: default; }
 :focus-visible { outline: 1.5px solid var(--ink); outline-offset: 2px; border-radius: 2px; }
 ::selection { background: color-mix(in srgb, var(--ink) 25%, transparent); }
-input { caret-color: var(--live); }
+input { caret-color: var(--warn); }
 
 svg { width: 16px; height: 16px; fill: none; stroke: currentColor; stroke-width: 1.7; stroke-linecap: round; stroke-linejoin: round; }
 
@@ -253,7 +253,8 @@ svg { width: 16px; height: 16px; fill: none; stroke: currentColor; stroke-width:
 .rail-item .ri-bat.low { color: var(--bad); }
 .pip { position: absolute; top: 7px; right: 8px; width: 6px; height: 6px; border-radius: 50%; background: var(--ink-4); }
 .pip.live { background: var(--live); }
-.pip.off { background: transparent; box-shadow: inset 0 0 0 1px var(--ink-4); }
+.pip.warn { background: var(--warn); }
+.pip.bad { background: var(--bad); }
 .rail-foot { margin-top: auto; }
 
 .main { flex: 1; min-width: 0; min-height: 0; position: relative; }
@@ -288,11 +289,13 @@ svg { width: 16px; height: 16px; fill: none; stroke: currentColor; stroke-width:
 .live-mark::before { content: ""; width: 7px; height: 7px; border-radius: 50%; background: currentColor; flex: none; }
 .off-mark { display: inline-flex; align-items: center; gap: 7px; color: var(--ink-3); }
 .off-mark::before { content: ""; width: 7px; height: 7px; border-radius: 50%; box-shadow: inset 0 0 0 1.5px currentColor; flex: none; }
+.off-mark.warn { color: var(--warn); }
+.off-mark.bad { color: var(--bad); }
 .cell .meter { height: 3px; margin-top: 6px; border-radius: 2px; background: var(--rule-2); overflow: hidden; }
 .cell .meter i { display: block; height: 100%; background: var(--ink-2); border-radius: 2px; transition: width .4s var(--ease); }
 .cell .meter.low i { background: var(--bad); }
 /* Signature: a value the hardware just changed flashes yellow in place. */
-.cell.tick .val { color: var(--live); transition: none; }
+.cell.tick .val { color: var(--warn); transition: none; }
 
 /* ---------- buttons ---------- */
 
@@ -693,7 +696,7 @@ kbd {
 .fxname { padding: 0 2px; overflow: hidden; font-size: 12.5px; white-space: nowrap; text-overflow: ellipsis; }
 .fxstar { position: absolute; right: 9px; bottom: 5px; padding: 0 2px; color: var(--ink-4); font-size: 14px; line-height: 1; opacity: 0; transition: opacity .15s, color .15s; }
 .fxcard:hover .fxstar, .fxstar.on { opacity: 1; }
-.fxstar:hover, .fxstar.on { color: var(--live); }
+.fxstar:hover, .fxstar.on { color: var(--warn); }
 .fxcard .fxname { padding-right: 18px; }
 .fxdesc { margin-top: 2px; }
 

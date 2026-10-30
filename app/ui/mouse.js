@@ -47,8 +47,7 @@ function mouseStatus() {
 }
 
 function statusCell(key, s) {
-  const mark = s.live ? `<span class="live-mark">${s.text}</span>` : `<span class="off-mark">${s.text}</span>`;
-  return cell(key, "Status", mark, { cls: `text ${s.bad ? "bad" : ""}` });
+  return cell(key, "Status", statusMark(s), { cls: "text" });
 }
 
 function modeLabel(mode) {

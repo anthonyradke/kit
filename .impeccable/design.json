@@ -180,11 +180,27 @@
           "#f1eee8"
         ]
       },
-      "safety-yellow": {
+      "signal-green": {
         "role": "primary",
+        "displayName": "Signal Green",
+        "canonical": "#4cc96f",
+        "cssVar": "--live",
+        "tonalRamp": [
+          "#00150a",
+          "#00331a",
+          "#0b5a2e",
+          "#178043",
+          "#2aa559",
+          "#4cc96f",
+          "#8ee3a6",
+          "#d6f8e0"
+        ]
+      },
+      "safety-yellow": {
+        "role": "state",
         "displayName": "Safety Yellow",
         "canonical": "oklch(80.6% 0.152 88)",
-        "cssVar": "--live",
+        "cssVar": "--warn",
         "tonalRamp": [
           "#120a00",
           "#312100",
@@ -194,22 +210,6 @@
           "#bf9930",
           "#dec17a",
           "#ffedbf"
-        ]
-      },
-      "warn-amber": {
-        "role": "state",
-        "displayName": "Warn Amber",
-        "canonical": "oklch(72.5% 0.149 56)",
-        "cssVar": "--warn",
-        "tonalRamp": [
-          "#170600",
-          "#3b1a00",
-          "#633000",
-          "#8f4800",
-          "#bd6100",
-          "#d9884c",
-          "#f4b488",
-          "#ffe4c7"
         ]
       },
       "fault-red": {
@@ -347,9 +347,9 @@
       "name": "Rating Plate",
       "kind": "custom",
       "refersTo": "plate",
-      "description": "Ruled cells of a condensed caps caption over a firm tabular value. The live status cell shows the yellow-only-for-live rule; the Sensitivity cell shows the in-place hardware-change flash.",
+      "description": "Ruled cells of a condensed caps caption over a firm tabular value. The live status cell shows the green-only-for-live rule; the Sensitivity cell shows the in-place hardware-change flash.",
       "html": "<div class=\"ds-plate\"><div class=\"ds-cell\"><div class=\"ds-cap\">Status</div><div class=\"ds-val ds-live-mark\">Connected</div></div><div class=\"ds-cell\"><div class=\"ds-cap\">Battery</div><div class=\"ds-val\">72<small>%</small></div><div class=\"ds-meter\"><i style=\"width:72%\"></i></div></div><div class=\"ds-cell ds-tick\"><div class=\"ds-cap\">Sensitivity</div><div class=\"ds-val\">1600<small>DPI</small></div></div><div class=\"ds-cell ds-end\"><div class=\"ds-cap\">Report rate</div><div class=\"ds-val ds-dim\">1000<small>Hz</small></div></div></div>",
-      "css": ":host{--ground:#141517;--chrome:#0f1012;--raise:#1a1b1e;--raise-2:#212327;--rule:#2a2c30;--rule-2:#36383d;--rule-3:#4a4c51;--ink:#ece8df;--ink-2:#bdb9b0;--ink-3:#8f8c85;--ink-4:#66645f;--live:#e8b931;--warn:#ec8a3c;--bad:#e5574e;--rec:#ef4b4b;--ease:cubic-bezier(.2,.8,.2,1)} .ds-plate{font-family:Archivo,system-ui,sans-serif;display:grid;grid-template-columns:repeat(4,minmax(0,1fr));border:1px solid var(--rule-3);border-radius:3px;background:var(--ground);color:var(--ink);width:560px;font-variant-numeric:tabular-nums} .ds-cell{padding:8px 12px 9px;border-right:1px solid var(--rule-2);min-width:0} .ds-cell.ds-end{border-right:0} .ds-cap{font-size:10.5px;font-weight:600;font-variation-settings:'wdth' 72;letter-spacing:.08em;text-transform:uppercase;color:var(--ink-3);white-space:nowrap;overflow:hidden;text-overflow:ellipsis} .ds-val{display:flex;align-items:baseline;gap:4px;margin-top:1px;font-size:21px;font-weight:500;font-variation-settings:'wdth' 80;line-height:1.2;white-space:nowrap;transition:color .5s var(--ease)} .ds-val small{font-size:12px;color:var(--ink-3)} .ds-dim{color:var(--ink-4)} .ds-live-mark{align-items:center;gap:7px;color:var(--live);font-size:16px;font-variation-settings:'wdth' 86;padding-top:3px} .ds-live-mark::before{content:'';width:7px;height:7px;border-radius:50%;background:currentColor} .ds-meter{height:3px;margin-top:6px;border-radius:2px;background:var(--rule-2);overflow:hidden} .ds-meter i{display:block;height:100%;background:var(--ink-2)} .ds-tick .ds-val{color:var(--live);transition:none}"
+      "css": ":host{--ground:#141517;--chrome:#0f1012;--raise:#1a1b1e;--raise-2:#212327;--rule:#2a2c30;--rule-2:#36383d;--rule-3:#4a4c51;--ink:#ece8df;--ink-2:#bdb9b0;--ink-3:#8f8c85;--ink-4:#66645f;--live:#4cc96f;--warn:#e8b931;--bad:#e5574e;--rec:#ef4b4b;--ease:cubic-bezier(.2,.8,.2,1)} .ds-plate{font-family:Archivo,system-ui,sans-serif;display:grid;grid-template-columns:repeat(4,minmax(0,1fr));border:1px solid var(--rule-3);border-radius:3px;background:var(--ground);color:var(--ink);width:560px;font-variant-numeric:tabular-nums} .ds-cell{padding:8px 12px 9px;border-right:1px solid var(--rule-2);min-width:0} .ds-cell.ds-end{border-right:0} .ds-cap{font-size:10.5px;font-weight:600;font-variation-settings:'wdth' 72;letter-spacing:.08em;text-transform:uppercase;color:var(--ink-3);white-space:nowrap;overflow:hidden;text-overflow:ellipsis} .ds-val{display:flex;align-items:baseline;gap:4px;margin-top:1px;font-size:21px;font-weight:500;font-variation-settings:'wdth' 80;line-height:1.2;white-space:nowrap;transition:color .5s var(--ease)} .ds-val small{font-size:12px;color:var(--ink-3)} .ds-dim{color:var(--ink-4)} .ds-live-mark{align-items:center;gap:7px;color:var(--live);font-size:16px;font-variation-settings:'wdth' 86;padding-top:3px} .ds-live-mark::before{content:'';width:7px;height:7px;border-radius:50%;background:currentColor} .ds-meter{height:3px;margin-top:6px;border-radius:2px;background:var(--rule-2);overflow:hidden} .ds-meter i{display:block;height:100%;background:var(--ink-2)} .ds-tick .ds-val{color:var(--warn);transition:none}"
     },
     {
       "name": "Primary Button",
@@ -357,7 +357,7 @@
       "refersTo": "button-primary",
       "description": "Label-ink face, graphite text; one per action group.",
       "html": "<button class=\"ds-btn\">Open mouse</button>",
-      "css": ":host{--ground:#141517;--chrome:#0f1012;--raise:#1a1b1e;--raise-2:#212327;--rule:#2a2c30;--rule-2:#36383d;--rule-3:#4a4c51;--ink:#ece8df;--ink-2:#bdb9b0;--ink-3:#8f8c85;--ink-4:#66645f;--live:#e8b931;--warn:#ec8a3c;--bad:#e5574e;--rec:#ef4b4b;--ease:cubic-bezier(.2,.8,.2,1)} .ds-btn{font-family:Archivo,system-ui,sans-serif;display:inline-flex;align-items:center;gap:7px;height:32px;padding:0 14px;border:none;border-radius:3px;background:var(--ink);color:var(--ground);font-size:13px;font-weight:600;cursor:pointer;transition:background .15s} .ds-btn:hover{background:#fff} .ds-btn:focus-visible{outline:1.5px solid var(--ink);outline-offset:2px}"
+      "css": ":host{--ground:#141517;--chrome:#0f1012;--raise:#1a1b1e;--raise-2:#212327;--rule:#2a2c30;--rule-2:#36383d;--rule-3:#4a4c51;--ink:#ece8df;--ink-2:#bdb9b0;--ink-3:#8f8c85;--ink-4:#66645f;--live:#4cc96f;--warn:#e8b931;--bad:#e5574e;--rec:#ef4b4b;--ease:cubic-bezier(.2,.8,.2,1)} .ds-btn{font-family:Archivo,system-ui,sans-serif;display:inline-flex;align-items:center;gap:7px;height:32px;padding:0 14px;border:none;border-radius:3px;background:var(--ink);color:var(--ground);font-size:13px;font-weight:600;cursor:pointer;transition:background .15s} .ds-btn:hover{background:#fff} .ds-btn:focus-visible{outline:1.5px solid var(--ink);outline-offset:2px}"
     },
     {
       "name": "Quiet Button",
@@ -365,7 +365,7 @@
       "refersTo": "button-quiet",
       "description": "Transparent with a hairline outline; the secondary action beside a primary.",
       "html": "<button class=\"ds-btn-quiet\">Macros</button>",
-      "css": ":host{--ground:#141517;--chrome:#0f1012;--raise:#1a1b1e;--raise-2:#212327;--rule:#2a2c30;--rule-2:#36383d;--rule-3:#4a4c51;--ink:#ece8df;--ink-2:#bdb9b0;--ink-3:#8f8c85;--ink-4:#66645f;--live:#e8b931;--warn:#ec8a3c;--bad:#e5574e;--rec:#ef4b4b;--ease:cubic-bezier(.2,.8,.2,1)} .ds-btn-quiet{font-family:Archivo,system-ui,sans-serif;display:inline-flex;align-items:center;height:32px;padding:0 14px;border:none;border-radius:3px;background:transparent;color:var(--ink);box-shadow:inset 0 0 0 1px var(--rule-3);font-size:13px;font-weight:600;cursor:pointer;transition:background .15s} .ds-btn-quiet:hover{background:var(--raise-2)} .ds-btn-quiet:focus-visible{outline:1.5px solid var(--ink);outline-offset:2px}"
+      "css": ":host{--ground:#141517;--chrome:#0f1012;--raise:#1a1b1e;--raise-2:#212327;--rule:#2a2c30;--rule-2:#36383d;--rule-3:#4a4c51;--ink:#ece8df;--ink-2:#bdb9b0;--ink-3:#8f8c85;--ink-4:#66645f;--live:#4cc96f;--warn:#e8b931;--bad:#e5574e;--rec:#ef4b4b;--ease:cubic-bezier(.2,.8,.2,1)} .ds-btn-quiet{font-family:Archivo,system-ui,sans-serif;display:inline-flex;align-items:center;height:32px;padding:0 14px;border:none;border-radius:3px;background:transparent;color:var(--ink);box-shadow:inset 0 0 0 1px var(--rule-3);font-size:13px;font-weight:600;cursor:pointer;transition:background .15s} .ds-btn-quiet:hover{background:var(--raise-2)} .ds-btn-quiet:focus-visible{outline:1.5px solid var(--ink);outline-offset:2px}"
     },
     {
       "name": "Text Button",
@@ -373,7 +373,7 @@
       "refersTo": "button-text",
       "description": "Unoutlined icon-and-label action in page headers (Duplicate, Delete, New profile).",
       "html": "<button class=\"ds-tbtn\"><svg viewBox=\"0 0 24 24\"><rect x=\"9\" y=\"9\" width=\"11\" height=\"11\" rx=\"2\"/><path d=\"M5 15V5a1 1 0 0 1 1-1h9\"/></svg>Duplicate</button>",
-      "css": ":host{--ground:#141517;--chrome:#0f1012;--raise:#1a1b1e;--raise-2:#212327;--rule:#2a2c30;--rule-2:#36383d;--rule-3:#4a4c51;--ink:#ece8df;--ink-2:#bdb9b0;--ink-3:#8f8c85;--ink-4:#66645f;--live:#e8b931;--warn:#ec8a3c;--bad:#e5574e;--rec:#ef4b4b;--ease:cubic-bezier(.2,.8,.2,1)} .ds-tbtn{font-family:Archivo,system-ui,sans-serif;display:inline-flex;align-items:center;gap:6px;height:30px;padding:0 9px;border:none;border-radius:3px;background:none;color:var(--ink-2);font-size:12.5px;font-weight:500;cursor:pointer;transition:color .15s,background .15s} .ds-tbtn svg{width:14px;height:14px;fill:none;stroke:currentColor;stroke-width:1.7;stroke-linecap:round;stroke-linejoin:round} .ds-tbtn:hover{color:var(--ink);background:var(--raise-2)} .ds-tbtn:focus-visible{outline:1.5px solid var(--ink);outline-offset:2px}"
+      "css": ":host{--ground:#141517;--chrome:#0f1012;--raise:#1a1b1e;--raise-2:#212327;--rule:#2a2c30;--rule-2:#36383d;--rule-3:#4a4c51;--ink:#ece8df;--ink-2:#bdb9b0;--ink-3:#8f8c85;--ink-4:#66645f;--live:#4cc96f;--warn:#e8b931;--bad:#e5574e;--rec:#ef4b4b;--ease:cubic-bezier(.2,.8,.2,1)} .ds-tbtn{font-family:Archivo,system-ui,sans-serif;display:inline-flex;align-items:center;gap:6px;height:30px;padding:0 9px;border:none;border-radius:3px;background:none;color:var(--ink-2);font-size:12.5px;font-weight:500;cursor:pointer;transition:color .15s,background .15s} .ds-tbtn svg{width:14px;height:14px;fill:none;stroke:currentColor;stroke-width:1.7;stroke-linecap:round;stroke-linejoin:round} .ds-tbtn:hover{color:var(--ink);background:var(--raise-2)} .ds-tbtn:focus-visible{outline:1.5px solid var(--ink);outline-offset:2px}"
     },
     {
       "name": "Segmented Control",
@@ -381,7 +381,7 @@
       "refersTo": "segmented-on",
       "description": "A row of plate cells; the chosen cell inverts to label ink.",
       "html": "<div class=\"ds-seg\"><button>125 Hz</button><button>250 Hz</button><button>500 Hz</button><button class=\"on\">1000 Hz</button></div>",
-      "css": ":host{--ground:#141517;--chrome:#0f1012;--raise:#1a1b1e;--raise-2:#212327;--rule:#2a2c30;--rule-2:#36383d;--rule-3:#4a4c51;--ink:#ece8df;--ink-2:#bdb9b0;--ink-3:#8f8c85;--ink-4:#66645f;--live:#e8b931;--warn:#ec8a3c;--bad:#e5574e;--rec:#ef4b4b;--ease:cubic-bezier(.2,.8,.2,1)} .ds-seg{font-family:Archivo,system-ui,sans-serif;display:inline-flex;border:1px solid var(--rule-3);border-radius:3px;overflow:hidden;background:var(--ground)} .ds-seg button{font:inherit;padding:6px 13px;border:none;border-right:1px solid var(--rule-2);background:none;color:var(--ink-2);font-size:13px;font-weight:500;font-variation-settings:'wdth' 86;cursor:pointer;transition:background .15s,color .15s} .ds-seg button:last-child{border-right:0} .ds-seg button:hover:not(.on){background:var(--raise-2);color:var(--ink)} .ds-seg button.on{background:var(--ink);color:var(--ground)} .ds-seg button:focus-visible{outline:1.5px solid var(--ink);outline-offset:-3px}"
+      "css": ":host{--ground:#141517;--chrome:#0f1012;--raise:#1a1b1e;--raise-2:#212327;--rule:#2a2c30;--rule-2:#36383d;--rule-3:#4a4c51;--ink:#ece8df;--ink-2:#bdb9b0;--ink-3:#8f8c85;--ink-4:#66645f;--live:#4cc96f;--warn:#e8b931;--bad:#e5574e;--rec:#ef4b4b;--ease:cubic-bezier(.2,.8,.2,1)} .ds-seg{font-family:Archivo,system-ui,sans-serif;display:inline-flex;border:1px solid var(--rule-3);border-radius:3px;overflow:hidden;background:var(--ground)} .ds-seg button{font:inherit;padding:6px 13px;border:none;border-right:1px solid var(--rule-2);background:none;color:var(--ink-2);font-size:13px;font-weight:500;font-variation-settings:'wdth' 86;cursor:pointer;transition:background .15s,color .15s} .ds-seg button:last-child{border-right:0} .ds-seg button:hover:not(.on){background:var(--raise-2);color:var(--ink)} .ds-seg button.on{background:var(--ink);color:var(--ground)} .ds-seg button:focus-visible{outline:1.5px solid var(--ink);outline-offset:-3px}"
     },
     {
       "name": "Text Field",
@@ -389,23 +389,23 @@
       "refersTo": "input-field",
       "description": "Inset chrome-graphite field under a condensed caption; the border steps up on hover and focus, no glow.",
       "html": "<label class=\"ds-fl\"><span>Frequency (Hz)</span><input class=\"ds-field\" value=\"55\"></label>",
-      "css": ":host{--ground:#141517;--chrome:#0f1012;--raise:#1a1b1e;--raise-2:#212327;--rule:#2a2c30;--rule-2:#36383d;--rule-3:#4a4c51;--ink:#ece8df;--ink-2:#bdb9b0;--ink-3:#8f8c85;--ink-4:#66645f;--live:#e8b931;--warn:#ec8a3c;--bad:#e5574e;--rec:#ef4b4b;--ease:cubic-bezier(.2,.8,.2,1)} .ds-fl{font-family:Archivo,system-ui,sans-serif;display:flex;flex-direction:column;gap:5px;width:120px} .ds-fl span{font-size:10.5px;font-weight:600;font-variation-settings:'wdth' 72;letter-spacing:.08em;text-transform:uppercase;color:var(--ink-3)} .ds-field{font:inherit;height:32px;padding:0 9px;border:1px solid var(--rule-2);border-radius:3px;background:var(--chrome);color:var(--ink);font-size:13.5px;outline:none;caret-color:var(--live);transition:border-color .15s} .ds-field:hover{border-color:var(--rule-3)} .ds-field:focus{border-color:var(--ink-2)}"
+      "css": ":host{--ground:#141517;--chrome:#0f1012;--raise:#1a1b1e;--raise-2:#212327;--rule:#2a2c30;--rule-2:#36383d;--rule-3:#4a4c51;--ink:#ece8df;--ink-2:#bdb9b0;--ink-3:#8f8c85;--ink-4:#66645f;--live:#4cc96f;--warn:#e8b931;--bad:#e5574e;--rec:#ef4b4b;--ease:cubic-bezier(.2,.8,.2,1)} .ds-fl{font-family:Archivo,system-ui,sans-serif;display:flex;flex-direction:column;gap:5px;width:120px} .ds-fl span{font-size:10.5px;font-weight:600;font-variation-settings:'wdth' 72;letter-spacing:.08em;text-transform:uppercase;color:var(--ink-3)} .ds-field{font:inherit;height:32px;padding:0 9px;border:1px solid var(--rule-2);border-radius:3px;background:var(--chrome);color:var(--ink);font-size:13.5px;outline:none;caret-color:var(--warn);transition:border-color .15s} .ds-field:hover{border-color:var(--rule-3)} .ds-field:focus{border-color:var(--ink-2)}"
     },
     {
       "name": "Device Rail Item",
       "kind": "nav",
       "refersTo": "rail-item-on",
-      "description": "Rail entry with icon, condensed caps label and a status pip (yellow only when the device is connected).",
+      "description": "Rail entry with icon, condensed caps label and a status pip (green only when the device is connected).",
       "html": "<nav class=\"ds-rail\"><button class=\"ds-ri on\"><svg viewBox=\"0 0 24 24\"><path d=\"M4 11l8-7 8 7v9h-5v-6H9v6H4z\"/></svg><span>Home</span></button><button class=\"ds-ri\"><i class=\"ds-pip live\"></i><svg viewBox=\"0 0 24 24\"><rect x=\"7\" y=\"3\" width=\"10\" height=\"18\" rx=\"5\"/><path d=\"M12 7v3\"/></svg><span>Mouse</span><b>72%</b></button><button class=\"ds-ri\"><i class=\"ds-pip off\"></i><svg viewBox=\"0 0 24 24\"><path d=\"M4 14v-2a8 8 0 0 1 16 0v2\"/><rect x=\"3\" y=\"14\" width=\"4\" height=\"6\" rx=\"1\"/><rect x=\"17\" y=\"14\" width=\"4\" height=\"6\" rx=\"1\"/></svg><span>Headset</span><b>—</b></button></nav>",
-      "css": ":host{--ground:#141517;--chrome:#0f1012;--raise:#1a1b1e;--raise-2:#212327;--rule:#2a2c30;--rule-2:#36383d;--rule-3:#4a4c51;--ink:#ece8df;--ink-2:#bdb9b0;--ink-3:#8f8c85;--ink-4:#66645f;--live:#e8b931;--warn:#ec8a3c;--bad:#e5574e;--rec:#ef4b4b;--ease:cubic-bezier(.2,.8,.2,1)} .ds-rail{font-family:Archivo,system-ui,sans-serif;width:92px;display:flex;flex-direction:column;align-items:center;gap:6px;padding:12px 0;background:var(--chrome);border-right:1px solid var(--rule)} .ds-ri{font:inherit;position:relative;width:72px;display:flex;flex-direction:column;align-items:center;gap:3px;padding:8px 0 7px;border:none;border-radius:4px;background:none;color:var(--ink-3);cursor:pointer;transition:background .15s,color .15s} .ds-ri svg{width:20px;height:20px;margin:6px 0 3px;fill:none;stroke:currentColor;stroke-width:1.7;stroke-linecap:round;stroke-linejoin:round} .ds-ri span{font-size:10.5px;font-weight:600;font-variation-settings:'wdth' 72;letter-spacing:.06em;text-transform:uppercase} .ds-ri b{font-size:11px;font-weight:600;font-variation-settings:'wdth' 86;color:var(--ink-3)} .ds-ri:hover{background:var(--raise);color:var(--ink-2)} .ds-ri.on{background:var(--raise-2);color:var(--ink);box-shadow:inset 0 0 0 1px var(--rule-2)} .ds-ri:focus-visible{outline:1.5px solid var(--ink);outline-offset:2px} .ds-pip{position:absolute;top:7px;right:8px;width:6px;height:6px;border-radius:50%;background:var(--ink-4)} .ds-pip.live{background:var(--live)} .ds-pip.off{background:transparent;box-shadow:inset 0 0 0 1px var(--ink-4)}"
+      "css": ":host{--ground:#141517;--chrome:#0f1012;--raise:#1a1b1e;--raise-2:#212327;--rule:#2a2c30;--rule-2:#36383d;--rule-3:#4a4c51;--ink:#ece8df;--ink-2:#bdb9b0;--ink-3:#8f8c85;--ink-4:#66645f;--live:#4cc96f;--warn:#e8b931;--bad:#e5574e;--rec:#ef4b4b;--ease:cubic-bezier(.2,.8,.2,1)} .ds-rail{font-family:Archivo,system-ui,sans-serif;width:92px;display:flex;flex-direction:column;align-items:center;gap:6px;padding:12px 0;background:var(--chrome);border-right:1px solid var(--rule)} .ds-ri{font:inherit;position:relative;width:72px;display:flex;flex-direction:column;align-items:center;gap:3px;padding:8px 0 7px;border:none;border-radius:4px;background:none;color:var(--ink-3);cursor:pointer;transition:background .15s,color .15s} .ds-ri svg{width:20px;height:20px;margin:6px 0 3px;fill:none;stroke:currentColor;stroke-width:1.7;stroke-linecap:round;stroke-linejoin:round} .ds-ri span{font-size:10.5px;font-weight:600;font-variation-settings:'wdth' 72;letter-spacing:.06em;text-transform:uppercase} .ds-ri b{font-size:11px;font-weight:600;font-variation-settings:'wdth' 86;color:var(--ink-3)} .ds-ri:hover{background:var(--raise);color:var(--ink-2)} .ds-ri.on{background:var(--raise-2);color:var(--ink);box-shadow:inset 0 0 0 1px var(--rule-2)} .ds-ri:focus-visible{outline:1.5px solid var(--ink);outline-offset:2px} .ds-pip{position:absolute;top:7px;right:8px;width:6px;height:6px;border-radius:50%;background:var(--ink-4)} .ds-pip.live{background:var(--live)} .ds-pip.off{background:transparent;box-shadow:inset 0 0 0 1px var(--ink-4)}"
     },
     {
       "name": "Strip Tabs",
       "kind": "nav",
       "refersTo": "strip-tab",
-      "description": "Profile and preset tabs: an ink underline marks selection, a yellow dot marks the one live on the device.",
+      "description": "Profile and preset tabs: an ink underline marks selection, a green dot marks the one live on the device.",
       "html": "<div class=\"ds-strip\"><button class=\"ds-stab\"><i></i>Default</button><button class=\"ds-stab sel live\"><i></i>Valheim</button><button class=\"ds-stab stored\"><i></i>Wiz</button></div>",
-      "css": ":host{--ground:#141517;--chrome:#0f1012;--raise:#1a1b1e;--raise-2:#212327;--rule:#2a2c30;--rule-2:#36383d;--rule-3:#4a4c51;--ink:#ece8df;--ink-2:#bdb9b0;--ink-3:#8f8c85;--ink-4:#66645f;--live:#e8b931;--warn:#ec8a3c;--bad:#e5574e;--rec:#ef4b4b;--ease:cubic-bezier(.2,.8,.2,1)} .ds-strip{font-family:Archivo,system-ui,sans-serif;display:flex;height:44px;padding:0 16px;border-bottom:1px solid var(--rule);background:var(--ground)} .ds-stab{font:inherit;position:relative;display:inline-flex;align-items:center;gap:8px;padding:0 12px;border:none;background:none;color:var(--ink-3);font-size:13.5px;cursor:pointer;transition:color .15s} .ds-stab i{width:6px;height:6px;border-radius:50%;box-shadow:inset 0 0 0 1px var(--ink-4)} .ds-stab.live i{background:var(--live);box-shadow:none} .ds-stab.stored i{background:var(--ink-3);box-shadow:none} .ds-stab:hover,.ds-stab.sel{color:var(--ink)} .ds-stab.sel::after{content:'';position:absolute;left:12px;right:12px;bottom:-1px;height:2px;background:var(--ink)} .ds-stab:focus-visible{outline:1.5px solid var(--ink);outline-offset:-4px}"
+      "css": ":host{--ground:#141517;--chrome:#0f1012;--raise:#1a1b1e;--raise-2:#212327;--rule:#2a2c30;--rule-2:#36383d;--rule-3:#4a4c51;--ink:#ece8df;--ink-2:#bdb9b0;--ink-3:#8f8c85;--ink-4:#66645f;--live:#4cc96f;--warn:#e8b931;--bad:#e5574e;--rec:#ef4b4b;--ease:cubic-bezier(.2,.8,.2,1)} .ds-strip{font-family:Archivo,system-ui,sans-serif;display:flex;height:44px;padding:0 16px;border-bottom:1px solid var(--rule);background:var(--ground)} .ds-stab{font:inherit;position:relative;display:inline-flex;align-items:center;gap:8px;padding:0 12px;border:none;background:none;color:var(--ink-3);font-size:13.5px;cursor:pointer;transition:color .15s} .ds-stab i{width:6px;height:6px;border-radius:50%;box-shadow:inset 0 0 0 1px var(--ink-4)} .ds-stab.live i{background:var(--live);box-shadow:none} .ds-stab.stored i{background:var(--ink-3);box-shadow:none} .ds-stab:hover,.ds-stab.sel{color:var(--ink)} .ds-stab.sel::after{content:'';position:absolute;left:12px;right:12px;bottom:-1px;height:2px;background:var(--ink)} .ds-stab:focus-visible{outline:1.5px solid var(--ink);outline-offset:-4px}"
     },
     {
       "name": "Switch",
@@ -413,24 +413,24 @@
       "refersTo": "switch",
       "description": "Squared track and thumb; on fills the track with label ink.",
       "html": "<label class=\"ds-sw\"><input type=\"checkbox\" checked><span></span></label>",
-      "css": ":host{--ground:#141517;--chrome:#0f1012;--raise:#1a1b1e;--raise-2:#212327;--rule:#2a2c30;--rule-2:#36383d;--rule-3:#4a4c51;--ink:#ece8df;--ink-2:#bdb9b0;--ink-3:#8f8c85;--ink-4:#66645f;--live:#e8b931;--warn:#ec8a3c;--bad:#e5574e;--rec:#ef4b4b;--ease:cubic-bezier(.2,.8,.2,1)} .ds-sw{position:relative;display:inline-block;width:36px;height:20px} .ds-sw input{position:absolute;opacity:0;width:0;height:0} .ds-sw span{position:absolute;inset:0;border-radius:3px;background:var(--rule-2);cursor:pointer;transition:background .18s} .ds-sw span::after{content:'';position:absolute;left:3px;top:3px;width:14px;height:14px;border-radius:2px;background:var(--ink-3);transition:transform .18s var(--ease),background .18s} .ds-sw input:checked+span{background:var(--ink)} .ds-sw input:checked+span::after{transform:translateX(16px);background:var(--ground)} .ds-sw input:focus-visible+span{outline:1.5px solid var(--ink);outline-offset:2px}"
+      "css": ":host{--ground:#141517;--chrome:#0f1012;--raise:#1a1b1e;--raise-2:#212327;--rule:#2a2c30;--rule-2:#36383d;--rule-3:#4a4c51;--ink:#ece8df;--ink-2:#bdb9b0;--ink-3:#8f8c85;--ink-4:#66645f;--live:#4cc96f;--warn:#e8b931;--bad:#e5574e;--rec:#ef4b4b;--ease:cubic-bezier(.2,.8,.2,1)} .ds-sw{position:relative;display:inline-block;width:36px;height:20px} .ds-sw input{position:absolute;opacity:0;width:0;height:0} .ds-sw span{position:absolute;inset:0;border-radius:3px;background:var(--rule-2);cursor:pointer;transition:background .18s} .ds-sw span::after{content:'';position:absolute;left:3px;top:3px;width:14px;height:14px;border-radius:2px;background:var(--ink-3);transition:transform .18s var(--ease),background .18s} .ds-sw input:checked+span{background:var(--ink)} .ds-sw input:checked+span::after{transform:translateX(16px);background:var(--ground)} .ds-sw input:focus-visible+span{outline:1.5px solid var(--ink);outline-offset:2px}"
     }
   ],
   "narrative": {
     "northStar": "The Rating Plate",
-    "overview": "Every device reads its live state off its own rating plate, the printed spec label under real hardware: ruled cells, tiny condensed captions, firm values. The window is warm graphite with silver-white label ink, hairline rules and 3px corners. Nothing glows. The two white devices stand as product photos on a soft floor light, and everything you can know about them sits beneath them in ruled cells that never move; when the hardware changes a value, the value changes in place.\n\nDensity is that of a working tool, not a showroom: a 92px rail of device thumbnails, page tabs in the title bar, a canvas with a plate across its top, and a raised side panel of settings sections divided by hairlines. The whole system runs on one variable typeface, Archivo, with the width axis doing the work: condensed caps for captions, semi-condensed tabular figures for values, normal width for reading text.\n\nColour is almost entirely neutral. Safety yellow appears only where something is live on the hardware right now, so a glance at the window answers \"what is actually running\" without reading. The vendor default this replaces (near-black with violet-to-blue gradients, glowing tiles, tracked uppercase labels everywhere) is explicitly rejected.",
+    "overview": "Every device reads its live state off its own rating plate, the printed spec label under real hardware: ruled cells, tiny condensed captions, firm values. The window is warm graphite with silver-white label ink, hairline rules and 3px corners. Nothing glows. The two white devices stand as product photos on a soft floor light, and everything you can know about them sits beneath them in ruled cells that never move; when the hardware changes a value, the value changes in place.\n\nDensity is that of a working tool, not a showroom: a 92px rail of device thumbnails, page tabs in the title bar, a canvas with a plate across its top, and a raised side panel of settings sections divided by hairlines. The whole system runs on one variable typeface, Archivo, with the width axis doing the work: condensed caps for captions, semi-condensed tabular figures for values, normal width for reading text.\n\nColour is almost entirely neutral. Signal green appears only where something is connected or on right now, so a glance at the window answers \"what is actually running\" without reading; yellow asks for attention and red marks a fault. The vendor default this replaces (near-black with violet-to-blue gradients, glowing tiles, tracked uppercase labels everywhere) is explicitly rejected.",
     "keyCharacteristics": [
       "Warm graphite ground, silver-white label ink, three quieter inks.",
       "Rating plates: ruled cells, condensed caps caption over a firm tabular value.",
       "Hairline rules and 3px corners; no glows, no gradients except the floor light under product photos.",
-      "Safety yellow means one thing: live on the hardware right now.",
-      "Selection is shown in ink (inverted cell), never in yellow.",
+      "Signal green means one thing: connected or on right now.",
+      "Selection is shown in ink (inverted cell), never in a signal colour.",
       "One variable face (Archivo), differentiated by width rather than by family."
     ],
     "rules": [
       {
         "name": "The One Meaning Rule",
-        "body": "Safety yellow means \"live on the hardware right now\" and is never used for selection, emphasis, hover, focus, links or decoration. If a yellow element would still be yellow with the device unplugged, it is wrong.",
+        "body": "Signal green means \"connected or on right now\" and is never used for selection, emphasis, hover, focus, links or decoration. If a green element would still be green with the device unplugged, it is wrong.",
         "section": "colors"
       },
       {
@@ -461,14 +461,14 @@
     ],
     "dos": [
       "**Do** put live device state on a rating plate: condensed caps caption over a firm tabular value, in ruled cells that never reflow.",
-      "**Do** reserve safety yellow for state that is live on the hardware right now, and flash a plate value yellow in place when the hardware changes it.",
+      "**Do** reserve signal green for state that is connected or on right now, and flash a plate value yellow in place when the hardware changes it.",
       "**Do** show selection by inverting to label ink with graphite text.",
       "**Do** keep corners at 3px (2px for knobs and small icon buttons, 4px for rail items) and dividers at 1px hairlines.",
       "**Do** differentiate type by Archivo's width axis and weight, with tabular figures everywhere values change.",
       "**Do** keep depth tonal: chrome darker than the ground, panels one step lighter."
     ],
     "donts": [
-      "**Don't** use safety yellow for selection, hover, focus, links, headings or decoration.",
+      "**Don't** use signal green for selection, hover, focus, links, headings or decoration.",
       "**Don't** add glows, coloured shadows, or gradient fills; the floor light under product photos is the only gradient.",
       "**Don't** bring back the old violet-to-blue gradient, near-black glowing tiles, or tracked uppercase labels used as decoration.",
       "**Don't** use condensed caps as a standalone eyebrow over a heading; a caption always names a value or control.",
