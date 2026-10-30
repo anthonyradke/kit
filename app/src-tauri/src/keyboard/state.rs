@@ -37,7 +37,7 @@ pub fn init(app: &AppHandle, model: Option<Model>) -> tauri::Result<()> {
     let mut config = Config::load(&config_path);
     if let Some(m) = model {
         if m != config.model {
-            config = Config::for_model(m);
+            config = config.with_model(m);
         }
     }
     let (tx, rx) = std::sync::mpsc::channel();
@@ -142,7 +142,7 @@ pub fn set_model(app: &AppHandle, model: Option<Model>) {
         if let Some(m) = model {
             let mut config = shared.core.lock().unwrap();
             if config.model != m {
-                *config = Config::for_model(m);
+                *config = config.with_model(m);
                 save(&shared, &config);
             }
         }
@@ -252,6 +252,10 @@ pub fn set_keys(app: &AppHandle, profile: &str, keys: &[(usize, u16)]) {
         if let Some(k) = p.keymap.get_mut(i) {
             *k = code;
         }
+    }
+    // The board's copy is older now, so reading it back mustn't undo this.
+    if config.on_board == profile {
+        config.on_board.clear();
     }
     save(&shared, &config);
     if config.active_profile == profile {

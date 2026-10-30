@@ -626,6 +626,7 @@ Object.assign(handlers, {
     captureKeys(el.dataset.side);
   },
   "hotkey-set"(el) {
+    stopListening();
     setHotkeyCapture(hotkeyCapture === el.dataset.target ? null : el.dataset.target);
     render();
   },

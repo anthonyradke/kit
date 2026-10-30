@@ -162,6 +162,8 @@ struct Worker {
     /// at the latest. A key remapped while held would stick (it's released as
     /// its new keycode), so this waits for every key to be up.
     keymap_due: Option<Instant>,
+    /// NK65: no keymap write before this time (a failed one backs off).
+    keymap_retry: Instant,
     /// NK65: the raw macro buffer as on the board.
     macro_buffer: Vec<u8>,
     /// NK65: a kit effect playing, the key press count it last saw and the
@@ -192,6 +194,7 @@ impl Worker {
             via_values: BTreeMap::new(),
             kit_colors: None,
             keymap_due: None,
+            keymap_retry: now,
             macro_buffer: vec![],
             anim: None,
             presses: 0,
@@ -222,7 +225,7 @@ impl Worker {
             if self.dirty && Instant::now() >= self.next_apply {
                 self.apply();
             }
-            if self.keymap_due.is_some_and(|by| Instant::now() >= by || input::keys_up()) {
+            if Instant::now() >= self.keymap_retry && self.keymap_due.is_some_and(|by| Instant::now() >= by || input::keys_up()) {
                 self.write_keymap();
             }
             if self.status != shown {
@@ -293,6 +296,8 @@ impl Worker {
                 } else {
                     self.status.restore = None;
                     self.save_backup();
+                    // The defaults go into the active profile, not the one the board last held.
+                    super::state::set_on_board(&self.app, &super::state::active_keymap(&self.app).0);
                 }
                 self.take_in_keymap();
             }
@@ -455,7 +460,8 @@ impl Worker {
             if self.with_via(|board| board.set_keycode(layer, row, col, code)).is_none() {
                 // A lost board reconnects and comes back here; anything else tries again.
                 if self.dev.is_some() {
-                    self.keymap_due = Some(Instant::now() + APPLY_RETRY);
+                    self.keymap_due = Some(Instant::now());
+                    self.keymap_retry = Instant::now() + APPLY_RETRY;
                 }
                 return;
             }

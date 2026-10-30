@@ -169,6 +169,22 @@ impl Config {
         }
     }
 
+    /// Another keyboard was picked: the lighting starts over. The NK65's keymaps
+    /// and what its keys run stay, because nothing but this file holds them.
+    pub fn with_model(&self, model: Model) -> Self {
+        Config {
+            kit_keys: self.kit_keys.clone(),
+            switch_keys: self.switch_keys.clone(),
+            profiles: self.profiles.clone(),
+            active_profile: self.active_profile.clone(),
+            on_board: self.on_board.clone(),
+            keymap_protocol: self.keymap_protocol,
+            next_profile_hotkey: self.next_profile_hotkey.clone(),
+            onboard: self.onboard.clone(),
+            ..Config::for_model(model)
+        }
+    }
+
     pub fn load(path: &Path) -> Self {
         let mut config = match std::fs::read_to_string(path) {
             Err(_) => Config::default(),
@@ -273,11 +289,20 @@ impl Config {
     /// so can kit on another computer).
     pub fn board_read(&mut self, board: &[u16], protocol: u16) {
         let upgrade = self.keymap_protocol != 0 && self.keymap_protocol < NEW_KEYCODES_FROM && protocol >= NEW_KEYCODES_FROM;
+        let downgrade = self.keymap_protocol >= NEW_KEYCODES_FROM && protocol < NEW_KEYCODES_FROM;
         self.keymap_protocol = protocol;
         for p in self.profiles.iter_mut().filter(|p| !p.keymap.is_empty()) {
             if upgrade {
                 for (i, code) in p.keymap.iter_mut().enumerate() {
                     *code = via::keycodes::upgrade(*code).or(board.get(i).copied()).unwrap_or(*code);
+                }
+            }
+            // Only the keycodes both numberings share can go back; the rest keep the firmware's default.
+            if downgrade {
+                for (i, code) in p.keymap.iter_mut().enumerate() {
+                    if !matches!(*code, 0x0000..=0x1FFF | 0x4000..=0x4FFF) {
+                        *code = board.get(i).copied().unwrap_or(*code);
+                    }
                 }
             }
             // Firmware can change the number of layers.
@@ -409,6 +434,31 @@ mod tests {
         // Already translated: left alone.
         c.board_read(&[0x29, 0x2a], 13);
         assert_eq!(keymap(&c, "a"), [4, mo1_new]);
+    }
+
+    #[test]
+    fn old_firmware_gets_no_new_keycodes() {
+        let mut c = with_profiles("", "a", vec![profile("a", &[4, 0x5221]), profile("b", &[0x5221, 5])]);
+        c.keymap_protocol = 13;
+        c.board_read(&[0x29, 0x5101], 9);
+        assert_eq!(keymap(&c, "a"), [4, 0x5101]);
+        assert_eq!(keymap(&c, "b"), [0x29, 5]);
+    }
+
+    #[test]
+    fn changing_keyboard_keeps_key_profiles() {
+        let mut c = with_profiles("b", "b", vec![profile("a", &[1]), profile("b", &[2])]);
+        c.switch_keys[0] = Some("a".into());
+        c.kit_keys[1] = Some("m1".into());
+        let tkl = c.with_model(Model::ProXTkl);
+        assert_eq!(tkl.model, Model::ProXTkl);
+        assert_ne!(tkl.presets, c.presets);
+        let back = tkl.with_model(Model::Nk65);
+        assert_eq!(back.profiles, c.profiles);
+        assert_eq!(back.active_profile, "b");
+        assert_eq!(back.on_board, "b");
+        assert_eq!(back.switch_keys, c.switch_keys);
+        assert_eq!(back.kit_keys, c.kit_keys);
     }
 
     #[test]

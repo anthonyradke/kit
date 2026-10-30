@@ -32,6 +32,7 @@ let drag = null; // { i, rect } while a graph node is dragged
 let graphSize = { w: 0, h: 0 };
 // The Mic page's test, pushed by mic_test.rs: { mode, position, live, sample, error }.
 let Mt = { mode: "idle", position: 0, live: [], sample: null, error: null };
+let micWanted = "idle"; // what was last asked for; the mic test may not have started yet
 
 const hcfg = () => H.config;
 const preset = () => hcfg().presets.find((p) => p.id === hcfg().active) || hcfg().presets[0];
@@ -525,13 +526,16 @@ async function setApo(install) {
 
 // Pending edits go first, so a sample is labelled with the strength it was recorded at.
 async function setMicTest(mode) {
+  micWanted = mode;
   await headsetSaver.flush();
-  invoke("set_mic_test", { mode });
+  if (micWanted === mode) invoke("set_mic_test", { mode });
 }
 
 // Nothing here is worth keeping going out of sight, least of all the mic in your ears.
 function leaveMic() {
-  if (Mt.mode !== "idle") invoke("set_mic_test", { mode: "idle" });
+  const running = Mt.mode !== "idle" || micWanted !== "idle";
+  micWanted = "idle";
+  if (running) invoke("set_mic_test", { mode: "idle" });
 }
 
 // Updates come 20 times a second while the test runs: only a new mode redraws the page.

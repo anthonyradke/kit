@@ -997,7 +997,8 @@ function freeIfUnused(code) {
   if (changed) keyboardSaver.save(0);
 }
 
-const freeKitKeys = () => Array.from({ length: KIT_KEYS }, (_, i) => i).filter((i) => !kcfg().kitKeys[i] && !kcfg().switchKeys[i]);
+// A key left over from a deleted profile still sends its code, so that code isn't free.
+const freeKitKeys = () => Array.from({ length: KIT_KEYS }, (_, i) => i).filter((i) => !kcfg().kitKeys[i] && !kcfg().switchKeys[i] && !codeInUse(F13 + i));
 
 async function bindSwitchKey(target) {
   let i = kcfg().switchKeys.indexOf(target);
@@ -1194,6 +1195,7 @@ Object.assign(handlers, {
     bindSwitchKey(el.dataset.v);
   },
   "kc-listen"() {
+    setHotkeyCapture(null);
     kv.listening = true;
     invoke("pause_hotkeys");
     render();
