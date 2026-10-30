@@ -414,7 +414,7 @@ function headsetDevicePage() {
       <div class="seg">${AUTO_OFF.map(([v, l]) => `<button class="${c.headset.autoOff === v ? "on" : ""}" data-act="auto-off" data-v="${v}">${l}</button>`).join("")}</div>
     </div>
     <div class="row">
-      <div><div class="rtitle">Volume limiter</div><p class="hint">Caps the headset's maximum loudness to protect your hearing.</p></div>
+      <div><div class="rtitle">Volume limiter</div><p class="hint">Caps the headset's maximum loudness at the EU hearing-safety level (about 85 dB). Turn it off if the headset isn't loud enough at full volume.</p></div>
       <label class="switch"><input type="checkbox" data-field="volumeLimiter" ${c.headset.volumeLimiter ? "checked" : ""} aria-label="Volume limiter" /><span></span></label>
     </div>
     <p class="hint">Keep SteelSeries GG closed or uninstalled: it changes the same headset settings.</p>
