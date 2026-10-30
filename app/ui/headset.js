@@ -22,6 +22,8 @@ const LED = ["Off", "Low", "Medium", "High"];
 let H = null; // backend state: { config, headset, audio, configPath }
 const hv = { band: 0, log: null };
 let installing = false;
+// Why the last install or removal failed, shown on the Mic page until the next try.
+let apoError = null;
 let drag = null; // { i, rect } while a graph node is dragged
 let graphSize = { w: 0, h: 0 };
 
@@ -339,6 +341,7 @@ function micPage() {
     status = `<div class="state-line warn"><span class="grow">Not installed yet. Windows asks for permission once.</span>
       <button class="btn" data-act="apo-install">${icons.shield}Install</button></div>`;
   }
+  if (apoError && !installing) status += `<div class="state-line bad">${esc(apoError)}</div>`;
   return `<div class="page fpage" data-key="headset-mic"><div class="fpage-inner">
     ${sonarNotice()}
     <h1 class="h1">Microphone</h1>
@@ -436,12 +439,13 @@ async function activatePreset(id) {
 async function setApo(install) {
   await headsetSaver.flush();
   installing = true;
+  apoError = null;
   render();
   try {
     H = await invoke("set_apo_installed", { install });
     toast(install ? "Noise suppression installed" : "Noise suppression removed");
   } catch (err) {
-    toast(String(err), 4000);
+    apoError = String(err);
   } finally {
     installing = false;
     render();
