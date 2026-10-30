@@ -32,6 +32,8 @@ pub struct Status {
     pub headset_is_default: bool,
     /// Noise suppression APO installed on the headset mic.
     pub apo_installed: bool,
+    /// Installed, but an older DLL than the one this version of kit ships.
+    pub apo_outdated: bool,
     pub error: Option<String>,
 }
 
@@ -99,11 +101,13 @@ fn describe(out: Option<Endpoint>, inp: Option<Endpoint>, error: Option<String>)
         && is(&out, &out_comm)
         && is(&inp, &in_def)
         && is(&inp, &in_comm);
+    let apo_installed = inp.as_ref().is_some_and(|ep| {
+        let s = sysaudio::apo::status(ep);
+        s.registered && s.on_endpoint
+    });
     Status {
-        apo_installed: inp.as_ref().is_some_and(|ep| {
-            let s = sysaudio::apo::status(ep);
-            s.registered && s.on_endpoint
-        }),
+        apo_installed,
+        apo_outdated: apo_installed && super::elevate::apo_dll().is_some_and(|dll| !sysaudio::apo::is_current(&dll)),
         output: out.map(|e| e.name),
         input: inp.map(|e| e.name),
         default_output: out_def.map(|e| e.name),

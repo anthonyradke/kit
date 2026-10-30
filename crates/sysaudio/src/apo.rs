@@ -80,6 +80,35 @@ pub fn status(ep: &Endpoint) -> Status {
     Status { registered, on_endpoint }
 }
 
+/// Whether the installed DLL is the one at `bundled` (the copy next to the
+/// app). Installing doesn't happen on app updates, since it needs an
+/// administrator prompt, so after an update the installed one can be old.
+/// `std::fs::copy` keeps the modification time, so size and time decide;
+/// when only the times differ the contents are compared, once per change.
+pub fn is_current(bundled: &Path) -> bool {
+    use std::sync::Mutex;
+    type Key = (u64, Option<std::time::SystemTime>, u64, Option<std::time::SystemTime>);
+    static LAST: Mutex<Option<(Key, bool)>> = Mutex::new(None);
+    let installed = install_dir().join(DLL_NAME);
+    let (Ok(a), Ok(b)) = (std::fs::metadata(&installed), std::fs::metadata(bundled)) else { return true };
+    let key = (a.len(), a.modified().ok(), b.len(), b.modified().ok());
+    if a.len() != b.len() {
+        return false;
+    }
+    if key.1.is_some() && key.1 == key.3 {
+        return true;
+    }
+    let mut last = LAST.lock().unwrap();
+    if let Some((k, current)) = *last {
+        if k == key {
+            return current;
+        }
+    }
+    let current = matches!((std::fs::read(&installed), std::fs::read(bundled)), (Ok(x), Ok(y)) if x == y);
+    *last = Some((key, current));
+    current
+}
+
 /// Live settings read by the APO. Works unelevated once installed.
 pub fn set_mic_settings(enabled: bool, strength_percent: u32) -> Result<()> {
     let key = hklm().open_subkey_with_flags(SETTINGS_KEY, KEY_WRITE)?;

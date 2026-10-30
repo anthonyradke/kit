@@ -9,7 +9,15 @@ name = "kit_apo"
 crate-type = ["cdylib", "rlib"]
 
 [dependencies]
-nnnoiseless = { version = "0.5", default-features = false }
+# DeepFilterNet 3 with its model built in. Not published to crates.io past 0.2, so pinned to the repo.
+deep_filter = { git = "https://github.com/Rikorose/DeepFilterNet", rev = "d375b2d8309e0935d165700c91da9de862a99c31", default-features = false, features = ["tract", "default-model"] }
+ndarray = "0.15"
+# DeepFilterNet asks for tract ^0.21.4, but tract 0.21.5+ moved to ndarray 0.16 and no longer builds with it.
+tract-core = "=0.21.4"
+tract-hir = "=0.21.4"
+tract-onnx = "=0.21.4"
+tract-pulse = "=0.21.4"
+rtrb = "0.3"
 windows-core = "0.61"
 windows = { version = "0.61", features = [
     "Win32_Foundation",

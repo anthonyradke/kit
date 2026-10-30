@@ -8,6 +8,7 @@
 //!
 //! Rules for the real-time path: no allocation, no locks that can block, no
 //! I/O. Buffers are sized in `LockForProcess`; settings arrive as atomics.
+//! The denoising model itself runs on a worker thread (see `denoise`).
 
 #![allow(non_snake_case)]
 // COM entry points are exported without PRIVATE; harmless, and only the system loads them.
@@ -36,8 +37,8 @@ use denoise::Denoiser;
 pub const CLSID: GUID = GUID::from_u128(0xcae0eb59_a9d9_438f_99d2_5695189c2b06);
 pub const FRIENDLY_NAME: &str = "kit mic noise suppression";
 const COPYRIGHT: &str = "MIT License";
-/// One RNNoise frame, in 100 ns units.
-const LATENCY_HNS: i64 = 100_000;
+/// `denoise::LATENCY`, in 100 ns units.
+const LATENCY_HNS: i64 = denoise::LATENCY as i64 * 10_000_000 / denoise::SAMPLE_RATE as i64;
 const LOG_PATH: &str = r"C:\ProgramData\kit\apo.log";
 
 static INSTANCES: AtomicU32 = AtomicU32::new(0);
@@ -57,7 +58,9 @@ fn log(msg: &str) {
 
 struct Locked {
     channels: usize,
-    denoiser: Denoiser,
+    /// None when the stream isn't 48 kHz (the model's only rate) or the
+    /// worker couldn't start; the mic then passes through.
+    denoiser: Option<Denoiser>,
     /// Copy of the input, so input and output may be the same buffer.
     scratch: Vec<f32>,
     zeros: Vec<f32>,
@@ -117,8 +120,8 @@ fn check_format(opposite: Ref<'_, IAudioMediaType>, requested: Ref<'_, IAudioMed
 impl IAudioProcessingObject_Impl for Apo_Impl {
     fn Reset(&self) -> windows::core::Result<()> {
         if let Ok(mut l) = self.locked.lock() {
-            if let Some(l) = l.as_mut() {
-                l.denoiser.reset();
+            if let Some(d) = l.as_mut().and_then(|l| l.denoiser.as_mut()) {
+                d.restart();
             }
         }
         Ok(())
@@ -194,6 +197,12 @@ impl IAudioProcessingObjectConfiguration_Impl for Apo_Impl {
         let f = format_of(format)?;
         let channels = f.dwSamplesPerFrame.max(1) as usize;
         let max_frames = input.u32MaxFrameCount.max(output.u32MaxFrameCount) as usize;
+        let denoiser = if f.fFramesPerSecond != denoise::SAMPLE_RATE {
+            log(&format!("stream is {} Hz; noise suppression needs 48000 Hz, passing the mic through", f.fFramesPerSecond));
+            None
+        } else {
+            Denoiser::new(channels, log).map_err(|e| log(&format!("couldn't start the denoise worker: {e}"))).ok()
+        };
         log(&format!(
             "lock: {} ch, {} Hz, max {} frames, denoise {} at {:.0}%",
             channels,
@@ -205,7 +214,7 @@ impl IAudioProcessingObjectConfiguration_Impl for Apo_Impl {
         self.channels.store(channels as u32, Ordering::Relaxed);
         *locked = Some(Locked {
             channels,
-            denoiser: Denoiser::new(channels),
+            denoiser,
             scratch: vec![0.0; max_frames * channels],
             zeros: vec![0.0; max_frames * channels],
             was_enabled: false,
@@ -215,8 +224,11 @@ impl IAudioProcessingObjectConfiguration_Impl for Apo_Impl {
 
     fn UnlockForProcess(&self) -> windows::core::Result<()> {
         let mut locked = self.locked.lock().map_err(|_| windows::core::Error::from(E_UNEXPECTED))?;
-        if locked.take().is_none() {
+        let Some(l) = locked.take() else {
             return Err(APOERR_ALREADY_UNLOCKED.into());
+        };
+        if let Some(n) = l.denoiser.as_ref().map(Denoiser::underruns).filter(|&n| n > 0) {
+            log(&format!("unlock: the denoise worker fell behind {n} times"));
         }
         Ok(())
     }
@@ -276,8 +288,9 @@ impl Apo {
         if len > l.scratch.len() || len == 0 {
             return false;
         }
+        let Some(denoiser) = l.denoiser.as_mut() else { return false };
         if !l.was_enabled {
-            l.denoiser.reset();
+            denoiser.restart();
             l.was_enabled = true;
         }
         let src: &[f32] = if input.u32BufferFlags == BUFFER_SILENT {
@@ -288,8 +301,11 @@ impl Apo {
             &l.scratch[..len]
         };
         let out = unsafe { std::slice::from_raw_parts_mut(output.pBuffer as *mut f32, len) };
-        l.denoiser.process(src, out, len / l.channels, settings::strength());
-        // The denoiser's FIFO can hold speech from earlier periods, so the
+        if !denoiser.process(src, out, len / l.channels, settings::strength()) {
+            // The model failed or never loaded: `src` is a copy, so passing through is safe.
+            return false;
+        }
+        // The denoiser's queue can hold speech from earlier periods, so the
         // output is real audio even when this period's input was silent.
         output.u32BufferFlags = BUFFER_VALID;
         true

@@ -31,7 +31,7 @@
   const H = {
     config: { presets: [{ id: "h1", name: "Main", bands }, { id: "h2", name: "Footsteps", bands }], active: "h1", headset: { sidetone: 1, micVolume: 15, micLed: 3, volumeLimiter: true, autoOff: 30, bass: 0 }, mic: { denoise: true, strength: 90 }, keepDefault: true },
     headset: { present: true, connected: true, battery: 64, charging: false, error: null },
-    audio: { output: "Headphones (Arctis Nova 5)", input: "Headset Microphone (Arctis Nova 5)", defaultOutput: "Headphones (Arctis Nova 5)", defaultInput: "Headset Microphone (Arctis Nova 5)", headsetIsDefault: true, apoInstalled: true, error: null },
+    audio: { output: "Headphones (Arctis Nova 5)", input: "Headset Microphone (Arctis Nova 5)", defaultOutput: "Headphones (Arctis Nova 5)", defaultInput: "Headset Microphone (Arctis Nova 5)", headsetIsDefault: true, apoInstalled: true, apoOutdated: false, error: null },
     configPath: "C:\\Users\\you\\AppData\\Roaming\\com.anthonyradke.kit\\headset.json",
   };
   // NK65 keymap: 4 layers x 5 rows x 15 cols.

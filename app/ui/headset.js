@@ -329,6 +329,9 @@ function micPage() {
     status = `<div class="state-line"><span class="off-mark">Installing… approve the Windows prompt.</span></div>`;
   } else if (!a.input) {
     status = `<div class="state-line warn">The Arctis Nova 5 microphone isn't connected.</div>`;
+  } else if (a.apoInstalled && a.apoOutdated) {
+    status = `<div class="state-line warn"><span class="grow">This version of kit has better noise suppression. Windows asks for permission once to update it.</span>
+      <button class="btn" data-act="apo-install">${icons.shield}Update</button></div>`;
   } else if (a.apoInstalled) {
     status = `<div class="state-line">${m.denoise ? `<span class="live-mark">Active on ${esc(a.input)}</span>` : `<span class="off-mark">Installed on ${esc(a.input)}, switched off</span>`}
       <span class="grow"></span><button class="tbtn danger" data-act="apo-uninstall">Remove</button></div>`;

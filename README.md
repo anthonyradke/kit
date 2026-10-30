@@ -45,8 +45,8 @@ Headset
 - A 10-band parametric EQ with a draggable curve, stored and applied on the headset itself, so it covers every app
   with no virtual audio device and keeps working when kit isn't running.
 - A bass slider that adds a low shelf on top of whichever EQ preset is active.
-- RNNoise microphone noise suppression installed on the real "Headset Microphone" endpoint, so every app gets the
-  clean signal.
+- DeepFilterNet 3 microphone noise suppression installed on the real "Headset Microphone" endpoint, so every app gets
+  the clean signal.
 - Keeps the headset as the default playback and recording device whenever it reconnects.
 - Mic volume, sidetone, mute light, auto-off, volume limiter and battery.
 
@@ -76,7 +76,7 @@ flowchart LR
   core -- "VIA raw HID" --> nk65["NK65<br/>(QMK + VIA)"]
   core -- "vendor HID" --> base["Nova 5 base station<br/>EQ, sidetone, mic"]
   core -- "Core Audio / IPolicyConfig" --> audio["Windows audio endpoints"]
-  audio --> apo["kit-apo.dll<br/>RNNoise on the mic"]
+  audio --> apo["kit-apo.dll<br/>DeepFilterNet on the mic"]
 ```
 
 - Mouse (`crates/hidpp`): Logitech's HID++ 2.0 protocol through the Lightspeed receiver. kit switches the mouse to
@@ -94,7 +94,9 @@ flowchart LR
 - Headset (`crates/arctis`): the base station's vendor HID interface, the same one GG uses. Settings, including the
   EQ, are stored on the headset.
 - Noise suppression (`crates/apo`): a Windows Audio Processing Object, a DLL the audio engine loads for the Nova 5
-  microphone. Installing it takes one administrator prompt; it can be removed from the Mic page.
+  microphone. The DeepFilterNet 3 model runs on its own thread next to the engine's real-time thread and adds about
+  50 ms of mic latency. Installing it, or updating it after a new kit version, takes one administrator prompt; it can
+  be removed from the Mic page.
 - `crates/sysaudio` lists audio endpoints, sets the default device and installs or removes the APO.
 - Settings live in `%APPDATA%\com.anthonyradke.kit\` (`app.json`, `mouse.json`, `keyboard.json`, `headset.json`).
 
@@ -128,7 +130,7 @@ installer, and the in-app updater shows the notes.
 | `crates/hidpp`, `crates/mouse-probe` | Logitech HID++ (mouse and keyboard) and its CLI test tool |
 | `crates/via` | The NK65's VIA protocol, onboard macro format and key-code tables |
 | `crates/arctis`, `crates/headset-probe` | Nova 5 protocol and its CLI test tool |
-| `crates/apo`, `crates/sysaudio` | Microphone APO with RNNoise, Windows audio endpoints |
+| `crates/apo`, `crates/sysaudio` | Microphone APO with DeepFilterNet, Windows audio endpoints |
 | `app/src-tauri` | The app: `src/mouse` (worker, input hooks, macro player, hotkeys), `src/keyboard` (both keyboards, lighting presets, bindings), `src/headset` (HID worker, endpoint watcher, APO installer), `src/setup.rs`, `src/tray.rs` |
 | `app/ui` | The window, plain HTML/CSS/JS with no build step |
 | `firmware/nk65` | kit's QMK firmware for the NK65 |
@@ -145,8 +147,9 @@ installer, and the in-app updater shows the notes.
 
 ## Credits and license
 
-Headset protocol notes are based on [HeadsetControl](https://github.com/Sapd/HeadsetControl), keyboard lighting on
-[Solaar](https://github.com/pwr-Solaar/Solaar) and the NK65's VIA definitions on
+Noise suppression uses [DeepFilterNet](https://github.com/Rikorose/DeepFilterNet) and its published model (MIT or
+Apache-2.0). Headset protocol notes are based on [HeadsetControl](https://github.com/Sapd/HeadsetControl), keyboard
+lighting on [Solaar](https://github.com/pwr-Solaar/Solaar) and the NK65's VIA definitions on
 [the-via/keyboards](https://github.com/the-via/keyboards). Product photos are Logitech's, SteelSeries' and Oblotzky
 Industries' own (the NK65 photo with its background removed). The Archivo typeface is under the SIL Open Font License
 (`app/ui/fonts/OFL.txt`).

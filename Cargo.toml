@@ -22,3 +22,72 @@ codegen-units = 1
 strip = true
 # Unwind (not abort) so a bug in the APO falls back to passthrough instead of
 # taking down audiodg.exe.
+
+# DeepFilterNet (the mic APO's model) is far too slow unoptimized for the
+# denoise tests, which run at the audio engine's pace, and for a debug APO.
+# Its inference and math crates are built like release in dev and test builds
+# too; tract's debug-only graph checks also reject the model.
+[profile.dev.package.deep_filter]
+opt-level = 3
+debug-assertions = false
+overflow-checks = false
+[profile.dev.package.tract-core]
+opt-level = 3
+debug-assertions = false
+overflow-checks = false
+[profile.dev.package.tract-linalg]
+opt-level = 3
+debug-assertions = false
+overflow-checks = false
+[profile.dev.package.tract-data]
+opt-level = 3
+debug-assertions = false
+overflow-checks = false
+[profile.dev.package.tract-hir]
+opt-level = 3
+debug-assertions = false
+overflow-checks = false
+[profile.dev.package.tract-onnx]
+opt-level = 3
+debug-assertions = false
+overflow-checks = false
+[profile.dev.package.tract-onnx-opl]
+opt-level = 3
+debug-assertions = false
+overflow-checks = false
+[profile.dev.package.tract-nnef]
+opt-level = 3
+debug-assertions = false
+overflow-checks = false
+[profile.dev.package.tract-pulse]
+opt-level = 3
+debug-assertions = false
+overflow-checks = false
+[profile.dev.package.tract-pulse-opl]
+opt-level = 3
+debug-assertions = false
+overflow-checks = false
+[profile.dev.package.rustfft]
+opt-level = 3
+debug-assertions = false
+overflow-checks = false
+[profile.dev.package.realfft]
+opt-level = 3
+debug-assertions = false
+overflow-checks = false
+[profile.dev.package.ndarray]
+opt-level = 3
+debug-assertions = false
+overflow-checks = false
+[profile.dev.package.matrixmultiply]
+opt-level = 3
+debug-assertions = false
+overflow-checks = false
+[profile.dev.package.num-complex]
+opt-level = 3
+debug-assertions = false
+overflow-checks = false
+[profile.dev.package.miniz_oxide]
+opt-level = 3
+debug-assertions = false
+overflow-checks = false
