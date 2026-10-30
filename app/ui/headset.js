@@ -367,7 +367,7 @@ function micPage() {
     <div class="row col">
       <div class="row-head"><div class="rtitle">Sidetone</div><span class="rval" id="v-sidetone">${h.sidetone || "Off"}</span></div>
       ${slider("sidetone", h.sidetone, 10, false, "Sidetone")}
-      <p class="hint">How much of your own voice you hear in the headphones.</p>
+      <p class="hint">How much of your own voice you hear in the headphones. It's the raw mic, looped back inside the headset before noise suppression, so breathing, air on the mic and fan noise come through as a hiss or wind sound. Turn it off if you hear that; nobody else hears it.</p>
     </div>
     <div class="row">
       <div><div class="rtitle">Mute light</div><p class="hint">Brightness of the red light on the mic while muted.</p></div>
