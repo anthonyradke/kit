@@ -3,6 +3,7 @@
 # on a machine that can't run kit. Open http://127.0.0.1:8765/ and add query options:
 #   ?kb=nk65|proxtkl|none  &color=white|black  &setup=1 (first-run screen)  &ghub=1 (G HUB "running")
 #   &fw=old|kit|restore (NK65: stock firmware, kit's firmware, kit's just flashed)
+#   &micerror=1 (the mic test fails to start)
 set -e
 here=$(cd "$(dirname "$0")" && pwd)
 dir=$(mktemp -d)

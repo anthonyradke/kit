@@ -8,13 +8,14 @@ use serde::Serialize;
 use tauri::{AppHandle, Emitter, Manager};
 
 use super::config::{Band, Config, Preset};
-use super::{audio, device};
+use super::{audio, device, mic_test};
 use crate::tray;
 
 pub struct Shared {
     pub core: Mutex<Config>,
     pub headset: Mutex<device::Status>,
     pub audio: Mutex<audio::Status>,
+    pub mic_test: mic_test::MicTest,
     pub headset_tx: Sender<device::Cmd>,
     pub audio_tx: Sender<audio::Cmd>,
     pub config_path: PathBuf,
@@ -39,6 +40,7 @@ pub fn init(app: &AppHandle) -> tauri::Result<()> {
         core: Mutex::new(config),
         headset: Mutex::new(device::Status::default()),
         audio: Mutex::new(audio::Status::default()),
+        mic_test: mic_test::MicTest::default(),
         headset_tx,
         audio_tx,
         config_path,

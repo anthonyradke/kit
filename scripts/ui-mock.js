@@ -68,7 +68,37 @@
     keyboard: kb === "none" ? null : { model: kb === "proxtkl" ? "proxtkl" : "nk65", color: kb === "proxtkl" ? "black" : "white" },
     headset: { color },
   };
+  // Fake mic test: speech-shaped bars and the same `mic-test` events mic_test.rs sends.
+  const listeners = {};
+  const emit = (name, payload) => (listeners[name] || []).forEach((fn) => fn({ payload: structuredClone(payload) }));
+  const MT = { mode: "idle", position: 0, live: [], sample: null, error: null };
+  const micSeconds = 15, micBars = 180;
+  const voice = (i) => (Math.sin(i / 4) > -0.1 ? 0.04 + 0.2 * Math.abs(Math.sin(i / 1.7)) : 0.003);
+  let micTimer = null;
+  const micEnd = (error = null) => {
+    clearInterval(micTimer);
+    micTimer = null;
+    if (MT.mode === "recording" && MT.live.length) MT.sample = { seconds: MT.position, bars: MT.live, strength: H.config.mic.denoise ? H.config.mic.strength : null };
+    Object.assign(MT, { mode: "idle", position: 0, live: [], error });
+    emit("mic-test", MT);
+  };
+  const setMicTest = ({ mode }) => {
+    if (micTimer) micEnd();
+    if (mode === "idle") return;
+    Object.assign(MT, { mode, error: null });
+    emit("mic-test", MT);
+    if (q.get("micerror")) return micEnd('Windows is blocking kit from the mic. Turn on "Let desktop apps access your microphone" in Settings, Privacy & security, Microphone.');
+    let bar = 0;
+    micTimer = setInterval(() => {
+      MT.position += 0.05;
+      if (mode !== "playing" && MT.position * (micBars / micSeconds) > bar) MT.live.push(voice(bar++));
+      if (mode === "listening") MT.live = MT.live.slice(-micBars);
+      if ((mode === "recording" && MT.position >= micSeconds) || (mode === "playing" && MT.position >= MT.sample.seconds)) micEnd();
+      else emit("mic-test", MT);
+    }, 50);
+  };
   const handlers = {
+    set_mic_test: setMicTest,
     mouse_state: () => M, headset_state: () => H, keyboard_state: () => K, app_config: () => A,
     get_autostart: () => false, set_autostart: ({ enabled }) => enabled,
     update_state: () => ({ current: "0.3.0", available: null, notes: null, checking: false, checked: true, progress: null, error: null }),
@@ -89,7 +119,7 @@
   };
   window.__TAURI__ = {
     core: { invoke: async (cmd, args) => (handlers[cmd] ? structuredClone(await handlers[cmd](args || {})) : undefined) },
-    event: { listen: async () => () => {} },
+    event: { listen: async (name, fn) => ((listeners[name] ||= []).push(fn), () => {}) },
     window: { getCurrentWindow: () => ({ minimize() {}, close() {}, toggleMaximize() {}, isMaximized: async () => false, isFullscreen: async () => false, setFullscreen() {}, onResized() {} }) },
   };
 })();

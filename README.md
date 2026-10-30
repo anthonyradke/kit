@@ -50,6 +50,8 @@ Headset
 - A bass slider that adds a low shelf on top of whichever EQ preset is active.
 - DeepFilterNet 3 microphone noise suppression installed on the real "Headset Microphone" endpoint, so every app gets
   the clean signal.
+- A mic test on the Mic page: record a sample and play it back, or listen live, in the headphones and after noise
+  suppression.
 - Keeps the headset as the default playback and recording device whenever it reconnects.
 - Mic volume, sidetone, mute light, auto-off, volume limiter and battery.
 

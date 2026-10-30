@@ -18,6 +18,10 @@ const FILTERS = [
 ];
 const AUTO_OFF = [[0, "Never"], [5, "5 min"], [10, "10 min"], [15, "15 min"], [30, "30 min"], [60, "1 hour"]];
 const LED = ["Off", "Low", "Medium", "High"];
+const MIC_SECONDS = 15; // MAX_SECONDS in mic_test.rs
+const MIC_BARS = 180; // BARS in mic_test.rs
+const MIC_FLOOR_DB = -60; // the bottom of the mic strip
+const MIC_SILENT = 0.001; // a sample that never gets this loud has no sound in it
 
 let H = null; // backend state: { config, headset, audio, configPath }
 const hv = { band: 0, log: null };
@@ -26,6 +30,8 @@ let installing = false;
 let apoError = null;
 let drag = null; // { i, rect } while a graph node is dragged
 let graphSize = { w: 0, h: 0 };
+// The Mic page's test, pushed by mic_test.rs: { mode, position, live, sample, error }.
+let Mt = { mode: "idle", position: 0, live: [], sample: null, error: null };
 
 const hcfg = () => H.config;
 const preset = () => hcfg().presets.find((p) => p.id === hcfg().active) || hcfg().presets[0];
@@ -321,6 +327,69 @@ function graphToValues(clientX, clientY, rect) {
 
 // ---------- mic page ----------
 
+const onMicPage = () => view.page === "headset" && view.headset === "mic";
+const fmtSecs = (s) => `0:${String(Math.round(s)).padStart(2, "0")}`;
+
+// In dB, so the noise floor shows up next to speech. Bars grow from the middle
+// of a 100-unit-tall strip with one unit per bar across.
+function micBars(bars, start) {
+  return bars
+    .map((peak, i) => {
+      const db = 20 * Math.log10(Math.max(peak, 1e-6));
+      const h = Math.max(1, (clamp(db - MIC_FLOOR_DB, 0, -MIC_FLOOR_DB) / -MIC_FLOOR_DB) * 46);
+      return `M${start + i + 0.5} ${(50 - h).toFixed(1)}V${(50 + h).toFixed(1)}`;
+    })
+    .join("");
+}
+
+function micWave() {
+  const live = Mt.mode === "recording" || Mt.mode === "listening";
+  const bars = live ? Mt.live : Mt.sample?.bars || [];
+  const played = Mt.mode === "playing" ? Math.round((Mt.position / MIC_SECONDS) * MIC_BARS) : 0;
+  return `<svg viewBox="0 0 ${MIC_BARS} 100" preserveAspectRatio="none" aria-hidden="true">
+    <path class="mw-rule" d="M0 50H${MIC_BARS}"/>
+    <path class="mw-bars ${live ? "live" : ""} ${Mt.mode === "playing" ? "ahead" : ""}" d="${micBars(bars.slice(played), played)}"/>
+    <path class="mw-played" d="${micBars(bars.slice(0, played), 0)}"/>
+  </svg>`;
+}
+
+function micLine() {
+  const s = Mt.sample;
+  const made = s && (s.strength == null ? "without noise suppression" : `with noise suppression at ${s.strength}%`);
+  if (Mt.mode === "recording") return `<div class="state-line mic-rec"><span class="rec-dot"></span><span class="rec-time"><span id="mic-pos">${fmtSecs(Mt.position)}</span> of ${fmtSecs(MIC_SECONDS)}</span></div>`;
+  if (Mt.mode === "listening") return `<div class="state-line"><span class="live-mark">Listening to ${esc(H.audio.input || "the mic")}</span></div>`;
+  if (Mt.mode === "playing") return `<div class="state-line"><span><span id="mic-pos">${fmtSecs(Mt.position)}</span> of ${fmtSecs(s.seconds)}, recorded ${made}</span></div>`;
+  if (!s) return `<div class="state-line">Nothing recorded yet.</div>`;
+  if (s.bars.length && Math.max(...s.bars) < MIC_SILENT) return `<div class="state-line warn">There's no sound in this sample. Check that the headset is on and the mic isn't muted.</div>`;
+  return `<div class="state-line">${fmtSecs(s.seconds)} recorded ${made}</div>`;
+}
+
+function micTestRows() {
+  const a = H.audio;
+  const s = Mt.sample;
+  const recording = Mt.mode === "recording";
+  const playing = Mt.mode === "playing";
+  const ready = s && !recording; // Play takes over as the main button once there's a sample
+  return `<h2 class="h2">Mic test</h2>
+    <div class="row col">
+      <div class="row-head">
+        <div><div class="rtitle">Record a sample</div>
+        <p class="hint">Records up to ${MIC_SECONDS} seconds and plays them back in the headphones, so you hear what apps get from the mic, noise suppression included. The sample is gone when you close the window.</p></div>
+        <div class="mic-btns">
+          <button class="btn ${ready ? "quiet" : ""}" data-act="mic-record" ${a.input ? "" : "disabled"}>${recording ? `${icons.stop}Stop` : `<span class="rdot"></span>Record`}</button>
+          <button class="btn ${ready ? "" : "quiet"}" data-act="mic-play" ${ready && a.output ? "" : "disabled"}>${playing ? `${icons.stop}Stop` : `${icons.play}Play`}</button>
+        </div>
+      </div>
+      <div class="mic-wave" id="mic-wave">${micWave()}</div>
+      ${micLine()}
+      ${Mt.error ? `<div class="state-line bad">${esc(Mt.error)}</div>` : ""}
+    </div>
+    <div class="row">
+      <div><div class="rtitle">Listen live</div><p class="hint">Plays the mic in the headphones as you talk, after noise suppression and a little late, so you can hear the settings above change. Turn sidetone off first, or you'll hear the raw mic on top.</p></div>
+      <label class="switch"><input type="checkbox" data-field="mic-listen" ${Mt.mode === "listening" ? "checked" : ""} ${a.input && a.output ? "" : "disabled"} aria-label="Listen live" /><span></span></label>
+    </div>`;
+}
+
 function micPage() {
   const m = hcfg().mic;
   const h = hcfg().headset;
@@ -359,6 +428,8 @@ function micPage() {
       <div class="scale"><span>Light</span><span>Full</span></div>
       <p class="hint">Below 100% some of the original sound is mixed back in, which keeps your voice more natural. Sonar's setting was 90%.</p>
     </div>
+
+    ${micTestRows()}
 
     <h2 class="h2">On the headset</h2>
     <div class="row col">
@@ -437,6 +508,7 @@ async function activatePreset(id) {
 
 async function setApo(install) {
   await headsetSaver.flush();
+  leaveMic(); // the audio service restarts
   installing = true;
   apoError = null;
   render();
@@ -449,6 +521,34 @@ async function setApo(install) {
     installing = false;
     render();
   }
+}
+
+// Pending edits go first, so a sample is labelled with the strength it was recorded at.
+async function setMicTest(mode) {
+  await headsetSaver.flush();
+  invoke("set_mic_test", { mode });
+}
+
+// Nothing here is worth keeping going out of sight, least of all the mic in your ears.
+function leaveMic() {
+  if (Mt.mode !== "idle") invoke("set_mic_test", { mode: "idle" });
+}
+
+// Updates come 20 times a second while the test runs: only a new mode redraws the page.
+function onMicTest(payload) {
+  const changed = payload.mode !== Mt.mode;
+  Mt = payload;
+  if (changed) {
+    render();
+    // A clicked switch keeps focus, and the patcher leaves focused inputs alone.
+    const listen = $('[data-field="mic-listen"]');
+    if (listen) listen.checked = Mt.mode === "listening";
+    return;
+  }
+  const wave = $("#mic-wave");
+  if (wave) wave.innerHTML = micWave();
+  const pos = $("#mic-pos");
+  if (pos) pos.textContent = fmtSecs(Mt.position);
 }
 
 // A band edit: update the headset live, save shortly after.
@@ -527,6 +627,12 @@ Object.assign(handlers, {
   "apo-uninstall"() {
     setApo(false);
   },
+  "mic-record"() {
+    setMicTest(Mt.mode === "recording" ? "idle" : "recording");
+  },
+  "mic-play"() {
+    setMicTest(Mt.mode === "playing" ? "idle" : "playing");
+  },
 });
 
 Object.assign(inputFields, {
@@ -583,6 +689,9 @@ Object.assign(changeFields, {
     hcfg().mic.denoise = el.checked;
     headsetSaver.save(0);
     render();
+  },
+  "mic-listen"(el) {
+    setMicTest(el.checked ? "listening" : "idle");
   },
   keepDefault(el) {
     hcfg().keepDefault = el.checked;

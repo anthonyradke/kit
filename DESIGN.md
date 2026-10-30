@@ -171,7 +171,7 @@ A near-monochrome warm graphite world with one signal colour and three state col
 ### State
 - **Safety Yellow** (`safety-yellow`): attention without failure. Warning state lines, the Sonar defaults notice, a device that is asleep, off or being searched for (status mark and rail pip), an available update, plus the favorite star, the text caret and the in-place flash of a plate value the hardware just changed.
 - **Fault Red** (`fault-red`): a device that can't be found (status mark and rail pip), low battery, destructive buttons and confirmations, delete hovers.
-- **Record Red** (`record-red`): the macro recording dot and recording bar only.
+- **Record Red** (`record-red`): the recording dot, bar and clock of macros and the mic test only.
 
 ### Themes
 Graphite above is the default. Settings offers five more that keep the same structure and only swap the tokens (`app/ui/style.css`, `[data-theme]`): **Field** (olive drab, stencil cream), **Phosphor** (oscilloscope green ink), **Blueprint** (white on Prussian blue), and plain **Dark** and **Light**. Each theme tunes its own shades, but live is always a green, warn a yellow and bad a red, so the colours mean the same thing in every theme. Selection, floor light and state text shades are mixed from the tokens, so a new theme only sets the base list.
@@ -278,6 +278,9 @@ The top-down mouse photo inside an SVG with captioned callouts: condensed caps c
 
 ### EQ Graph
 Grid lines barely above the ground, a hairline-3 zero line, the summed curve in 2.25px label ink over a 6% ink fill, the selected band's own curve dashed in caption ink. Nodes are numbered rings that invert to ink when selected. The ten-cell band plate below mirrors the nodes.
+
+### Mic Strip
+A 58px chrome-graphite well in a hairline-2 border, with a hairline midline and 2px vertical bars growing from it. Each bar is the loudest moment of a fixed slice of time, on a dB scale so the noise floor shows, and bars never move once drawn, so a short sample simply stops partway across. Bars are signal green while sound is coming off the mic, label-ink-2 once they are a stored sample, and during playback they turn label ink as the sample plays, ahead of it faint ink.
 
 ## Do's and Don'ts
 

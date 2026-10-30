@@ -4,6 +4,7 @@ pub mod audio;
 mod config;
 mod device;
 pub mod elevate;
+pub mod mic_test;
 pub mod state;
 
 use tauri::{AppHandle, Manager};
@@ -13,6 +14,10 @@ use state::{Shared, UiState};
 
 pub fn init(app: &AppHandle) -> tauri::Result<()> {
     state::init(app)
+}
+
+pub fn on_window_destroyed(app: &AppHandle) {
+    mic_test::clear(app);
 }
 
 #[tauri::command]
@@ -58,6 +63,13 @@ pub fn set_apo_installed(app: AppHandle, install: bool) -> Result<UiState, Strin
     }
     let _ = app.state::<Shared>().audio_tx.send(audio::Cmd::Refresh);
     result.map(|()| state::ui_state(&app))
+}
+
+/// Record a mic sample, play it back or listen live; `Idle` stops. Progress
+/// comes back in `mic-test` events.
+#[tauri::command(async)]
+pub fn set_mic_test(app: AppHandle, mode: mic_test::Mode) {
+    mic_test::set(&app, mode);
 }
 
 #[tauri::command]

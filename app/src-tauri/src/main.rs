@@ -88,6 +88,7 @@ fn main() {
         .on_window_event(|window, event| {
             if let WindowEvent::Destroyed = event {
                 mouse::on_window_destroyed(window.app_handle());
+                headset::on_window_destroyed(window.app_handle());
             }
         })
         .invoke_handler(tauri::generate_handler![
@@ -114,6 +115,7 @@ fn main() {
             headset::preview_eq,
             headset::use_headset,
             headset::set_apo_installed,
+            headset::set_mic_test,
             headset::apo_log,
             keyboard::keyboard_state,
             keyboard::keyboard_save,

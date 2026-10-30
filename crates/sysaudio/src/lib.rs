@@ -3,14 +3,17 @@
 
 pub mod apo;
 mod policy;
+mod stream;
+
+pub use stream::{Capture, Render, RATE};
 
 use windows::core::PWSTR;
 use windows::Win32::Devices::FunctionDiscovery::{PKEY_DeviceInterface_FriendlyName, PKEY_Device_FriendlyName};
 use windows::Win32::Foundation::PROPERTYKEY;
 use windows::Win32::Media::Audio::Endpoints::IAudioMeterInformation;
 use windows::Win32::Media::Audio::{
-    eCapture, eCommunications, eConsole, eRender, EDataFlow, IMMDevice, IMMDeviceEnumerator,
-    MMDeviceEnumerator, DEVICE_STATE_ACTIVE,
+    eCapture, eCommunications, eConsole, eRender, EDataFlow, IAudioClient, IMMDevice, IMMDeviceEnumerator,
+    MMDeviceEnumerator, AUDCLNT_SHAREMODE_SHARED, DEVICE_STATE_ACTIVE,
 };
 use windows::Win32::System::Com::{
     CoCreateInstance, CoInitializeEx, CoTaskMemFree, CLSCTX_ALL, COINIT_MULTITHREADED, STGM_READ,
@@ -143,15 +146,21 @@ pub fn find_arctis(flow: Flow) -> Result<Option<Endpoint>> {
     Ok(endpoints(flow)?.into_iter().find(|e| e.device.contains("Arctis Nova 5")))
 }
 
-/// Open a shared-mode capture stream on the endpoint `id` and run it
-/// briefly, the way any app opening the mic would.
-pub fn capture_opens(id: &str) -> Result<()> {
-    use windows::Win32::Media::Audio::{IAudioClient, AUDCLNT_SHAREMODE_SHARED};
+/// A new, not yet initialized audio client on the endpoint `id`.
+fn audio_client(id: &str) -> Result<IAudioClient> {
     let e = enumerator()?;
     let wide: Vec<u16> = id.encode_utf16().chain(Some(0)).collect();
     unsafe {
         let dev = e.GetDevice(windows::core::PCWSTR(wide.as_ptr()))?;
-        let client: IAudioClient = dev.Activate(CLSCTX_ALL, None)?;
+        Ok(dev.Activate(CLSCTX_ALL, None)?)
+    }
+}
+
+/// Open a shared-mode capture stream on the endpoint `id` and run it
+/// briefly, the way any app opening the mic would.
+pub fn capture_opens(id: &str) -> Result<()> {
+    let client = audio_client(id)?;
+    unsafe {
         let format = client.GetMixFormat()?;
         // 100 ms buffer, in 100 ns units.
         let r = client.Initialize(AUDCLNT_SHAREMODE_SHARED, 0, 1_000_000, 0, format, None);

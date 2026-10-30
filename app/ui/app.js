@@ -20,8 +20,10 @@ function go(page, tab) {
   if (view.page === "mouse" && (page !== "mouse" || tab !== view.mouse)) leaveMouse();
   if (view.page === "keyboard") leaveKeyboard();
   if (view.page === "keyboard" && view.keyboard === "macros") leaveMouse();
+  const wasMic = onMicPage();
   view.page = page;
   if (tab) view[page] = tab;
+  if (wasMic && !onMicPage()) leaveMic();
   localStorage.setItem("kit.view", JSON.stringify({ page: view.page, mouse: view.mouse, keyboard: view.keyboard, headset: view.headset }));
   render();
 }
@@ -656,6 +658,7 @@ syncMaxButton();
   await listen("headset-state", hw(onHeadsetState));
   await listen("headset", hw((p) => (H.headset = p)));
   await listen("audio", hw((p) => (H.audio = p)));
+  await listen("mic-test", (e) => onMicTest(e.payload));
   await listen("update", (e) => {
     upd = e.payload;
     render();
