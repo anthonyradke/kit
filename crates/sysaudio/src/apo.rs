@@ -12,7 +12,7 @@
 use std::path::{Path, PathBuf};
 use std::process::Command;
 
-use winreg::enums::{HKEY_LOCAL_MACHINE, KEY_READ, KEY_WRITE};
+use winreg::enums::{HKEY_LOCAL_MACHINE, KEY_QUERY_VALUE, KEY_SET_VALUE, KEY_WRITE};
 use winreg::types::FromRegValue;
 use winreg::RegKey;
 
@@ -54,6 +54,11 @@ fn data_dir() -> PathBuf {
 pub fn log_path() -> PathBuf {
     data_dir().join("apo.log")
 }
+
+/// Access for an endpoint's FxProperties key. Windows only grants
+/// administrators query and set-value there; asking for `KEY_WRITE` (which
+/// includes creating subkeys) is denied.
+const FX_ACCESS: u32 = KEY_QUERY_VALUE | KEY_SET_VALUE;
 
 fn fx_path(ep: &Endpoint) -> String {
     format!(r"{MMDEVICES}\{}\{}\FxProperties", ep.flow.registry_name(), ep.guid())
@@ -208,7 +213,7 @@ fn set_key_sddl(key: &RegKey, sddl: &str) -> Result<()> {
 }
 
 fn attach(ep: &Endpoint) -> Result<()> {
-    let fx = hklm().open_subkey_with_flags(fx_path(ep), KEY_READ | KEY_WRITE)?;
+    let fx = hklm().open_subkey_with_flags(fx_path(ep), FX_ACCESS)?;
     let (backup, _) = hklm().create_subkey(format!(r"{BACKUP_KEY}\{}", ep.guid()))?;
     let already = status(ep).on_endpoint;
     for name in TOUCHED {
@@ -228,7 +233,7 @@ fn attach(ep: &Endpoint) -> Result<()> {
 }
 
 fn detach(ep: &Endpoint) -> Result<()> {
-    let Ok(fx) = hklm().open_subkey_with_flags(fx_path(ep), KEY_READ | KEY_WRITE) else { return Ok(()) };
+    let Ok(fx) = hklm().open_subkey_with_flags(fx_path(ep), FX_ACCESS) else { return Ok(()) };
     let backup = hklm().open_subkey(format!(r"{BACKUP_KEY}\{}", ep.guid())).ok();
     for name in TOUCHED {
         let saved = backup.as_ref().and_then(|b| b.get_raw_value(name).ok());
