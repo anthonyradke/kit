@@ -143,6 +143,27 @@ pub fn find_arctis(flow: Flow) -> Result<Option<Endpoint>> {
     Ok(endpoints(flow)?.into_iter().find(|e| e.device.contains("Arctis Nova 5")))
 }
 
+/// Open a shared-mode capture stream on the endpoint `id` and run it
+/// briefly, the way any app opening the mic would.
+pub fn capture_opens(id: &str) -> Result<()> {
+    use windows::Win32::Media::Audio::{IAudioClient, AUDCLNT_SHAREMODE_SHARED};
+    let e = enumerator()?;
+    let wide: Vec<u16> = id.encode_utf16().chain(Some(0)).collect();
+    unsafe {
+        let dev = e.GetDevice(windows::core::PCWSTR(wide.as_ptr()))?;
+        let client: IAudioClient = dev.Activate(CLSCTX_ALL, None)?;
+        let format = client.GetMixFormat()?;
+        // 100 ms buffer, in 100 ns units.
+        let r = client.Initialize(AUDCLNT_SHAREMODE_SHARED, 0, 1_000_000, 0, format, None);
+        CoTaskMemFree(Some(format as *const _));
+        r?;
+        client.Start()?;
+        std::thread::sleep(std::time::Duration::from_millis(200));
+        client.Stop()?;
+    }
+    Ok(())
+}
+
 /// How loud the default output device is playing, for lighting that follows
 /// the sound. Opened on the default device at the time; reopen it to follow a
 /// change of default.

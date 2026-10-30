@@ -14,6 +14,7 @@
 // COM entry points are exported without PRIVATE; harmless, and only the system loads them.
 #![allow(linker_messages)]
 
+mod aggregate;
 pub mod denoise;
 pub mod settings;
 
@@ -367,12 +368,17 @@ impl IClassFactory_Impl for Factory_Impl {
             return Err(E_POINTER.into());
         }
         unsafe { *ppvobject = std::ptr::null_mut() };
-        if punkouter.is_some() {
-            log("CreateInstance refused: aggregation requested");
+        let unknown: IUnknown = Apo::new().into();
+        let Some(outer) = punkouter.as_ref() else {
+            return unsafe { unknown.query(&*riid, ppvobject).ok() };
+        };
+        // audiodg aggregates every APO it loads. COM only allows that through
+        // IUnknown, which is the wrapper's own (non-delegating) one.
+        if unsafe { *riid } != IUnknown::IID {
             return Err(CLASS_E_NOAGGREGATION.into());
         }
-        let unknown: IUnknown = Apo::new().into();
-        unsafe { unknown.query(&*riid, ppvobject).ok() }
+        unsafe { *ppvobject = aggregate::create(&unknown, outer.as_raw())? };
+        Ok(())
     }
 
     fn LockServer(&self, _flock: BOOL) -> windows::core::Result<()> {

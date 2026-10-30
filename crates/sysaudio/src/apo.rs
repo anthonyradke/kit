@@ -131,6 +131,9 @@ pub fn install(dll_source: &Path, ep: &Endpoint) -> Result<()> {
     run("icacls", &[data.to_str().unwrap(), "/grant", "*S-1-5-19:(OI)(CI)M", "/q"])?;
     let _ = std::fs::OpenOptions::new().create(true).append(true).open(log_path());
 
+    // Only a mic that opens now says anything about the APO afterwards (it
+    // also fails when Windows' privacy settings block desktop apps).
+    let opened_before = crate::capture_opens(&ep.id).is_ok();
     // The DLL may be loaded by audiodg; stop the audio service to replace it.
     restart_audio(|| {
         std::fs::copy(dll_source, dir.join(DLL_NAME))?;
@@ -138,7 +141,25 @@ pub fn install(dll_source: &Path, ep: &Endpoint) -> Result<()> {
         register_settings_key()?;
         attach(ep)?;
         Ok(())
-    })
+    })?;
+    if !opened_before {
+        return Ok(());
+    }
+    // A broken APO doesn't crash anything: apps just can't open the mic. Check,
+    // giving the restarted audio service a moment, and undo it if so.
+    let mut last = Ok(());
+    for _ in 0..10 {
+        last = crate::capture_opens(&ep.id);
+        if last.is_ok() {
+            return Ok(());
+        }
+        std::thread::sleep(std::time::Duration::from_millis(500));
+    }
+    let err = last.unwrap_err();
+    uninstall(Some(ep))?;
+    Err(Error::Msg(format!(
+        "Noise suppression stopped the mic from opening ({err}), so it was removed again. The mic works as before."
+    )))
 }
 
 pub fn uninstall(ep: Option<&Endpoint>) -> Result<()> {
