@@ -211,6 +211,35 @@ pub fn update_config(app: &AppHandle, mut config: Config) {
     }
 }
 
+/// Take in a settings file made for this keyboard: its config, or what it adds
+/// to the one here. Unlike a UI save this does bring keymaps in.
+pub fn import(app: &AppHandle, mut config: Config, replace: bool) {
+    let exists = macro_exists(app);
+    {
+        let shared = app.state::<Shared>();
+        let mut core = shared.core.lock().unwrap();
+        if replace {
+            // The board still holds the old keymap: reading it back mustn't undo this.
+            config.on_board.clear();
+            config.adopted |= core.adopted;
+            *core = config;
+        } else {
+            core.add_from(config);
+        }
+        core.normalize();
+        core.drop_missing_macros(|id| exists.iter().any(|m| m == id));
+        save(&shared, &core);
+        // Through a board read: the file may be from before a firmware change.
+        let _ = shared.tx.send(Cmd::TakeInKeymap);
+    }
+    apply(app, true);
+    sync_hook(app);
+    sync_macros(app);
+    hotkeys::register(app);
+    tray::refresh(app);
+    emit_state(app);
+}
+
 /// The first time kit sees an NK65, keep the lighting it already has (set in
 /// VIA) as a preset and make it the active one. Returns true if it did.
 pub fn adopt_board_lighting(app: &AppHandle, kind: via::Lighting, values: &BTreeMap<u8, [u8; 2]>) -> bool {

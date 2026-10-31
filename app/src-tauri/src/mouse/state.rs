@@ -161,6 +161,22 @@ pub fn update_config(app: &AppHandle, mut config: Config) {
     }
 }
 
+/// Take in a settings file: its config, or what it adds to the one here.
+pub fn import(app: &AppHandle, mut config: Config, replace: bool) {
+    let active = config.active.clone();
+    if !replace {
+        let mut merged = app.state::<Shared>().core.lock().unwrap().config.clone();
+        merged.add_from(config);
+        config = merged;
+    }
+    update_config(app, config);
+    // `update_config` leaves the active profile alone.
+    if replace {
+        activate(app, &active);
+    }
+    emit_state(app);
+}
+
 /// What the tray menu shows: the active profile and every profile's name.
 fn tray_entries(config: &Config) -> (&str, Vec<(&str, &str)>) {
     (&config.active, config.profiles.iter().map(|p| (p.id.as_str(), p.name.as_str())).collect())

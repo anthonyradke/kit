@@ -31,6 +31,8 @@ pub enum Cmd {
     Apply { preset: Box<Preset>, idle_off: u16, save: bool },
     /// NK65: the active profile's keymap changed, bring the board in line.
     SyncKeymap,
+    /// NK65: imported profiles came in; fit them to the board and bring it in line.
+    TakeInKeymap,
     /// NK65: lights out (true) or back. Answers once the board has it.
     LightsOut(bool, std::sync::mpsc::Sender<()>),
     /// Onboard macro slots kit owns, already encoded. Other slots are kept.
@@ -289,6 +291,11 @@ impl Worker {
             Cmd::SyncKeymap => {
                 if matches!(self.dev, Some(Dev::Via(_))) {
                     self.keymap_due = Some(Instant::now() + KEYS_UP_WAIT);
+                }
+            }
+            Cmd::TakeInKeymap => {
+                if matches!(self.dev, Some(Dev::Via(_))) {
+                    self.take_in_keymap();
                 }
             }
             Cmd::LightsOut(out, done) => {

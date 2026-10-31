@@ -1,7 +1,7 @@
 //! The SteelSeries Arctis Nova 5: onboard EQ, mic noise suppression and the default-device keeper.
 
 pub mod audio;
-mod config;
+pub mod config;
 mod device;
 pub mod elevate;
 pub mod mic_test;

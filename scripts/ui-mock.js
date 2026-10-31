@@ -116,6 +116,12 @@
     },
     activate_profile: ({ id }) => ((M.config.active = id), M),
     activate_preset: ({ id }) => ((H.config.active = id), H),
+    settings_export: ({ fileName }) => `C:\\Users\\you\\Documents\\${fileName}`,
+    settings_open: () => {
+      const model = q.get("import") === "tkl" ? "proxtkl" : "nk65";
+      return { path: "C:\\Users\\you\\Documents\\kit-settings-2026-10-31.json", version: "0.6.0", mouse: { profiles: 3, macros: 1 }, keyboard: { model, fits: model === kb, profiles: 2, presets: 4 }, headset: { presets: 4 } };
+    },
+    settings_import: () => {},
   };
   window.__TAURI__ = {
     core: { invoke: async (cmd, args) => (handlers[cmd] ? structuredClone(await handlers[cmd](args || {})) : undefined) },

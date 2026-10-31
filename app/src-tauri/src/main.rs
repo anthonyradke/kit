@@ -1,5 +1,6 @@
 #![cfg_attr(not(debug_assertions), windows_subsystem = "windows")]
 
+mod backup;
 mod badge;
 mod headset;
 mod keyboard;
@@ -129,6 +130,9 @@ fn main() {
             keyboard::keyboard_restore,
             keyboard::keyboard_bootloader,
             keyboard::keyboard_firmware_page,
+            backup::settings_export,
+            backup::settings_open,
+            backup::settings_import,
             update::update_state,
             update::check_update,
             update::install_update,

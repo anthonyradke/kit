@@ -130,6 +130,22 @@ pub fn update_config(app: &AppHandle, mut config: Config) {
     }
 }
 
+/// Take in a settings file: its config, or what it adds to the one here.
+pub fn import(app: &AppHandle, mut config: Config, replace: bool) {
+    let active = config.active.clone();
+    if !replace {
+        let mut merged = app.state::<Shared>().core.lock().unwrap().clone();
+        merged.add_from(config);
+        config = merged;
+    }
+    update_config(app, config);
+    // `update_config` leaves the active preset alone.
+    if replace {
+        activate(app, &active);
+    }
+    emit_state(app);
+}
+
 /// Send an EQ to the headset without saving it (live preview while dragging).
 pub fn preview_eq(app: &AppHandle, bands: Vec<Band>, bass: f32) {
     let preset = Preset { bands, ..Preset::default() };

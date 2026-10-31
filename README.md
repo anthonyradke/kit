@@ -59,6 +59,9 @@ Headset
 
 App
 - The tray icon's dot turns red when a device that isn't charging drops to 15% battery, and the tooltip names it.
+- All settings export to one JSON file. Importing replaces a device's settings with the file's, or adds only what's
+  new, without its shortcuts; kit keeps the settings it had as `before-import.json` first. Keyboard settings only import
+  onto the same keyboard model, and the theme and device choices aren't included.
 
 <p align="center">
   <img src="docs/pages.png" width="900" alt="Mouse profile, NK65 lighting, headset EQ and macro editor pages">
@@ -143,7 +146,7 @@ installer, and the in-app updater shows the notes.
 | `crates/via` | The NK65's VIA protocol, onboard macro format and key-code tables |
 | `crates/arctis`, `crates/headset-probe` | Nova 5 protocol and its CLI test tool |
 | `crates/apo`, `crates/sysaudio` | Microphone APO with DeepFilterNet, Windows audio endpoints |
-| `app/src-tauri` | The app: `src/mouse` (worker, input hooks, macro player, hotkeys), `src/keyboard` (both keyboards, lighting presets, bindings), `src/headset` (HID worker, endpoint watcher, APO installer), `src/session.rs` (lock, display and sleep), `src/setup.rs`, `src/tray.rs` |
+| `app/src-tauri` | The app: `src/mouse` (worker, input hooks, macro player, hotkeys), `src/keyboard` (both keyboards, lighting presets, bindings), `src/headset` (HID worker, endpoint watcher, APO installer), `src/backup.rs` (settings export and import), `src/session.rs` (lock, display and sleep), `src/setup.rs`, `src/tray.rs` |
 | `app/ui` | The window, plain HTML/CSS/JS with no build step |
 | `firmware/nk65` | kit's QMK firmware for the NK65 |
 | `scripts` | UI preview, release, screenshots, synthetic input, app icon |

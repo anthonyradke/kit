@@ -386,6 +386,17 @@ function settingsPage() {
       <div><button class="btn quiet" data-act="setup-again">Change devices…</button></div>
     </div>
 
+    <h2 class="h2">Backup</h2>
+    <div class="row">
+      <div><div class="rtitle">Export settings</div><p class="hint">Save your profiles, macros, keymaps, lighting and EQ presets to one file.</p></div>
+      <button class="btn quiet" data-act="settings-export">Export…</button>
+    </div>
+    <div class="row">
+      <div><div class="rtitle">Import settings</div><p class="hint">Restore a backup, or bring in what's new from someone else's file.</p></div>
+      <button class="btn quiet" data-act="settings-open" ${imp?.busy ? "disabled" : ""}>Import…</button>
+    </div>
+    ${importPanel()}
+
     <h2 class="h2">Files</h2>
     <dl class="kv">
       <dt>Mouse and macros</dt><dd class="path">${esc(M.configPath)}</dd>
@@ -402,6 +413,43 @@ function settingsPage() {
     <p class="hint">Closing this window keeps kit running in the tray; use Quit in the tray menu to exit. Keep Logitech G HUB, SteelSeries GG and VIA closed: they fight kit for the same devices.</p>
   </div></div>`;
 }
+
+// ---------- import ----------
+
+// The file picked for import, and which of its parts are ticked.
+let imp = null;
+
+const fileName = (path) => path.split(/[\\/]/).pop();
+const counted = (n, what) => `${n} ${what}${n === 1 ? "" : "s"}`;
+
+function importPanel() {
+  if (!imp) return "";
+  const { info } = imp;
+  const part = (id, title, detail, usable = true, why = "") =>
+    !info[id]
+      ? ""
+      : `<div class="row-head"><div><div class="rtitle">${title}</div><p class="hint">${usable ? detail : why}</p></div>
+        <label class="switch"><input type="checkbox" data-field="import-part" data-part="${id}" ${imp[id] ? "checked" : ""} ${usable ? "" : "disabled"} aria-label="Import ${title}" /><span></span></label></div>`;
+  const k = info.keyboard;
+  const keyboard = k && (k.model === "nk65" ? `${counted(k.profiles, "key profile")}, ${counted(k.presets, "lighting preset")}` : counted(k.presets, "lighting preset"));
+  const none = !imp.mouse && !imp.keyboard && !imp.headset;
+  const off = imp.busy || none ? "disabled" : "";
+  return `<div class="row col">
+    <div><div class="rtitle">${esc(fileName(info.path))}</div><p class="hint">Exported from kit ${esc(info.version)}.</p></div>
+    ${part("mouse", "Mouse and macros", info.mouse && `${counted(info.mouse.profiles, "profile")}, ${counted(info.mouse.macros, "macro")}`)}
+    ${part("keyboard", "Keyboard", keyboard, k?.fits, k && `Made for a ${esc(PRODUCTS[k.model].name)}, so it can't go on ${A.keyboard ? "this keyboard" : "this PC"}.`)}
+    ${part("headset", "Headset", info.headset && `${counted(info.headset.presets, "EQ preset")} and its settings`)}
+    <p class="hint">Add keeps everything you have and brings in what's new, without its shortcuts. Replace swaps what's ticked for the file's. Either way kit first saves your current settings as before-import.json, next to the files below.</p>
+    <div class="btn-row">
+      <button class="btn" data-act="settings-import" data-replace="" ${off}>Add to mine</button>
+      <button class="btn quiet" data-act="settings-import" data-replace="1" ${off}>Replace mine</button>
+      <button class="btn quiet" data-act="settings-cancel" ${imp.busy ? "disabled" : ""}>Cancel</button>
+    </div>
+  </div>`;
+}
+
+// What a save is still holding back has to reach the backend before it reads its settings.
+const flushSaves = () => Promise.all([mouseSaver.flush(), keyboardSaver.flush(), headsetSaver.flush()]);
 
 const THEMES = [
   ["graphite", "Graphite", "Warm graphite and label ink"],
@@ -509,6 +557,45 @@ Object.assign(handlers, {
       toast(`Update failed: ${err}`);
     }
   },
+  async "settings-export"() {
+    await flushSaves();
+    const today = new Date().toLocaleDateString("sv"); // ISO-style, in local time
+    try {
+      const path = await invoke("settings_export", { fileName: `kit-settings-${today}.json` });
+      if (path) toast(`Saved to ${fileName(path)}`);
+    } catch (err) {
+      toast(`Couldn't export: ${err}`);
+    }
+  },
+  async "settings-open"() {
+    try {
+      const info = await invoke("settings_open");
+      if (!info) return;
+      imp = { info, mouse: !!info.mouse, keyboard: !!info.keyboard?.fits, headset: !!info.headset, busy: false };
+      render();
+    } catch (err) {
+      toast(err);
+    }
+  },
+  async "settings-import"(el) {
+    imp.busy = true;
+    render();
+    await flushSaves();
+    const { info, mouse, keyboard, headset } = imp;
+    try {
+      await invoke("settings_import", { path: info.path, mouse, keyboard, headset, replace: !!el.dataset.replace });
+      imp = null;
+      toast("Settings imported");
+    } catch (err) {
+      imp.busy = false;
+      toast(`Couldn't import: ${err}`);
+    }
+    render();
+  },
+  "settings-cancel"() {
+    imp = null;
+    render();
+  },
   async "show-log"() {
     hv.log = await invoke("apo_log");
     render();
@@ -575,6 +662,10 @@ Object.assign(changeFields, {
       toast(`Couldn't change startup: ${err}`);
     }
     el.checked = autostart;
+  },
+  "import-part"(el) {
+    imp[el.dataset.part] = el.checked;
+    render();
   },
   "setup-have"(el) {
     toggleDevice(el.dataset.dev, el.checked);

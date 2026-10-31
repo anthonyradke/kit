@@ -6,7 +6,7 @@ use std::path::Path;
 
 use serde::{Deserialize, Serialize};
 
-use crate::mouse::config::{new_id, Action};
+use crate::mouse::config::{add_items, new_id, Action};
 
 /// Kit-run macros on the NK65 go out as F13..F24, which the input hook catches.
 pub const KIT_KEYS: usize = 12;
@@ -186,6 +186,18 @@ impl Config {
             onboard: self.onboard.clone(),
             sleep_off: self.sleep_off,
             ..Config::for_model(model)
+        }
+    }
+
+    /// Add the lighting presets and key profiles of `other` (the same keyboard)
+    /// that this config lacks, without their shortcuts.
+    pub fn add_from(&mut self, mut other: Config) {
+        add_items(&mut self.presets, other.presets, |p| &mut p.id, |p| &mut p.name);
+        // Keymaps only carry over between boards that number keycodes the same way.
+        let numbering = |protocol| protocol >= NEW_KEYCODES_FROM;
+        if numbering(self.keymap_protocol) == numbering(other.keymap_protocol) {
+            other.profiles.iter_mut().for_each(|p| p.hotkey = None);
+            add_items(&mut self.profiles, other.profiles, |p| &mut p.id, |p| &mut p.name);
         }
     }
 
@@ -380,6 +392,27 @@ mod tests {
         assert!(old.sleep_off);
         let off = Config { sleep_off: false, ..Config::default() };
         assert!(!off.with_model(Model::ProXTkl).sleep_off);
+    }
+
+    #[test]
+    fn adding_keeps_what_is_here_and_skips_keymaps_in_other_numbering() {
+        let mine = KeyProfile { hotkey: Some("Ctrl+1".into()), ..profile("a", &[1]) };
+        let mut config = Config { keymap_protocol: 13, ..with_profiles("a", "a", vec![mine.clone()]) };
+        let presets = config.presets.len();
+        let theirs = KeyProfile { hotkey: Some("Ctrl+2".into()), ..profile("b", &[2]) };
+        let mut other = Config { keymap_protocol: 13, ..with_profiles("b", "b", vec![theirs]) };
+        other.presets.truncate(1);
+        other.presets[0].name = "Theirs".into();
+
+        let mut older = config.clone();
+        older.add_from(Config { keymap_protocol: 9, ..other.clone() });
+        assert_eq!(older.profiles.len(), 1);
+
+        config.add_from(other);
+        assert_eq!(config.presets.len(), presets + 1);
+        assert_eq!(config.profiles[0], mine);
+        assert_eq!(config.profiles[1].id, "b");
+        assert_eq!(config.profiles[1].hotkey, None);
     }
 
     fn profile(id: &str, keymap: &[u16]) -> KeyProfile {

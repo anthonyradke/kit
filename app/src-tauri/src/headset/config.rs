@@ -5,6 +5,8 @@ use std::time::{SystemTime, UNIX_EPOCH};
 
 use serde::{Deserialize, Serialize};
 
+use crate::mouse::config::add_items;
+
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 #[serde(default, rename_all = "camelCase")]
 pub struct Config {
@@ -395,6 +397,11 @@ impl Config {
         let tmp = path.with_extension("json.tmp");
         std::fs::write(&tmp, serde_json::to_string_pretty(self)?)?;
         std::fs::rename(tmp, path)
+    }
+
+    /// Add the presets of `other` that this config lacks.
+    pub fn add_from(&mut self, other: Config) {
+        add_items(&mut self.presets, other.presets, |p| &mut p.id, |p| &mut p.name);
     }
 
     /// Repair anything the UI or a hand-edited file could get wrong.

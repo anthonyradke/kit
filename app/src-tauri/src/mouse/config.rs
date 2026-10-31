@@ -145,6 +145,30 @@ pub fn new_id() -> String {
     format!("{:x}{:x}", nanos, COUNTER.fetch_add(1, Ordering::Relaxed))
 }
 
+/// Append what `list` doesn't have yet. An item it has is one with the same id,
+/// or the same contents under another id (the presets every install starts
+/// with). A new item that shares a name with one here gets told apart.
+pub fn add_items<T: Clone + PartialEq>(list: &mut Vec<T>, new: Vec<T>, id: fn(&mut T) -> &mut String, name: fn(&mut T) -> &mut String) {
+    for mut item in new {
+        let new_id = id(&mut item).clone();
+        let known = list.iter().any(|have| {
+            let mut have = have.clone();
+            *id(&mut have) == new_id || {
+                *id(&mut have) = new_id.clone();
+                have == item
+            }
+        });
+        if known {
+            continue;
+        }
+        let new_name = name(&mut item).clone();
+        if list.iter().any(|have| *name(&mut have.clone()) == new_name) {
+            *name(&mut item) = format!("{new_name} (imported)");
+        }
+        list.push(item);
+    }
+}
+
 pub fn clamp_dpi(dpi: u16) -> u16 {
     let dpi = dpi.clamp(DPI_MIN, DPI_MAX);
     (dpi + DPI_STEP / 2) / DPI_STEP * DPI_STEP
@@ -231,6 +255,14 @@ impl Config {
         }
     }
 
+    /// Add the profiles and macros of `other` that this config lacks, without
+    /// their shortcuts: someone else's would clash with the ones here.
+    pub fn add_from(&mut self, mut other: Config) {
+        other.profiles.iter_mut().for_each(|p| p.hotkey = None);
+        add_items(&mut self.macros, other.macros, |m| &mut m.id, |m| &mut m.name);
+        add_items(&mut self.profiles, other.profiles, |p| &mut p.id, |p| &mut p.name);
+    }
+
     pub fn active_profile(&self) -> &Profile {
         self.profiles.iter().find(|p| p.id == self.active).unwrap_or(&self.profiles[0])
     }
@@ -241,5 +273,54 @@ impl Config {
 
     pub fn macro_by_id(&self, id: &str) -> Option<&Macro> {
         self.macros.iter().find(|m| m.id == id)
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn stage_profile(id: &str, name: &str, dpi: u16) -> Profile {
+        Profile { id: id.into(), name: name.into(), dpi_stages: vec![dpi], hotkey: None, ..Profile::default() }
+    }
+
+    fn add(list: &mut Vec<Profile>, new: Vec<Profile>) {
+        add_items(list, new, |p| &mut p.id, |p| &mut p.name);
+    }
+
+    #[test]
+    fn adding_skips_what_is_already_here() {
+        let mut list = vec![stage_profile("a", "Default", 800)];
+        // The same id wins even if its settings moved on; this is the same profile.
+        add(&mut list, vec![stage_profile("a", "Renamed", 1600)]);
+        // Another install's untouched default.
+        add(&mut list, vec![stage_profile("b", "Default", 800)]);
+        assert_eq!(list, vec![stage_profile("a", "Default", 800)]);
+    }
+
+    #[test]
+    fn adding_tells_a_new_item_with_a_taken_name_apart() {
+        let mut list = vec![stage_profile("a", "Default", 800)];
+        add(&mut list, vec![stage_profile("b", "Default", 1600), stage_profile("c", "Wiz", 400)]);
+        let names: Vec<_> = list.iter().map(|p| p.name.as_str()).collect();
+        assert_eq!(names, ["Default", "Default (imported)", "Wiz"]);
+        assert_eq!(list[1].id, "b");
+    }
+
+    #[test]
+    fn added_profiles_keep_their_macros_but_not_their_shortcuts() {
+        let mut mine = Config::default();
+        let mut theirs = Config::default();
+        theirs.macros.push(Macro { id: "m".into(), name: "e spam".into(), ..Macro::default() });
+        theirs.profiles = vec![Profile {
+            back: Action::Macro { id: "m".into() },
+            hotkey: Some("Ctrl+1".into()),
+            ..stage_profile("p", "Theirs", 800)
+        }];
+        mine.add_from(theirs);
+        mine.normalize();
+        let added = mine.profile("p").unwrap();
+        assert_eq!(added.back, Action::Macro { id: "m".into() });
+        assert_eq!(added.hotkey, None);
     }
 }
