@@ -221,6 +221,6 @@ impl Worker {
         let shared = self.app.state::<Shared>();
         *shared.headset.lock().unwrap() = self.status.clone();
         let _ = self.app.emit("headset", &self.status);
-        crate::tray::refresh_tooltip(&self.app);
+        crate::tray::refresh_status(&self.app);
     }
 }

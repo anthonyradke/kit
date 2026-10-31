@@ -1,18 +1,29 @@
 //! System tray icon: switch mouse and keyboard profiles, keyboard lighting and
 //! headset presets, toggle noise suppression, without opening the window. Only
-//! the devices picked in setup are listed.
+//! the devices picked in setup are listed. A device running low on battery
+//! marks the icon instead of showing a popup.
 
+use std::sync::atomic::{AtomicBool, Ordering};
+
+use tauri::image::Image;
 use tauri::menu::{CheckMenuItem, Menu, MenuItem, PredefinedMenuItem};
 use tauri::tray::{MouseButton, MouseButtonState, TrayIconBuilder, TrayIconEvent};
 use tauri::{AppHandle, Manager};
 
-use crate::{headset, keyboard, mouse, setup, update};
+use crate::{badge, headset, keyboard, mouse, setup, update};
 
 const TRAY_ID: &str = "main";
+/// The same level the window turns a battery red at.
+const LOW_BATTERY: u8 = 15;
+/// A mark stays until here, so a reading that wobbles around 15% doesn't flicker the icon.
+const LOW_BATTERY_CLEARS: u8 = 20;
 const PROFILE_PREFIX: &str = "profile:";
 const PRESET_PREFIX: &str = "preset:";
 const LIGHTING_PREFIX: &str = "light:";
 const KEY_PROFILE_PREFIX: &str = "keys:";
+
+/// The icon has the low-battery mark.
+static MARKED: AtomicBool = AtomicBool::new(false);
 
 pub fn create(app: &AppHandle) -> tauri::Result<()> {
     TrayIconBuilder::with_id(TRAY_ID)
@@ -54,7 +65,7 @@ pub fn create(app: &AppHandle) -> tauri::Result<()> {
             }
         })
         .build(app)?;
-    refresh_tooltip(app);
+    refresh_status(app);
     Ok(())
 }
 
@@ -134,10 +145,11 @@ pub fn refresh(app: &AppHandle) {
             let _ = tray.set_menu(Some(menu));
         }
     }
-    refresh_tooltip(app);
+    refresh_status(app);
 }
 
-pub fn refresh_tooltip(app: &AppHandle) {
+/// Bring the tooltip and the low-battery mark up to date.
+pub fn refresh_status(app: &AppHandle) {
     let Some(tray) = app.tray_by_id(TRAY_ID) else { return };
     // Every device's worker calls this; any may run before the others' state exists.
     let (Some(m), Some(h), Some(k), Some(_)) = (
@@ -150,11 +162,26 @@ pub fn refresh_tooltip(app: &AppHandle) {
     };
     let devices = setup::get(app);
     let all = !devices.setup_done;
-    let mut text = String::from("kit");
+    let mouse = m.status.lock().unwrap().clone();
+    let kb = k.status.lock().unwrap().clone();
+    let headset = h.headset.lock().unwrap().clone();
+
+    // A sleeping mouse or keyboard keeps its last reading; only a headset that's off has none.
+    let limit = if MARKED.load(Ordering::Relaxed) { LOW_BATTERY_CLEARS } else { LOW_BATTERY };
+    let mut low = vec![];
+    let mut check = |picked: bool, name: &str, battery: Option<u8>, charging: bool| {
+        if let Some(b) = battery.filter(|&b| picked && b <= limit && !charging) {
+            low.push(format!("{name} {b}%"));
+        }
+    };
+    check(all || devices.mouse.is_some(), "mouse", mouse.battery, mouse.charging);
+    check(devices.keyboard.is_some(), "keyboard", kb.battery, kb.charging);
+    check(all || devices.headset.is_some(), "headset", headset.battery, headset.charging);
+
+    let mut text = if low.is_empty() { String::from("kit") } else { format!("Low battery: {}", low.join(", ")) };
 
     if all || devices.mouse.is_some() {
         let profile = m.core.lock().unwrap().config.active_profile().name.clone();
-        let mouse = m.status.lock().unwrap().clone();
         text.push_str(&format!("\nMouse · {profile}"));
         if mouse.connected {
             if let Some(dpi) = mouse.dpi {
@@ -173,7 +200,6 @@ pub fn refresh_tooltip(app: &AppHandle) {
             let config = k.core.lock().unwrap();
             (config.active_key_profile().name.clone(), config.active_preset().name.clone())
         };
-        let kb = k.status.lock().unwrap().clone();
         if setup::keyboard_model(app) == Some(keyboard::config::Model::Nk65) {
             text.push_str(&format!("\nKeyboard · {keys} · {light}"));
         } else {
@@ -188,7 +214,6 @@ pub fn refresh_tooltip(app: &AppHandle) {
 
     if all || devices.headset.is_some() {
         let preset = h.core.lock().unwrap().active_preset().name.clone();
-        let headset = h.headset.lock().unwrap().clone();
         text.push_str(&format!("\nHeadset · {preset}"));
         if headset.connected {
             if let Some(b) = headset.battery {
@@ -201,4 +226,13 @@ pub fn refresh_tooltip(app: &AppHandle) {
         }
     }
     let _ = tray.set_tooltip(Some(text));
+
+    let mark = !low.is_empty();
+    if MARKED.swap(mark, Ordering::Relaxed) != mark {
+        if let Some(icon) = app.default_window_icon() {
+            let (w, h) = (icon.width(), icon.height());
+            let image = if mark { Image::new_owned(badge::low_battery(icon.rgba(), w, h), w, h) } else { icon.clone() };
+            let _ = tray.set_icon(Some(image));
+        }
+    }
 }

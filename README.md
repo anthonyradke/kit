@@ -55,6 +55,9 @@ Headset
 - Keeps the headset as the default playback and recording device whenever it reconnects.
 - Mic volume, sidetone, mute light, auto-off, volume limiter and battery.
 
+App
+- The tray icon's dot turns red when a device that isn't charging drops to 15% battery, and the tooltip names it.
+
 <p align="center">
   <img src="docs/pages.png" width="900" alt="Mouse profile, NK65 lighting, headset EQ and macro editor pages">
 </p>

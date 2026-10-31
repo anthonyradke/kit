@@ -5,3 +5,4 @@ this list into the release notes and empties it for the next batch. The notes sh
 Settings, so keep each line to one short sentence about what changed for the user.
 
 - Release notes in Settings are now a tidy list.
+- The tray icon's dot turns red when a device is low on battery, and the tooltip says which.

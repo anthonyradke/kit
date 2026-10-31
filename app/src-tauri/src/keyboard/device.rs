@@ -340,7 +340,7 @@ impl Worker {
         let shared = self.app.state::<Shared>();
         *shared.status.lock().unwrap() = self.status.clone();
         let _ = self.app.emit("keyboard", &self.status);
-        crate::tray::refresh_tooltip(&self.app);
+        crate::tray::refresh_status(&self.app);
     }
 
     fn apply(&mut self) {
