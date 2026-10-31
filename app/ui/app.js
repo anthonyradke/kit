@@ -429,9 +429,17 @@ function themePicker() {
   return `<div class="row col"><div class="themes">${THEMES.map(card).join("")}</div></div>`;
 }
 
+// Release notes arrive as the "- " lines of UNRELEASED.md.
+function releaseNotes() {
+  const items = (upd.notes || "").split(/\r?\n/).map((l) => l.replace(/^\s*[-*]\s+/, "").trim()).filter(Boolean);
+  if (!items.length) return "";
+  return `<div class="update-notes"><div class="cap">What's new</div><ul>${items.map((i) => `<li>${esc(i)}</li>`).join("")}</ul></div>`;
+}
+
 function updateRow() {
   let title = `kit ${esc(upd.current)}`;
   let hint = "kit checks GitHub for a new version every few hours.";
+  let notes = "";
   let btn = `<button class="btn quiet" data-act="check-update" ${upd.checking ? "disabled" : ""}>${upd.checking ? "Checking…" : "Check now"}</button>`;
   if (upd.progress != null) {
     title = `Updating to kit ${esc(upd.available)}`;
@@ -439,17 +447,17 @@ function updateRow() {
     btn = "";
   } else if (upd.available) {
     title = `kit ${esc(upd.available)} is available`;
-    hint = `You have ${esc(upd.current)}. Updating takes a few seconds and restarts kit; your settings stay.${upd.notes ? `<br>${esc(upd.notes)}` : ""}`;
+    hint = `You have ${esc(upd.current)}. Updating restarts kit; your settings stay.`;
+    notes = releaseNotes();
     btn = `<button class="btn" data-act="install-update">Update and restart</button>`;
   } else if (upd.error && upd.checked) {
     hint = `Couldn't check for updates: ${esc(upd.error)}`;
   } else if (upd.checked) {
     hint = "Up to date. kit checks GitHub for a new version every few hours.";
   }
-  return `<div class="row">
-      <div><div class="rtitle">${title}</div><p class="hint">${hint}</p></div>
-      ${btn}
-    </div>`;
+  const head = `<div><div class="rtitle">${title}</div><p class="hint">${hint}</p></div>
+      ${btn}`;
+  return notes ? `<div class="row col"><div class="row-head">${head}</div>${notes}</div>` : `<div class="row">${head}</div>`;
 }
 
 // ---------- events ----------

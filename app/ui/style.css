@@ -786,6 +786,9 @@ body.in-setup .rail { display: none; }
 .row.col { flex-direction: column; align-items: stretch; gap: 10px; }
 .row-head { display: flex; align-items: center; justify-content: space-between; gap: 28px; }
 .rtitle { font-size: 14px; font-weight: 600; }
+.update-notes ul { margin: 6px 0 0; padding-left: 16px; color: var(--ink-2); font-size: 13px; line-height: 1.5; max-width: 68ch; }
+.update-notes li { margin: 4px 0; }
+.update-notes li::marker { color: var(--ink-4); }
 .rval { font-size: 21px; font-weight: 500; font-variation-settings: "wdth" 80; }
 .fpage .plate { margin: 4px 0 6px; }
 .state-line { display: flex; align-items: center; gap: 10px; color: var(--ink-2); font-size: 13px; }
