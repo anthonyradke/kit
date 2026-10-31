@@ -4,6 +4,7 @@ mod badge;
 mod headset;
 mod keyboard;
 mod mouse;
+mod session;
 mod setup;
 mod tray;
 mod update;
@@ -79,6 +80,7 @@ fn main() {
             mouse::init(handle)?;
             headset::init(handle)?;
             keyboard::init(handle, setup::keyboard_model(handle))?;
+            session::start(handle);
             update::init(handle);
             tray::create(handle)?;
             if !start_hidden {

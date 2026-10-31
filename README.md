@@ -41,6 +41,8 @@ Keyboard
   with what's playing), Heartbeat, Candle and Color drift.
 - Macros on an NK65 key either stored on the keyboard (keys and waits; works without kit) or run through kit (clicks,
   hold-to-repeat and toggle, via spare F13–F24 codes). Macros created in VIA are listed and can be copied into kit.
+- NK65: lights go out while the PC is locked, asleep or has its displays off, and come back with it (a switch on the
+  Device page, on by default).
 - PRO X TKL: lighting effects, per-key painting, battery, lights off when typing stops, and per-key macros or key
   combinations while kit runs.
 
@@ -95,7 +97,8 @@ flowchart LR
   original PCB (wilba's RGB backlight) and rev B (QMK RGB matrix). Per-key color needs RGB-matrix firmware; kit's is in
   `firmware/nk65`. kit's own effects (`keyboard/anim.rs`) set the board to Solid and then stream one color and
   brightness about 30 times a second without saving, so the EEPROM isn't worn. Key presses come from the input hook
-  (counted, never recorded) and the music level from the default output's peak meter.
+  (counted, never recorded) and the music level from the default output's peak meter. Lights out at the lock screen or
+  in sleep works the same way, unsaved, so a power cut brings the board back with its stored lighting.
 - PRO X TKL: lighting through HID++ features 0x8071 (RGB effects) and 0x8081 (per-key lighting). kit takes the LEDs
   over from the onboard profile while it runs, turns them off when the keyboard reports idle and hands them back on
   Quit.
@@ -106,6 +109,7 @@ flowchart LR
   50 ms of mic latency. Installing it, or updating it after a new kit version, takes one administrator prompt; it can
   be removed from the Mic page.
 - `crates/sysaudio` lists audio endpoints, sets the default device and installs or removes the APO.
+- `src/session.rs` watches for the session locking, the displays turning off and Windows going to sleep.
 - Settings live in `%APPDATA%\com.anthonyradke.kit\` (`app.json`, `mouse.json`, `keyboard.json`, `headset.json`).
 
 ## Build from source
@@ -139,7 +143,7 @@ installer, and the in-app updater shows the notes.
 | `crates/via` | The NK65's VIA protocol, onboard macro format and key-code tables |
 | `crates/arctis`, `crates/headset-probe` | Nova 5 protocol and its CLI test tool |
 | `crates/apo`, `crates/sysaudio` | Microphone APO with DeepFilterNet, Windows audio endpoints |
-| `app/src-tauri` | The app: `src/mouse` (worker, input hooks, macro player, hotkeys), `src/keyboard` (both keyboards, lighting presets, bindings), `src/headset` (HID worker, endpoint watcher, APO installer), `src/setup.rs`, `src/tray.rs` |
+| `app/src-tauri` | The app: `src/mouse` (worker, input hooks, macro player, hotkeys), `src/keyboard` (both keyboards, lighting presets, bindings), `src/headset` (HID worker, endpoint watcher, APO installer), `src/session.rs` (lock, display and sleep), `src/setup.rs`, `src/tray.rs` |
 | `app/ui` | The window, plain HTML/CSS/JS with no build step |
 | `firmware/nk65` | kit's QMK firmware for the NK65 |
 | `scripts` | UI preview, release, screenshots, synthetic input, app icon |
@@ -149,8 +153,8 @@ installer, and the in-app updater shows the notes.
 - Windows only, and only the devices listed above. Other Logitech or SteelSeries hardware isn't detected.
 - G HUB, GG/Sonar and VIA can't run at the same time as kit.
 - Macros that click, repeat while held or toggle need kit running; only key-and-wait macros can be stored on the NK65.
-- kit's whole-board effects and PRO X TKL key bindings only run while kit is running; the NK65's own firmware effects
-  don't need it.
+- kit's whole-board effects, PRO X TKL key bindings and the NK65's lights going out with the PC only run while kit is
+  running; the NK65's own firmware effects don't need it.
 - Per-key NK65 color needs RGB-matrix firmware (rev B, or kit's firmware).
 
 ## Credits and license

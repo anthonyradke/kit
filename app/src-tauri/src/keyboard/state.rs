@@ -15,6 +15,9 @@ use crate::mouse::config::{Action, Macro, PlayMode, Step};
 use crate::mouse::{hotkeys, input};
 use crate::tray;
 
+/// Windows gives sleep notifications about two seconds.
+const LIGHTS_OUT_WAIT: Duration = Duration::from_secs(1);
+
 pub struct Shared {
     pub core: Mutex<Config>,
     pub status: Mutex<device::Status>,
@@ -132,6 +135,17 @@ pub fn next_profile(app: &AppHandle) {
         config.profiles[(i + 1) % config.profiles.len()].id.clone()
     };
     activate_profile(app, &next);
+}
+
+/// Nobody's at the PC (or they're back): the NK65's lights follow, if that's
+/// turned on. Waits for the board, because Windows is about to sleep.
+pub fn pc_away(app: &AppHandle, away: bool) {
+    let shared = app.state::<Shared>();
+    let out = away && shared.core.lock().unwrap().sleep_off;
+    let (done_tx, done_rx) = std::sync::mpsc::channel();
+    if shared.tx.send(Cmd::LightsOut(out, done_tx)).is_ok() {
+        let _ = done_rx.recv_timeout(LIGHTS_OUT_WAIT);
+    }
 }
 
 /// Setup picked a different keyboard (or none).

@@ -883,6 +883,11 @@ function keyboardDevicePage() {
       ${st.hint && !s.flashing ? `<p class="hint">${st.hint}</p>` : ""}
       ${restoreSection(s)}
       ${firmwareSection(s)}
+      <h2 class="h2">Lights</h2>
+      <div class="row">
+        <div><div class="rtitle">Off when the PC locks or sleeps</div><p class="hint">The lights go out when Windows locks, sleeps or turns the displays off, and come back with you. kit has to be running.</p></div>
+        <label class="switch"><input type="checkbox" data-field="kb-sleep-off" ${kcfg().sleepOff ? "checked" : ""} aria-label="Lights off when the PC locks or sleeps" /><span></span></label>
+      </div>
       <h2 class="h2">Profiles</h2>
       <div class="row">
         <div><div class="rtitle">Next-profile shortcut</div><p class="hint">Cycle through every keyboard profile with one shortcut.</p></div>
@@ -1372,6 +1377,10 @@ function sliderInput(el, field, label) {
 }
 
 Object.assign(changeFields, {
+  "kb-sleep-off"(el) {
+    kcfg().sleepOff = el.checked;
+    keyboardSaver.save(0);
+  },
   "light-bright"() {
     lightChanged();
   },

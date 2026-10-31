@@ -32,6 +32,8 @@ pub struct Config {
     pub active: String,
     /// PRO X TKL: seconds without typing before the lights go off (battery).
     pub idle_off: u16,
+    /// NK65: lights out while the PC is locked, asleep or has its displays off.
+    pub sleep_off: bool,
     /// Keys handled by kit's input hook, by HID usage (PRO X TKL).
     pub bindings: Vec<Binding>,
     /// NK65: macro played by kit when the board sends F13 + index.
@@ -155,6 +157,7 @@ impl Config {
             active: presets[0].id.clone(),
             presets,
             idle_off: 300,
+            sleep_off: true,
             bindings: vec![],
             kit_keys: vec![None; KIT_KEYS],
             switch_keys: vec![None; KIT_KEYS],
@@ -181,6 +184,7 @@ impl Config {
             keymap_protocol: self.keymap_protocol,
             next_profile_hotkey: self.next_profile_hotkey.clone(),
             onboard: self.onboard.clone(),
+            sleep_off: self.sleep_off,
             ..Config::for_model(model)
         }
     }
@@ -369,6 +373,14 @@ pub fn to_hue_sat([r, g, b]: [u8; 3]) -> [u8; 2] {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn sleep_off_defaults_on_and_survives_a_keyboard_change() {
+        let old: Config = serde_json::from_str(r#"{"idleOff": 60}"#).unwrap();
+        assert!(old.sleep_off);
+        let off = Config { sleep_off: false, ..Config::default() };
+        assert!(!off.with_model(Model::ProXTkl).sleep_off);
+    }
 
     fn profile(id: &str, keymap: &[u16]) -> KeyProfile {
         KeyProfile { id: id.into(), name: id.into(), keymap: keymap.to_vec(), hotkey: None }

@@ -6,7 +6,8 @@
 //! It holds one keymap: kit saves the rest as profiles and switching writes
 //! the keys that differ.
 //! kit's own NK65 effects (`anim`) stream color and brightness over a solid
-//! base that is what gets stored.
+//! base that is what gets stored. While nobody is at the PC its lights go out
+//! with values that aren't stored either, so a power cut can't leave it dark.
 //! The PRO X TKL's lighting is driven by kit while it runs: kit takes the LEDs
 //! from the onboard profile, paints them, turns them off when the keyboard
 //! reports idle (it runs on a battery) and hands them back on Quit.
@@ -30,6 +31,8 @@ pub enum Cmd {
     Apply { preset: Box<Preset>, idle_off: u16, save: bool },
     /// NK65: the active profile's keymap changed, bring the board in line.
     SyncKeymap,
+    /// NK65: lights out (true) or back. Answers once the board has it.
+    LightsOut(bool, std::sync::mpsc::Sender<()>),
     /// Onboard macro slots kit owns, already encoded. Other slots are kept.
     Macros(BTreeMap<u8, Vec<u8>>),
     /// kit is quitting: give the PRO X TKL's lights back to its onboard profile.
@@ -154,6 +157,8 @@ struct Worker {
     dirty: bool,
     /// NK65: store it in EEPROM when sent.
     save: bool,
+    /// NK65: the lights stay out, whatever the desired lighting is.
+    lights_out: bool,
     /// NK65: lighting values last read from or written to the board.
     via_values: BTreeMap<u8, [u8; 2]>,
     /// NK65 on kit's firmware 4+: second color and background level, as on the board.
@@ -191,6 +196,7 @@ impl Worker {
             desired: None,
             dirty: false,
             save: false,
+            lights_out: false,
             via_values: BTreeMap::new(),
             kit_colors: None,
             keymap_due: None,
@@ -284,6 +290,10 @@ impl Worker {
                 if matches!(self.dev, Some(Dev::Via(_))) {
                     self.keymap_due = Some(Instant::now() + KEYS_UP_WAIT);
                 }
+            }
+            Cmd::LightsOut(out, done) => {
+                self.set_lights_out(out);
+                let _ = done.send(());
             }
             Cmd::Macros(owned) => self.write_macros(owned),
             Cmd::Release(done) => {
@@ -630,6 +640,12 @@ impl Worker {
     fn apply_via(&mut self) {
         self.dirty = false;
         let Some((p, _)) = self.desired.clone() else { return };
+        if self.lights_out {
+            // A `save` that's waiting stays waiting, for the real lighting.
+            self.set_anim(None);
+            self.write_via(&lights_out(p));
+            return;
+        }
         let wrote = self.write_via(&p);
         let colors = self.write_kit_colors(&p);
         let kit = anim::is_kit(p.effect);
@@ -642,6 +658,22 @@ impl Worker {
             }
         }
         self.set_anim(kit.then(|| Anim::new(&p, Instant::now())));
+    }
+
+    fn set_lights_out(&mut self, out: bool) {
+        if out == self.lights_out {
+            return;
+        }
+        self.lights_out = out;
+        if matches!(self.dev, Some(Dev::Via(_))) {
+            self.apply_via();
+            if !out {
+                // Just after sleep the board may still be coming back, and nothing
+                // else would notice a lost write. Only what's missing gets sent.
+                self.dirty = true;
+                self.next_apply = Instant::now() + APPLY_RETRY;
+            }
+        }
     }
 
     /// Write the values `p` needs that differ from the board's. True if any did.
@@ -877,7 +909,7 @@ impl Worker {
     fn release(&mut self) {
         if let Some(Dev::Via(_)) = self.dev {
             // Leave the board on the stored base, not wherever the effect was.
-            if self.anim.is_some() {
+            if self.anim.is_some() || self.lights_out {
                 self.set_anim(None);
                 if let Some((p, _)) = self.desired.clone() {
                     self.write_via(&p);
@@ -896,6 +928,12 @@ impl Worker {
             Ok(())
         });
     }
+}
+
+/// `p` with every light off. Effect 0 turns the whole board off on both
+/// firmwares; the rest of `p` stays, so coming back only rewrites what this changes.
+fn lights_out(p: Preset) -> Preset {
+    Preset { effect: 0, brightness: 0, indicators: Default::default(), ..p }
 }
 
 fn via_values(kind: via::Lighting) -> Vec<via::Value> {
@@ -1038,6 +1076,18 @@ mod tests {
 
     fn value(out: &[(via::Value, [u8; 2])], v: via::Value) -> [u8; 2] {
         out.iter().find(|(x, _)| *x == v).unwrap().1
+    }
+
+    #[test]
+    fn lights_out_turns_everything_off() {
+        let mut p = Preset { effect: 45, brightness: 80, ..Preset::default() };
+        p.indicators[0] = Some("#ff0000".into());
+        let out = via_target(via::Lighting::Wilba, &lights_out(p.clone()), None);
+        assert_eq!(value(&out, via::Value::Brightness)[0], 0);
+        assert_eq!(value(&out, via::Value::Effect)[0], 0);
+        assert_eq!(value(&out, via::Value::CapsOn)[0], 255);
+        // Whole-board kit effects run over Solid, so this has to beat that too.
+        assert!(!anim::is_kit(lights_out(Preset { effect: 200, ..p }).effect));
     }
 
     #[test]
