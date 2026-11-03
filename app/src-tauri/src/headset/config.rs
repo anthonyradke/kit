@@ -132,17 +132,17 @@ fn shelf(filter: Filter, freq: u16, gain: f32) -> Band {
 }
 
 /// Bumped whenever the built-in presets change; see `Config::upgrade_presets`.
-const SEED_VERSION: u32 = 2;
+const SEED_VERSION: u32 = 3;
 
-/// Flat plus three tuned presets: the user's Sonar preset, an everyday
-/// correction and a bass one.
+/// Flat, the user's Sonar preset, an everyday correction and a bass one.
 ///
 /// The Nova 5 is already bass heavy: reviews measure a ~+4.5 dB high-bass
 /// peak around 80 Hz with less below 60 Hz and a low-mid dip after it.
 /// Boosting that peak again is what makes bass boomy and muffled, so these
 /// cut 80-100 Hz and add their low end under 60 Hz instead, turning the peak
 /// into a clean shelf. The headset has no preamp; the summed boost stays at
-/// or under +6 dB, the most SteelSeries' own firmware presets use.
+/// or under +6 dB, the most SteelSeries' own firmware presets use. Main is
+/// left as the user had it in Sonar.
 fn seed_presets() -> Vec<Preset> {
     let pad = |mut bands: Vec<Band>| {
         bands.resize(arctis::BANDS, Band::default());
@@ -151,18 +151,20 @@ fn seed_presets() -> Vec<Preset> {
     vec![
         Preset { id: "flat".into(), name: "Flat".into(), bands: flat_bands() },
         Preset {
-            // The user's Sonar preset (sub bass, a narrow 600 Hz lift, bright
-            // treble) with its bass moved below the headset's own peak.
+            // The user's Sonar game preset exactly as it was in Sonar, punchy
+            // 50-160 Hz included. It is the one exception to the rules above:
+            // retuning it the same way made games sound flat.
             id: "main".into(),
             name: "Main".into(),
             bands: pad(vec![
-                shelf(Filter::LowShelf, 55, 5.0),
-                peak(90, -2.5, 1.0),
-                peak(300, 1.0, 1.0),
+                peak(55, 4.0, 0.707),
+                peak(100, 3.0, 0.707),
                 peak(600, 4.0, 4.0),
                 peak(5000, 2.0, 0.707),
                 peak(8000, 3.0, 0.707),
-                peak(12000, 2.5, 0.707),
+                peak(12000, 3.0, 0.707),
+                // Sonar's "bass boost" at 1.5.
+                shelf(Filter::LowShelf, 80, 1.5),
             ]),
         },
         Preset {
@@ -229,6 +231,15 @@ fn past_seed_bands(id: &str) -> Vec<Vec<Band>> {
                 peak(600, 2.5, 4.0),
                 peak(5000, 1.5, 0.707),
                 shelf(Filter::HighShelf, 9000, 2.0),
+            ],
+            vec![
+                shelf(Filter::LowShelf, 55, 5.0),
+                peak(90, -2.5, 1.0),
+                peak(300, 1.0, 1.0),
+                peak(600, 4.0, 4.0),
+                peak(5000, 2.0, 0.707),
+                peak(8000, 3.0, 0.707),
+                peak(12000, 2.5, 0.707),
             ],
         ],
         "balanced" => vec![vec![shelf(Filter::LowShelf, 45, 2.5), peak(85, -3.0, 1.0), peak(300, 1.5, 1.0)]],
@@ -550,7 +561,9 @@ mod tests {
     fn seeds_leave_headroom() {
         // Without a preamp a boost is level on top of full-scale music, and
         // overlapping bands add up.
-        for p in seed_presets() {
+        // Main is the user's Sonar curve, kept as is on purpose.
+        let tuned = || seed_presets().into_iter().filter(|p| p.id != "main");
+        for p in tuned() {
             for k in 0..=300 {
                 let f = 20.0 * 1000f64.powf(k as f64 / 300.0);
                 let db = response_db(&p.bands, f);
@@ -558,7 +571,7 @@ mod tests {
             }
         }
         // And none of them stacks on the headset's own 80 Hz peak.
-        for p in seed_presets() {
+        for p in tuned() {
             assert!(response_db(&p.bands, 80.0) <= 0.0, "{} boosts the 80 Hz peak", p.name);
         }
     }
@@ -615,6 +628,21 @@ mod tests {
 
         let mut fresh = Config::default();
         assert!(!fresh.upgrade_presets());
+    }
+
+    #[test]
+    fn upgrade_brings_back_the_sonar_main() {
+        let mut c = Config {
+            presets: vec![old("flat", 0), old("main", 2), seed_presets()[2].clone()],
+            active: "main".into(),
+            seeds: 2,
+            ..Config::default()
+        };
+        c.normalize();
+        assert!(c.upgrade_presets());
+        assert_eq!(c.presets.len(), 3);
+        assert_eq!(c.presets[1].bands, old("main", 0).bands);
+        assert_eq!(c.active_preset().id, "main");
     }
 
     #[test]
