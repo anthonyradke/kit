@@ -38,6 +38,10 @@ pub struct HeadsetSettings {
     pub auto_off: u8,
     /// dB added to every preset as a low shelf (see `Preset::to_eq`).
     pub bass: f32,
+    /// Virtual 7.1 surround through VB-CABLE (see `surround.rs`).
+    pub surround: bool,
+    /// Surround's Room slider, 0..=100 (`spatial::room_level`).
+    pub room: u8,
 }
 
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
@@ -94,7 +98,7 @@ impl Default for Config {
 
 impl Default for HeadsetSettings {
     fn default() -> Self {
-        HeadsetSettings { sidetone: 1, mic_volume: 15, mic_led: 3, volume_limiter: true, auto_off: 30, bass: 0.0 }
+        HeadsetSettings { sidetone: 1, mic_volume: 15, mic_led: 3, volume_limiter: true, auto_off: 30, bass: 0.0, surround: false, room: 50 }
     }
 }
 
@@ -440,6 +444,7 @@ impl Config {
         h.sidetone = h.sidetone.min(arctis::SIDETONE_MAX);
         h.mic_volume = h.mic_volume.min(arctis::MIC_VOLUME_MAX);
         h.mic_led = h.mic_led.min(3);
+        h.room = h.room.min(100);
         h.bass = if h.bass.is_finite() { (h.bass.clamp(arctis::GAIN_MIN, arctis::GAIN_MAX) * 2.0).round() / 2.0 } else { 0.0 };
         self.mic.strength = self.mic.strength.min(100);
     }

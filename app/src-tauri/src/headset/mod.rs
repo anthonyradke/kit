@@ -6,6 +6,7 @@ mod device;
 pub mod elevate;
 pub mod mic_test;
 pub mod state;
+pub mod surround;
 
 use tauri::{AppHandle, Manager};
 
@@ -18,6 +19,14 @@ pub fn init(app: &AppHandle) -> tauri::Result<()> {
 
 pub fn on_window_destroyed(app: &AppHandle) {
     mic_test::clear(app);
+}
+
+/// Quitting: with surround on nothing would reach the headset without kit,
+/// so put the headset back as the Windows default.
+pub fn on_exit(app: &AppHandle) {
+    if app.state::<Shared>().core.lock().unwrap().headset.surround {
+        audio::restore_headset();
+    }
 }
 
 #[tauri::command]
@@ -70,6 +79,21 @@ pub fn set_apo_installed(app: AppHandle, install: bool) -> Result<UiState, Strin
 #[tauri::command(async)]
 pub fn set_mic_test(app: AppHandle, mode: mic_test::Mode) {
     mic_test::set(&app, mode);
+}
+
+/// Play noise through each virtual surround speaker in turn.
+#[tauri::command]
+pub fn surround_test(app: AppHandle) {
+    let _ = app.state::<Shared>().surround_tx.send(surround::Cmd::Test);
+}
+
+/// VB-Audio's page for VB-CABLE, which surround needs.
+#[tauri::command]
+pub fn open_vbcable_page() {
+    use windows::core::{w, PCWSTR};
+    use windows::Win32::UI::Shell::ShellExecuteW;
+    use windows::Win32::UI::WindowsAndMessaging::SW_SHOWNORMAL;
+    unsafe { ShellExecuteW(None, w!("open"), w!("https://vb-audio.com/Cable/"), PCWSTR::null(), PCWSTR::null(), SW_SHOWNORMAL) };
 }
 
 #[tauri::command]

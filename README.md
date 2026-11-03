@@ -50,6 +50,10 @@ Headset
 - A 10-band parametric EQ with a draggable curve, stored and applied on the headset itself, so it covers every app
   with no virtual audio device and keeps working when kit isn't running.
 - A bass slider that adds a low shelf on top of whichever EQ preset is active.
+- Optional virtual 7.1 surround in place of Sonar's spatial audio. Games play to VB-Audio's virtual cable set up as 7.1
+  speakers; kit places each speaker around the listener with measured dummy-head and room responses and plays the
+  result on the headset. A Room slider sets how much of the room is heard, and a speaker test plays each speaker in
+  turn. Calls and the mic stay on the headset directly.
 - DeepFilterNet 3 microphone noise suppression installed on the real "Headset Microphone" endpoint, so every app gets
   the clean signal.
 - A mic test on the Mic page: record a sample and play it back, or listen live, in the headphones and after noise
@@ -111,7 +115,16 @@ flowchart LR
   microphone. The DeepFilterNet 3 model runs on its own thread next to the engine's real-time thread and adds about
   50 ms of mic latency. Installing it, or updating it after a new kit version, takes one administrator prompt; it can
   be removed from the Mic page.
-- `crates/sysaudio` lists audio endpoints, sets the default device and installs or removes the APO.
+- Surround (`crates/spatial`, `src/headset/surround.rs`): kit sets VB-CABLE's "CABLE Input" to 7.1 at 48 kHz and makes
+  it the default device for everything but calls, then records it with WASAPI loopback. Each channel is convolved
+  (uniformly partitioned FFT convolution, 256-sample blocks) with a Neumann KU100 dummy head's response from that
+  speaker's direction, plus the early reflections of a measured listening room from the nearest measured direction and
+  a shared late reverb; the LFE channel is low passed into both ears. A lookahead limiter keeps the sum from clipping.
+  The cable and the headset run on separate clocks, so the stereo result is resampled by a small, continuously
+  adjusted ratio (at most ±0.2 %) that holds the headset's buffer at 20 ms. The renderer uses about 1.5 % of one CPU
+  core; the whole path adds about 40 ms. Quitting kit makes the headset the default again.
+- `crates/sysaudio` lists audio endpoints, sets default devices and speaker formats, records and plays streams, and
+  installs or removes the APO.
 - `src/session.rs` watches for the session locking, the displays turning off and Windows going to sleep.
 - Settings live in `%APPDATA%\com.anthonyradke.kit\` (`app.json`, `mouse.json`, `keyboard.json`, `headset.json`).
 
@@ -123,7 +136,8 @@ Requires Rust (MSVC toolchain) and the Tauri CLI (`cargo install tauri-cli`).
 cargo build --release -p kit-apo            # once: the installer bundles this DLL
 cargo build -p kit && target\debug\kit.exe  # run the app (debug)
 cd app/src-tauri && cargo tauri build       # release exe + installer (needs the updater signing key)
-cargo test                                  # unit tests (VIA codes and macros, EQ and lighting config, denoise)
+cargo test                                  # unit tests (VIA codes and macros, EQ and lighting config, denoise, surround)
+cargo run --release -p spatial --example demo -- out   # surround demo WAVs and renderer timing
 cargo run -p mouse-probe                    # mouse hardware test: device info
 cargo run -p mouse-probe -- dpi 800         # set DPI directly
 cargo run -p mouse-probe -- keyboard        # Logitech keyboard: features, lighting zones and effects
@@ -145,11 +159,12 @@ installer, and the in-app updater shows the notes.
 | `crates/hidpp`, `crates/mouse-probe` | Logitech HID++ (mouse and keyboard) and its CLI test tool |
 | `crates/via` | The NK65's VIA protocol, onboard macro format and key-code tables |
 | `crates/arctis`, `crates/headset-probe` | Nova 5 protocol and its CLI test tool |
-| `crates/apo`, `crates/sysaudio` | Microphone APO with DeepFilterNet, Windows audio endpoints |
+| `crates/apo`, `crates/sysaudio` | Microphone APO with DeepFilterNet, Windows audio endpoints and streams |
+| `crates/spatial` | Virtual surround renderer, its filter data (`data/ku100.bin`) and clock-drift pacer; no Windows dependencies |
 | `app/src-tauri` | The app: `src/mouse` (worker, input hooks, macro player, hotkeys), `src/keyboard` (both keyboards, lighting presets, bindings), `src/headset` (HID worker, endpoint watcher, APO installer), `src/backup.rs` (settings export and import), `src/session.rs` (lock, display and sleep), `src/setup.rs`, `src/tray.rs` |
 | `app/ui` | The window, plain HTML/CSS/JS with no build step |
 | `firmware/nk65` | kit's QMK firmware for the NK65 |
-| `scripts` | UI preview, release, screenshots, synthetic input, app icon |
+| `scripts` | UI preview, release, screenshots, synthetic input, app icon, surround filter generator (`make_spatial_filters.py`) |
 
 ## Known limitations
 
@@ -159,11 +174,16 @@ installer, and the in-app updater shows the notes.
 - kit's whole-board effects, PRO X TKL key bindings and the NK65's lights going out with the PC only run while kit is
   running; the NK65's own firmware effects don't need it.
 - Per-key NK65 color needs RGB-matrix firmware (rev B, or kit's firmware).
+- Surround needs VB-CABLE installed and kit running: while it's on, apps play to the cable and only kit passes them on
+  to the headset. If kit crashes, choose the headset in Windows' sound settings or start kit again. Games must output
+  7.1 (or 5.1) for sound from behind; stereo games play through the two front speakers.
 
 ## Credits and license
 
 Noise suppression uses [DeepFilterNet](https://github.com/Rikorose/DeepFilterNet) and its published model (MIT or
-Apache-2.0). Headset protocol notes are based on [HeadsetControl](https://github.com/Sapd/HeadsetControl), keyboard
+Apache-2.0). Surround's filters are derived from the [SADIE II database](https://www.york.ac.uk/sadie-project/database.html)
+(subject D1, Neumann KU100; Copyright 2018 University of York, Apache-2.0; see `crates/spatial/data/NOTICE`).
+Surround plays through [VB-CABLE](https://vb-audio.com/Cable/) by VB-Audio, which users install themselves. Headset protocol notes are based on [HeadsetControl](https://github.com/Sapd/HeadsetControl), keyboard
 lighting on [Solaar](https://github.com/pwr-Solaar/Solaar) and the NK65's VIA definitions on
 [the-via/keyboards](https://github.com/the-via/keyboards). Product photos are Logitech's, SteelSeries' and Oblotzky
 Industries' own (the NK65 photo with its background removed). The Archivo typeface is under the SIL Open Font License

@@ -46,6 +46,7 @@ const hasGain = (b) => b.filter === "peaking" || b.filter === "lowShelf" || b.fi
 const headsetSaver = makeSaver("headset_save", hcfg, (st) => {
   H.headset = st.headset;
   H.audio = st.audio;
+  H.surround = st.surround;
 });
 
 // Live EQ on the headset while dragging (not saved to its memory until the drag ends).
@@ -90,6 +91,7 @@ function defaultCell(key, span = 1) {
   const a = H.audio;
   if (sonarHolds()) return cell(key, "Windows default", "Sonar", { span, cls: "text warn" });
   if (!a.output) return cell(key, "Windows default", "Not connected", { span, cls: "text dim" });
+  if (a.cable && a.headsetIsDefault) return cell(key, "Windows default", "Surround", { span, cls: "text" });
   return cell(key, "Windows default", a.headsetIsDefault ? "This headset" : esc(a.defaultOutput || "None"), { span, cls: `text ${a.headsetIsDefault ? "" : "warn"}` });
 }
 
@@ -328,6 +330,58 @@ function graphToValues(clientX, clientY, rect) {
 
 // ---------- mic page ----------
 
+// ---------- surround page ----------
+
+function surroundStatus() {
+  const s = H.surround || {};
+  const on = hcfg().headset.surround;
+  if (!s.cable) {
+    return `<div class="state-line warn"><span class="grow">Surround needs VB-CABLE, a free virtual sound device from VB-Audio. Download it, run VBCABLE_Setup_x64 as administrator, restart Windows, then turn surround on here.</span>
+      <button class="btn" data-act="get-vbcable">Get VB-CABLE</button></div>`;
+  }
+  if (!on) return `<div class="state-line"><span class="off-mark">Off. Apps play straight to the headset.</span></div>`;
+  if (!s.running) return `<div class="state-line warn">${esc(s.error || "Starting…")}</div>`;
+  const playing = s.playing ? `Apps are sending <b>${esc(s.playing)}</b>${s.playing === "Stereo" ? ", set the game to 7.1 or surround speakers for sound from behind" : ""}` : "Nothing playing";
+  return `<div class="state-line"><span class="live-mark">On</span><span class="grow">${playing}</span><span class="muted">${s.latencyMs} ms</span></div>
+    ${s.error ? `<div class="state-line bad">${esc(s.error)}</div>` : ""}`;
+}
+
+function surroundPage() {
+  const h = hcfg().headset;
+  const s = H.surround || {};
+  const canTest = h.surround && s.running;
+  return `<div class="page fpage" data-key="headset-surround"><div class="fpage-inner">
+    ${sonarNotice()}
+    <h1 class="h1">Surround</h1>
+
+    <div class="row col">
+      <div class="row-head">
+        <div><div class="rtitle">Virtual 7.1 surround</div>
+        <p class="hint">Games play to a virtual 7.1 speaker setup. kit places each speaker around you, using measurements of a dummy head in a listening room, and plays the result on the headset, with your EQ on top. Calls and the mic stay on the headset directly.</p></div>
+        <label class="switch" ${s.cable ? "" : 'title="Install VB-CABLE first"'}><input type="checkbox" data-field="surround" ${h.surround ? "checked" : ""} ${s.cable || h.surround ? "" : "disabled"} aria-label="Virtual surround" /><span></span></label>
+      </div>
+      ${surroundStatus()}
+    </div>
+
+    <div class="row col">
+      <div class="row-head"><div class="rtitle">Room</div><span class="rval" id="v-room">${h.room}</span></div>
+      ${slider("room", h.room, 100, !h.surround, "Room")}
+      <div class="scale"><span>Head only</span><span>As measured</span><span>Big</span></div>
+      <p class="hint">How much of the room you hear. Less is sharper and drier but can sound inside your head; more sounds further away and fuller. 50 is the room as measured.</p>
+    </div>
+
+    <div class="row">
+      <div><div class="rtitle">Speaker test</div>
+      <p class="hint">${s.testing ? `Playing: <b>${esc(s.testing)}</b>` : "Noise from each speaker in turn, clockwise from front left."}</p></div>
+      <button class="btn quiet" data-act="surround-test" ${canTest && !s.testing ? "" : "disabled"}>${icons.play}Test</button>
+    </div>
+
+    <h2 class="h2">For the best result</h2>
+    <p class="hint">Set games to 7.1, surround or home theater speakers, not headphones. Turn off Windows Sonic, Dolby Atmos for Headphones and a game's own HRTF or 3D headphone mode while this is on, or the sound is placed twice.</p>
+    <p class="hint">kit has to run for sound to reach the headset while surround is on. Quitting kit switches Windows back to the headset.</p>
+  </div></div>`;
+}
+
 const onMicPage = () => view.page === "headset" && view.headset === "mic";
 const fmtSecs = (s) => `0:${String(Math.round(s)).padStart(2, "0")}`;
 
@@ -476,7 +530,7 @@ function headsetDevicePage() {
     <div class="row col">
       <div class="row-head">
         <div><div class="rtitle">Keep the headset as the default device</div>
-        <p class="hint">Whenever the Nova 5 connects, make it the Windows default output and mic, including for calls. Picking another device yourself still works.</p></div>
+        <p class="hint">Whenever the Nova 5 connects, make it the Windows default output and mic, including for calls. Picking another device yourself still works. With surround on, apps play to VB-CABLE and kit passes them on to the headset; calls stay on the headset.</p></div>
         <label class="switch"><input type="checkbox" data-field="keepDefault" ${c.keepDefault ? "checked" : ""} aria-label="Keep the headset as the default device" /><span></span></label>
       </div>
       ${line("Output", a.output, a.defaultOutput)}
@@ -621,6 +675,12 @@ Object.assign(handlers, {
     headsetSaver.save(0);
     render();
   },
+  "surround-test"() {
+    invoke("surround_test");
+  },
+  "get-vbcable"() {
+    invoke("open_vbcable_page");
+  },
   "use-headset"() {
     invoke("use_headset");
     toast("Switching Windows to the headset…");
@@ -656,6 +716,14 @@ for (const f of ["strength", "micVolume", "sidetone"]) {
     headsetSaver.save(300);
   };
 }
+
+inputFields.room = (el) => {
+  const v = Number(el.value);
+  el.style.setProperty("--p", `${v}%`);
+  hcfg().headset.room = v;
+  $("#v-room").textContent = `${v}`;
+  headsetSaver.save(150);
+};
 
 // The bass slider redraws only the graph, so the slider keeps the pointer.
 inputFields.bass = (el) => {
@@ -696,6 +764,11 @@ Object.assign(changeFields, {
   },
   "mic-listen"(el) {
     setMicTest(el.checked ? "listening" : "idle");
+  },
+  surround(el) {
+    hcfg().headset.surround = el.checked;
+    headsetSaver.save(0);
+    render();
   },
   keepDefault(el) {
     hcfg().keepDefault = el.checked;

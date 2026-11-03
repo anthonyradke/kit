@@ -8,6 +8,7 @@ members = [
     "crates/sysaudio",
     "crates/headset-probe",
     "crates/via",
+    "crates/spatial",
     "app/src-tauri",
 ]
 
@@ -88,6 +89,14 @@ opt-level = 3
 debug-assertions = false
 overflow-checks = false
 [profile.dev.package.miniz_oxide]
+opt-level = 3
+debug-assertions = false
+overflow-checks = false
+[profile.dev.package.spatial]
+opt-level = 3
+debug-assertions = false
+overflow-checks = false
+[profile.dev.package.rubato]
 opt-level = 3
 debug-assertions = false
 overflow-checks = false

@@ -40,6 +40,10 @@ pub fn create(app: &AppHandle) -> tauri::Result<()> {
                     let _ = update::install(&app).await;
                 });
             }
+            "surround" => {
+                let on = app.state::<headset::state::Shared>().core.lock().unwrap().headset.surround;
+                headset::state::set_surround(app, !on);
+            }
             "denoise" => {
                 let on = app.state::<headset::state::Shared>().core.lock().unwrap().mic.denoise;
                 headset::state::set_denoise(app, !on);
@@ -78,11 +82,11 @@ fn build_menu(app: &AppHandle) -> tauri::Result<Menu<tauri::Wry>> {
             core.config.profiles.iter().map(|p| (p.id.clone(), p.name.clone())).collect();
         (profiles, core.config.active.clone())
     };
-    let (presets, active_preset, denoise) = {
+    let (presets, active_preset, denoise, surround) = {
         let shared = app.state::<headset::state::Shared>();
         let config = shared.core.lock().unwrap();
         let presets: Vec<(String, String)> = config.presets.iter().map(|p| (p.id.clone(), p.name.clone())).collect();
-        (presets, config.active.clone(), config.mic.denoise)
+        (presets, config.active.clone(), config.mic.denoise, config.headset.surround)
     };
     let (lights, active_light, key_profiles, active_keys) = {
         let shared = app.state::<keyboard::state::Shared>();
@@ -126,6 +130,7 @@ fn build_menu(app: &AppHandle) -> tauri::Result<Menu<tauri::Wry>> {
             let checked = id == active_preset;
             menu.append(&CheckMenuItem::with_id(app, format!("{PRESET_PREFIX}{id}"), name, true, checked, None::<&str>)?)?;
         }
+        menu.append(&CheckMenuItem::with_id(app, "surround", "Virtual surround", true, surround, None::<&str>)?)?;
         menu.append(&CheckMenuItem::with_id(app, "denoise", "Mic noise suppression", true, denoise, None::<&str>)?)?;
         menu.append(&MenuItem::with_id(app, "default", "Use headset as default device", true, None::<&str>)?)?;
         menu.append(&PredefinedMenuItem::separator(app)?)?;

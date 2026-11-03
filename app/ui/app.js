@@ -6,7 +6,7 @@ let A = null; // app config: { setupDone, mouse, keyboard, headset }
 const PAGES = {
   mouse: { title: () => PRODUCTS.mouse.name, tabs: [["profiles", "Profiles"], ["macros", "Macros"], ["device", "Device"]] },
   keyboard: { title: () => keyboardName(), tabs: [["keys", "Keys"], ["lighting", "Lighting"], ["macros", "Macros"], ["device", "Device"]] },
-  headset: { title: () => PRODUCTS.headset.name, tabs: [["sound", "Sound"], ["mic", "Mic"], ["device", "Device"]] },
+  headset: { title: () => PRODUCTS.headset.name, tabs: [["sound", "Sound"], ["surround", "Surround"], ["mic", "Mic"], ["device", "Device"]] },
 };
 const DEVICE_ORDER = ["mouse", "keyboard", "headset"];
 const devices = () => DEVICE_ORDER.filter((d) => A[d]);
@@ -57,7 +57,7 @@ function pageHtml() {
     case "keyboard":
       return view.keyboard === "macros" ? macrosPage() : view.keyboard === "lighting" ? lightingPage() : view.keyboard === "device" ? keyboardDevicePage() : keysPage();
     case "headset":
-      return view.headset === "mic" ? micPage() : view.headset === "device" ? headsetDevicePage() : soundPage();
+      return view.headset === "mic" ? micPage() : view.headset === "surround" ? surroundPage() : view.headset === "device" ? headsetDevicePage() : soundPage();
     case "settings":
       return settingsPage();
     default:
@@ -757,6 +757,7 @@ syncMaxButton();
   await listen("headset-state", hw(onHeadsetState));
   await listen("headset", hw((p) => (H.headset = p)));
   await listen("audio", hw((p) => (H.audio = p)));
+  await listen("surround", hw((p) => (H.surround = p)));
   await listen("mic-test", (e) => onMicTest(e.payload));
   await listen("update", (e) => {
     upd = e.payload;

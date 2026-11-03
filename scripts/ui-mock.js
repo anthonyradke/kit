@@ -5,6 +5,8 @@
   const color = q.get("color") || "white";
   // NK65 firmware: old (stock VIA v9), kit (kit's firmware) or restore (kit's, just flashed).
   const fw = q.get("fw") || "old";
+  // Surround: on (7.1 playing), stereo, off, nocable (VB-CABLE missing), error.
+  const sur = q.get("surround") || "on";
   const id = () => Math.random().toString(16).slice(2, 10);
   const key = (name, scan, ext = false) => ({ vk: 0, scan, ext, name });
   const M = {
@@ -29,11 +31,22 @@
   };
   const bands = [32, 64, 125, 250, 500, 1000, 2000, 4000, 8000, 16000].map((freq, i) => ({ enabled: true, filter: "peaking", freq, gain: [3, 2, 0, -1, 0, 0, 1, 2, 1, 0][i], q: 1.414 }));
   const H = {
-    config: { presets: [{ id: "h1", name: "Main", bands }, { id: "h2", name: "Footsteps", bands }], active: "h1", headset: { sidetone: 1, micVolume: 15, micLed: 3, volumeLimiter: true, autoOff: 30, bass: 0 }, mic: { denoise: true, strength: 90 }, keepDefault: true },
+    config: { presets: [{ id: "h1", name: "Main", bands }, { id: "h2", name: "Footsteps", bands }], active: "h1", headset: { sidetone: 1, micVolume: 15, micLed: 3, volumeLimiter: true, autoOff: 30, bass: 0, surround: sur !== "off" && sur !== "nocable", room: 50 }, mic: { denoise: true, strength: 90 }, keepDefault: true },
     headset: { present: true, connected: true, battery: 64, charging: false, error: null },
     audio: { output: "Headphones (Arctis Nova 5)", input: "Headset Microphone (Arctis Nova 5)", defaultOutput: "Headphones (Arctis Nova 5)", defaultInput: "Headset Microphone (Arctis Nova 5)", headsetIsDefault: true, apoInstalled: true, apoOutdated: false, error: null },
+    surround: {
+      cable: sur !== "nocable",
+      running: sur === "on" || sur === "stereo",
+      playing: sur === "stereo" ? "Stereo" : sur === "on" ? "7.1" : null,
+      latencyMs: 38,
+      testing: null,
+      error: sur === "error" ? "Waiting for the headset." : null,
+    },
     configPath: "C:\\Users\\you\\AppData\\Roaming\\com.anthonyradke.kit\\headset.json",
   };
+  if (H.config.headset.surround && H.surround.running) {
+    Object.assign(H.audio, { cable: "CABLE Input (VB-Audio Virtual Cable)", defaultOutput: "CABLE Input (VB-Audio Virtual Cable)" });
+  }
   // NK65 keymap: 4 layers x 5 rows x 15 cols.
   const km = new Array(4 * 75).fill(1);
   const set = (l, r, c, v) => (km[(l * 5 + r) * 15 + c] = v);
@@ -122,6 +135,17 @@
       return { path: "C:\\Users\\you\\Documents\\kit-settings-2026-10-31.json", version: "0.6.0", mouse: { profiles: 3, macros: 1 }, keyboard: { model, fits: model === kb, profiles: 2, presets: 4 }, headset: { presets: 4 } };
     },
     settings_import: () => {},
+    open_vbcable_page: () => {},
+    surround_test: () => {
+      const names = ["Front left", "Center", "Front right", "Side right", "Rear right", "Rear left", "Side left"];
+      let i = 0;
+      const step = () => {
+        H.surround = { ...H.surround, testing: names[i] || null };
+        emit("surround", H.surround);
+        if (i++ < names.length) setTimeout(step, 1000);
+      };
+      step();
+    },
   };
   window.__TAURI__ = {
     core: { invoke: async (cmd, args) => (handlers[cmd] ? structuredClone(await handlers[cmd](args || {})) : undefined) },

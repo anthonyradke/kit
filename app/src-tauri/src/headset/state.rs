@@ -8,16 +8,18 @@ use serde::Serialize;
 use tauri::{AppHandle, Emitter, Manager};
 
 use super::config::{Band, Config, Preset};
-use super::{audio, device, mic_test};
+use super::{audio, device, mic_test, surround};
 use crate::tray;
 
 pub struct Shared {
     pub core: Mutex<Config>,
     pub headset: Mutex<device::Status>,
     pub audio: Mutex<audio::Status>,
+    pub surround: Mutex<surround::Status>,
     pub mic_test: mic_test::MicTest,
     pub headset_tx: Sender<device::Cmd>,
     pub audio_tx: Sender<audio::Cmd>,
+    pub surround_tx: Sender<surround::Cmd>,
     pub config_path: PathBuf,
 }
 
@@ -27,6 +29,7 @@ pub struct UiState {
     pub config: Config,
     pub headset: device::Status,
     pub audio: audio::Status,
+    pub surround: surround::Status,
     pub config_path: String,
 }
 
@@ -36,17 +39,21 @@ pub fn init(app: &AppHandle) -> tauri::Result<()> {
     // Threads are started after `manage` so they can always reach the state.
     let (headset_tx, headset_rx) = std::sync::mpsc::channel();
     let (audio_tx, audio_rx) = std::sync::mpsc::channel();
+    let (surround_tx, surround_rx) = std::sync::mpsc::channel();
     app.manage(Shared {
         core: Mutex::new(config),
         headset: Mutex::new(device::Status::default()),
         audio: Mutex::new(audio::Status::default()),
+        surround: Mutex::new(surround::Status::default()),
         mic_test: mic_test::MicTest::default(),
         headset_tx,
         audio_tx,
+        surround_tx,
         config_path,
     });
     device::spawn(app.clone(), headset_rx);
     audio::spawn(app.clone(), audio_rx);
+    surround::spawn(app.clone(), surround_rx);
     apply(app);
     Ok(())
 }
@@ -56,7 +63,8 @@ pub fn ui_state(app: &AppHandle) -> UiState {
     let config = shared.core.lock().unwrap().clone();
     let headset = shared.headset.lock().unwrap().clone();
     let audio = shared.audio.lock().unwrap().clone();
-    UiState { config, headset, audio, config_path: shared.config_path.display().to_string() }
+    let surround = shared.surround.lock().unwrap().clone();
+    UiState { config, headset, audio, surround, config_path: shared.config_path.display().to_string() }
 }
 
 pub fn emit_state(app: &AppHandle) {
@@ -71,6 +79,9 @@ fn apply(app: &AppHandle) {
     let _ = shared.headset_tx.send(device::Cmd::Apply { eq, settings: config.headset.clone() });
     // Fails harmlessly until the APO is installed (the key doesn't exist yet).
     let _ = sysaudio::apo::set_mic_settings(config.mic.denoise, config.mic.strength as u32);
+    // Surround on or off moves the Windows defaults and starts or stops the stream.
+    let _ = shared.audio_tx.send(audio::Cmd::Refresh);
+    let _ = shared.surround_tx.send(surround::Cmd::Refresh);
 }
 
 fn save(shared: &Shared, config: &Config) {
@@ -87,6 +98,18 @@ pub fn activate(app: &AppHandle, id: &str) {
             return;
         }
         config.active = id.to_string();
+        save(&shared, &config);
+    }
+    apply(app);
+    tray::refresh(app);
+    emit_state(app);
+}
+
+pub fn set_surround(app: &AppHandle, on: bool) {
+    {
+        let shared = app.state::<Shared>();
+        let mut config = shared.core.lock().unwrap();
+        config.headset.surround = on;
         save(&shared, &config);
     }
     apply(app);
@@ -115,7 +138,9 @@ pub fn update_config(app: &AppHandle, mut config: Config) {
         config.active = core.active.clone();
         config.seeds = core.seeds;
         config.normalize();
-        let menu_changed = tray_entries(&core) != tray_entries(&config) || core.mic.denoise != config.mic.denoise;
+        let menu_changed = tray_entries(&core) != tray_entries(&config)
+            || core.mic.denoise != config.mic.denoise
+            || core.headset.surround != config.headset.surround;
         let keep_default_on = config.keep_default && !core.keep_default;
         *core = config;
         save(&shared, &core);

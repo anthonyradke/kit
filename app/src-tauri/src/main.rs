@@ -121,6 +121,8 @@ fn main() {
             headset::set_apo_installed,
             headset::set_mic_test,
             headset::apo_log,
+            headset::surround_test,
+            headset::open_vbcable_page,
             keyboard::keyboard_state,
             keyboard::keyboard_save,
             keyboard::activate_lighting,
@@ -143,7 +145,10 @@ fn main() {
             // Keep running in the tray when the last window closes; only Quit exits.
             RunEvent::ExitRequested { code: None, api, .. } => api.prevent_exit(),
             // Quit or an update restart: give a Logitech keyboard its own lighting back.
-            RunEvent::Exit => keyboard::state::release(app),
+            RunEvent::Exit => {
+                keyboard::state::release(app);
+                headset::on_exit(app);
+            }
             _ => {}
         });
 }

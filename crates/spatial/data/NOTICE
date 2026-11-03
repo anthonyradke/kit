@@ -1,0 +1,13 @@
+ku100.bin is derived from the SADIE II database, subject D1 (Neumann KU100), files
+D1_48K_24bit_256tap_FIR_SOFA.sofa and D1_48K_24bit_0.3s_FIR_SOFA.sofa, by
+scripts/make_spatial_filters.py (selected directions, level calibration, windowing).
+
+SADIE II Database
+Copyright 2018, University of York
+AudioLab, Department of Electronic Engineering, University of York, United Kingdom.
+Licensed under the Apache License, Version 2.0 (see LICENSE-APACHE in this folder).
+https://www.york.ac.uk/sadie-project/database.html
+
+C. Armstrong, L. Thresh, D. Murphy, G. Kearney, "A Perceptual Evaluation of Individual and
+Non-Individual HRTFs: A Case Study of the SADIE II Database", Applied Sciences 8(11), 2029, 2018.
+https://doi.org/10.3390/app8112029

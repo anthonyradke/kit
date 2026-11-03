@@ -5,14 +5,14 @@ pub mod apo;
 mod policy;
 mod stream;
 
-pub use stream::{Capture, Render, RATE};
+pub use stream::{Capture, Format, Loopback, Render, RATE};
 
 use windows::core::PWSTR;
 use windows::Win32::Devices::FunctionDiscovery::{PKEY_DeviceInterface_FriendlyName, PKEY_Device_FriendlyName};
 use windows::Win32::Foundation::PROPERTYKEY;
 use windows::Win32::Media::Audio::Endpoints::IAudioMeterInformation;
 use windows::Win32::Media::Audio::{
-    eCapture, eCommunications, eConsole, eRender, EDataFlow, IAudioClient, IMMDevice, IMMDeviceEnumerator,
+    eCapture, eCommunications, eConsole, eMultimedia, eRender, EDataFlow, IAudioClient, IMMDevice, IMMDeviceEnumerator,
     MMDeviceEnumerator, AUDCLNT_SHAREMODE_SHARED, DEVICE_STATE_ACTIVE,
 };
 use windows::Win32::System::Com::{
@@ -139,6 +139,50 @@ pub fn default_endpoint(flow: Flow, communications: bool) -> Result<Option<Endpo
 pub fn set_default(id: &str) -> Result<()> {
     com_init();
     Ok(policy::set_default(id)?)
+}
+
+/// Make `id` the default device for apps in general (games, music, videos)
+/// but not for calls.
+pub fn set_main_default(id: &str) -> Result<()> {
+    com_init();
+    Ok(policy::set_default_roles(id, &[eConsole, eMultimedia])?)
+}
+
+/// Make `id` the default communication device only (Discord, Teams, calls).
+pub fn set_communications_default(id: &str) -> Result<()> {
+    com_init();
+    Ok(policy::set_default_roles(id, &[eCommunications])?)
+}
+
+/// The format shared-mode apps get on the endpoint `id`.
+pub fn mix_format(id: &str) -> Result<Format> {
+    let client = audio_client(id)?;
+    unsafe {
+        let mix = client.GetMixFormat()?;
+        let format = stream::read_format(mix);
+        CoTaskMemFree(Some(mix as *const _));
+        format
+    }
+}
+
+/// Speaker channel mask for 7.1 (front L/R, center, LFE, rear L/R, side L/R).
+pub const MASK_7_1: u32 = 0x63F;
+
+/// Make the output endpoint `id` a 7.1 speaker setup at 48 kHz, unless it already is.
+pub fn ensure_7_1(id: &str) -> Result<Format> {
+    let want = Format { channels: 8, rate: RATE, mask: MASK_7_1 };
+    if mix_format(id).ok() == Some(want) {
+        return Ok(want);
+    }
+    com_init();
+    policy::set_speaker_format(id, MASK_7_1, RATE)?;
+    mix_format(id)
+}
+
+/// VB-Audio Virtual Cable's speaker input, which kit's surround plays from.
+/// (The cable's 16 channel "CABLE In 16ch" input is a different endpoint.)
+pub fn find_cable() -> Result<Option<Endpoint>> {
+    Ok(endpoints(Flow::Output)?.into_iter().find(|e| e.name.starts_with("CABLE Input")))
 }
 
 /// The Nova 5's endpoints, matched by the USB device name.
