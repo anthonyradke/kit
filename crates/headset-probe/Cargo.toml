@@ -6,6 +6,19 @@ license.workspace = true
 
 [dependencies]
 arctis = { path = "../arctis" }
+kit-eq = { path = "../eq" }
 sysaudio = { path = "../sysaudio" }
 anyhow = "1"
 hidapi = "2.6"
+realfft = "3.5"
+kit-apo = { path = "../apo" }
+windows-core = "0.61"
+windows = { version = "0.61", features = [
+    "Win32_Foundation",
+    "Win32_Media_Audio",
+    "Win32_Media_Audio_Apo",
+    "Win32_Media_MediaFoundation",
+    "Win32_Media_Multimedia",
+    "Win32_System_Com",
+    "Win32_System_LibraryLoader",
+] }

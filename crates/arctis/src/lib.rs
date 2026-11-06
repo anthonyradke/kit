@@ -143,6 +143,25 @@ pub fn encode_eq(eq: &Eq) -> [u8; 6 * BANDS] {
     out
 }
 
+/// The inverse of [`encode_eq`]: the EQ the headset holds for these bytes.
+/// `decode_eq(&encode_eq(eq))` is what the headset actually applies for `eq`.
+pub fn decode_eq(bytes: &[u8]) -> Eq {
+    let mut eq = [None; BANDS];
+    for (slot, b) in eq.iter_mut().zip(bytes.as_chunks::<6>().0) {
+        let freq = u16::from_le_bytes([b[0], b[1]]);
+        if freq == FREQ_DISABLED {
+            continue;
+        }
+        *slot = Some(Band {
+            filter: Filter::from_byte(b[2]),
+            freq,
+            gain: b[3] as f32 / 2.0 + GAIN_MIN,
+            q: u16::from_le_bytes([b[4], b[5]]) as f32 / 1000.0,
+        });
+    }
+    eq
+}
+
 pub struct Headset {
     dev: HidDevice,
     pub product_id: u16,
@@ -211,20 +230,7 @@ impl Headset {
         if r.len() < 64 {
             return Err(Error::BadReply);
         }
-        let mut eq = [None; BANDS];
-        for (i, slot) in eq.iter_mut().enumerate() {
-            let b = &r[1 + 6 * i..7 + 6 * i];
-            let freq = u16::from_le_bytes([b[0], b[1]]);
-            if freq == FREQ_DISABLED {
-                continue;
-            }
-            *slot = Some(Band {
-                filter: Filter::from_byte(b[2]),
-                freq,
-                gain: b[3] as f32 / 2.0 + GAIN_MIN,
-                q: u16::from_le_bytes([b[4], b[5]]) as f32 / 1000.0,
-            });
-        }
+        let eq = decode_eq(&r[1..1 + 6 * BANDS]);
         Ok(Settings { eq, mic_volume: r[61], sidetone: r[62], volume_limiter: r[63] != 0 })
     }
 

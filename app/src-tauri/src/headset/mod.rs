@@ -1,4 +1,4 @@
-//! The SteelSeries Arctis Nova 5: onboard EQ, mic noise suppression and the default-device keeper.
+//! The SteelSeries Arctis Nova 5: EQ (onboard or in kit's APO), mic noise suppression and the default-device keeper.
 
 pub mod audio;
 pub mod config;
@@ -70,6 +70,22 @@ pub fn set_apo_installed(app: AppHandle, install: bool) -> Result<UiState, Strin
         let mic = app.state::<Shared>().core.lock().unwrap().mic.clone();
         let _ = sysaudio::apo::set_mic_settings(mic.denoise, mic.strength as u32);
     }
+    let _ = app.state::<Shared>().audio_tx.send(audio::Cmd::Refresh);
+    result.map(|()| state::ui_state(&app))
+}
+
+/// Install or remove kit's EQ on the headset output (one UAC prompt).
+#[tauri::command(async)]
+pub fn set_eq_apo_installed(app: AppHandle, install: bool) -> Result<UiState, String> {
+    let result = if install {
+        let dll = elevate::apo_dll().ok_or("kit_apo.dll is missing from the install folder.")?;
+        elevate::run_elevated(&[elevate::INSTALL_EQ_ARG, &dll.to_string_lossy()])
+    } else {
+        elevate::run_elevated(&[elevate::UNINSTALL_EQ_ARG])
+    };
+    // Installed: the EQ moves into kit and the headset's goes flat. Removed:
+    // the preset goes back onto the headset.
+    state::apply(&app);
     let _ = app.state::<Shared>().audio_tx.send(audio::Cmd::Refresh);
     result.map(|()| state::ui_state(&app))
 }

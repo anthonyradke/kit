@@ -50,6 +50,10 @@ Headset
 - A 10-band parametric EQ with a draggable curve, stored and applied on the headset itself, so it covers every app
   with no virtual audio device and keeps working when kit isn't running.
 - A bass slider that adds a low shelf on top of whichever EQ preset is active.
+- Optionally, the EQ runs in kit instead: an APO on the headset's own output runs the preset in floating point with
+  Sonar's exact filter shapes, a preamp and a limiter, and keeps the headset's EQ flat. Measured against Sonar's Game
+  device it is within 0.1 dB from 20 Hz to 20 kHz, with one output device and no virtual devices. It keeps working
+  when kit isn't running. See [docs/sonar-eq.md](docs/sonar-eq.md).
 - Optional virtual 7.1 surround in place of Sonar's spatial audio. Games play to VB-Audio's virtual cable set up as 7.1
   speakers; kit places each speaker around the listener with measured dummy-head and room responses and plays the
   result on the headset. A Room slider sets how much of the room is heard, and a speaker test plays each speaker in
@@ -111,6 +115,10 @@ flowchart LR
   Quit.
 - Headset (`crates/arctis`): the base station's vendor HID interface, the same one GG uses. Settings, including the
   EQ, are stored on the headset.
+- kit's EQ (`crates/eq`, `crates/apo`): the same DLL as noise suppression holds a second APO, installed as the endpoint
+  effect on the Nova 5's output, after Windows mixes every app. The app writes the curve to the registry and the APO
+  picks it up live. Filters are designed at twice the rate and matched at 48 kHz, which is how they come out the same
+  as Sonar's (it runs its EQ at 96 kHz).
 - Noise suppression (`crates/apo`): a Windows Audio Processing Object, a DLL the audio engine loads for the Nova 5
   microphone. The DeepFilterNet 3 model runs on its own thread next to the engine's real-time thread and adds about
   50 ms of mic latency. Installing it, or updating it after a new kit version, takes one administrator prompt; it can
@@ -143,6 +151,8 @@ cargo run -p mouse-probe -- dpi 800         # set DPI directly
 cargo run -p mouse-probe -- keyboard        # Logitech keyboard: features, lighting zones and effects
 cargo run -p headset-probe                  # headset hardware test: status, EQ, settings
 cargo run -p headset-probe -- devices       # audio endpoints and defaults
+cargo run -p headset-probe -- capture out game direct   # measure Sonar's Game path (see docs/sonar-eq.md)
+cargo run -p headset-probe -- kit-dll target/release/kit_apo.dll out   # kit's EQ DLL, offline, against that
 ```
 
 `scripts/ui-preview.sh` serves the UI in a normal browser against a fake backend (`scripts/ui-mock.js`), for UI work

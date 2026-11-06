@@ -1,0 +1,9 @@
+[package]
+name = "kit-eq"
+version = "0.1.0"
+edition.workspace = true
+license.workspace = true
+description = "kit's headphone EQ: biquad curve, preamp and limiter, for the render APO and the probe"
+
+[lib]
+name = "kit_eq"

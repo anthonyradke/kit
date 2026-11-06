@@ -119,6 +119,7 @@ fn main() {
             headset::preview_eq,
             headset::use_headset,
             headset::set_apo_installed,
+            headset::set_eq_apo_installed,
             headset::set_mic_test,
             headset::apo_log,
             headset::surround_test,

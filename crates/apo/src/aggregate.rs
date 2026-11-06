@@ -228,7 +228,7 @@ mod tests {
         let outer_ptr = &mut *outer as *mut Outer as *mut c_void;
 
         // The factory accepts aggregation only for IUnknown.
-        let factory: windows::Win32::System::Com::IClassFactory = crate::Factory.into();
+        let factory: windows::Win32::System::Com::IClassFactory = crate::Factory(crate::CLSID).into();
         let outer_unknown: IUnknown = unsafe { IUnknown::from_raw_borrowed(&outer_ptr) }.unwrap().clone();
         let refused: windows::core::Result<IAudioProcessingObject> = unsafe { factory.CreateInstance(&outer_unknown) };
         assert!(refused.is_err());
@@ -252,6 +252,28 @@ mod tests {
         let _again: IAudioProcessingObjectRT = apo.cast().unwrap();
         assert!(outer.queries.load(Ordering::Relaxed) > before);
         drop((apo, rt, _config, _effects, _again));
+        assert_eq!(outer.refs.load(Ordering::Relaxed), base);
+        drop(inner);
+        drop(outer_unknown);
+    }
+
+    #[test]
+    fn the_eq_class_aggregates_too() {
+        let mut outer = Box::new(Outer { vtbl: &OUTER_VTBL, refs: AtomicI32::new(1), queries: AtomicI32::new(0), inner: std::ptr::null_mut() });
+        let outer_ptr = &mut *outer as *mut Outer as *mut c_void;
+        let factory: windows::Win32::System::Com::IClassFactory = crate::Factory(crate::eq::CLSID).into();
+        let outer_unknown: IUnknown = unsafe { IUnknown::from_raw_borrowed(&outer_ptr) }.unwrap().clone();
+        let inner: IUnknown = unsafe { factory.CreateInstance(&outer_unknown) }.unwrap();
+        outer.inner = inner.as_raw();
+        let base = outer.refs.load(Ordering::Relaxed);
+        let apo: IAudioProcessingObject = outer_unknown.cast().unwrap();
+        let props = unsafe { &*apo.GetRegistrationProperties().unwrap() };
+        assert_eq!(props.clsid, crate::eq::CLSID);
+        let rt: IAudioProcessingObjectRT = apo.cast().unwrap();
+        assert_eq!(unsafe { rt.CalcOutputFrames(441) }, 441);
+        let _config: IAudioProcessingObjectConfiguration = rt.cast().unwrap();
+        let _effects: IAudioSystemEffects = apo.cast().unwrap();
+        drop((apo, rt, _config, _effects));
         assert_eq!(outer.refs.load(Ordering::Relaxed), base);
         drop(inner);
         drop(outer_unknown);

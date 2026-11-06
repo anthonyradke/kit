@@ -42,6 +42,24 @@ pub struct HeadsetSettings {
     pub surround: bool,
     /// Surround's Room slider, 0..=100 (`spatial::room_level`).
     pub room: u8,
+    /// Run the EQ in kit's APO on the headset's output, the way Sonar runs
+    /// it, instead of on the headset (whose own EQ is then kept flat). Only
+    /// takes effect once the APO is installed.
+    pub eq_in_kit: bool,
+    /// How kit's EQ makes room for its boosts.
+    pub preamp: Preamp,
+}
+
+/// The gain in front of kit's EQ.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub enum Preamp {
+    /// Turned down by the curve's biggest boost, so nothing is ever limited.
+    #[default]
+    Auto,
+    /// None, like Sonar: as loud as Sonar, and the limiter catches peaks
+    /// the boosts push past full scale.
+    Off,
 }
 
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
@@ -98,7 +116,18 @@ impl Default for Config {
 
 impl Default for HeadsetSettings {
     fn default() -> Self {
-        HeadsetSettings { sidetone: 1, mic_volume: 15, mic_led: 3, volume_limiter: true, auto_off: 30, bass: 0.0, surround: false, room: 50 }
+        HeadsetSettings {
+            sidetone: 1,
+            mic_volume: 15,
+            mic_led: 3,
+            volume_limiter: true,
+            auto_off: 30,
+            bass: 0.0,
+            surround: false,
+            room: 50,
+            eq_in_kit: false,
+            preamp: Preamp::Auto,
+        }
     }
 }
 
@@ -136,7 +165,7 @@ fn shelf(filter: Filter, freq: u16, gain: f32) -> Band {
 }
 
 /// Bumped whenever the built-in presets change; see `Config::upgrade_presets`.
-const SEED_VERSION: u32 = 3;
+const SEED_VERSION: u32 = 4;
 
 /// Flat, the user's Sonar preset, an everyday correction and a bass one.
 ///
@@ -167,8 +196,9 @@ fn seed_presets() -> Vec<Preset> {
                 peak(5000, 2.0, 0.707),
                 peak(8000, 3.0, 0.707),
                 peak(12000, 3.0, 0.707),
-                // Sonar's "bass boost" at 1.5.
-                shelf(Filter::LowShelf, 80, 1.5),
+                // Sonar's "bass boost" at 1.5: measured, a peak at 80 Hz with
+                // the slider's value as its gain, not a shelf.
+                peak(80, 1.5, 0.707),
             ]),
         },
         Preset {
@@ -244,6 +274,15 @@ fn past_seed_bands(id: &str) -> Vec<Vec<Band>> {
                 peak(5000, 2.0, 0.707),
                 peak(8000, 3.0, 0.707),
                 peak(12000, 2.5, 0.707),
+            ],
+            vec![
+                peak(55, 4.0, 0.707),
+                peak(100, 3.0, 0.707),
+                peak(600, 4.0, 4.0),
+                peak(5000, 2.0, 0.707),
+                peak(8000, 3.0, 0.707),
+                peak(12000, 3.0, 0.707),
+                peak(80, 1.5, 0.707),
             ],
         ],
         "balanced" => vec![vec![shelf(Filter::LowShelf, 45, 2.5), peak(85, -3.0, 1.0), peak(300, 1.5, 1.0)]],
@@ -454,6 +493,9 @@ impl Config {
     }
 }
 
+/// The headset output's rate, which kit's EQ is designed for.
+pub const EQ_RATE: f64 = 48000.0;
+
 /// Corner and slope of the bass slider's shelf. Below the headset's own
 /// 80 Hz peak, so more bass means more rumble rather than more boom.
 pub const BASS_FREQ: u16 = 60;
@@ -470,6 +512,32 @@ impl Preset {
             }
         }
         eq
+    }
+
+    /// The bands with the bass slider applied, as kit's EQ APO runs them
+    /// (in Equalizer APO's text format through `kit_eq::Curve`).
+    pub fn to_curve(&self, bass: f32, preamp: Preamp) -> kit_eq::Curve {
+        let filters = self
+            .with_bass(bass)
+            .into_iter()
+            .filter(|b| b.enabled)
+            .map(|b| {
+                let kind = match b.filter {
+                    Filter::Peaking => kit_eq::Kind::Peaking,
+                    Filter::LowShelf => kit_eq::Kind::LowShelf,
+                    Filter::HighShelf => kit_eq::Kind::HighShelf,
+                    Filter::LowPass => kit_eq::Kind::LowPass,
+                    Filter::HighPass => kit_eq::Kind::HighPass,
+                };
+                kit_eq::Filter::new(kind, b.freq as f64, b.gain as f64, b.q as f64)
+            })
+            .collect();
+        let mut curve = kit_eq::Curve { preamp_db: 0.0, filters };
+        if preamp == Preamp::Auto {
+            // The response the APO matches (see `kit_eq::Curve::design`).
+            curve.preamp_db = -curve.max_boost_db(2.0 * EQ_RATE);
+        }
+        curve
     }
 
     /// The bands with the bass slider's low shelf added. It takes a band that
@@ -646,8 +714,36 @@ mod tests {
         c.normalize();
         assert!(c.upgrade_presets());
         assert_eq!(c.presets.len(), 3);
-        assert_eq!(c.presets[1].bands, old("main", 0).bands);
+        assert_eq!(c.presets[1].bands, seed_presets()[1].bands);
         assert_eq!(c.active_preset().id, "main");
+    }
+
+    #[test]
+    fn upgrade_gives_main_sonars_bass_boost() {
+        let mut c = Config { presets: vec![old("flat", 0), old("main", 0)], active: "main".into(), seeds: 3, ..Config::default() };
+        c.normalize();
+        assert!(c.upgrade_presets());
+        assert_eq!(c.presets.len(), 2, "an untouched Main is replaced, not kept as a copy");
+        assert_eq!(c.presets[1].bands[6], peak(80, 1.5, 0.707));
+    }
+
+    #[test]
+    fn kit_curve_has_the_bands_bass_and_headroom() {
+        let c = Config::default();
+        let main = c.active_preset();
+        let curve = main.to_curve(0.0, Preamp::Auto);
+        assert_eq!(curve.filters.len(), 7);
+        // Sonar's Main peaks at +7.4 dB near 70 Hz; Auto takes exactly that off.
+        assert!((curve.preamp_db + 7.38).abs() < 0.05, "{}", curve.preamp_db);
+        assert_eq!(main.to_curve(0.0, Preamp::Off).preamp_db, 0.0);
+        // The bass slider is one more filter, and the text round-trips.
+        let with_bass = main.to_curve(2.0, Preamp::Off);
+        assert_eq!(with_bass.filters.len(), 8);
+        assert_eq!(kit_eq::Curve::parse(&with_bass.to_string()).unwrap().filters.len(), 8);
+        // Flat stays flat: no filters with gain, no preamp.
+        let flat = c.presets[0].to_curve(0.0, Preamp::Auto);
+        assert_eq!(flat.preamp_db, 0.0);
+        assert!(flat.max_boost_db(96000.0).abs() < 1e-9);
     }
 
     #[test]

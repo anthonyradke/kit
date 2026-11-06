@@ -71,13 +71,18 @@ pub fn emit_state(app: &AppHandle) {
     let _ = app.emit("headset-state", ui_state(app));
 }
 
-/// Push the desired settings to the headset and the mic APO.
-fn apply(app: &AppHandle) {
+/// Push the desired settings to the headset and kit's APOs.
+pub fn apply(app: &AppHandle) {
     let shared = app.state::<Shared>();
     let config = shared.core.lock().unwrap().clone();
-    let eq = config.active_preset().to_eq(config.headset.bass);
+    let preset = config.active_preset();
+    // With the EQ in kit, the headset's own EQ stays flat so the two never stack.
+    let in_kit = kit_eq_ready(&config);
+    let eq = if in_kit { [None; arctis::BANDS] } else { preset.to_eq(config.headset.bass) };
     let _ = shared.headset_tx.send(device::Cmd::Apply { eq, settings: config.headset.clone() });
-    // Fails harmlessly until the APO is installed (the key doesn't exist yet).
+    let curve = preset.to_curve(config.headset.bass, config.headset.preamp);
+    // Fails harmlessly until an APO is installed (the key doesn't exist yet).
+    let _ = sysaudio::apo::set_headset_eq(in_kit, &curve.to_string());
     let _ = sysaudio::apo::set_mic_settings(config.mic.denoise, config.mic.strength as u32);
     // Surround on or off moves the Windows defaults and starts or stops the stream.
     let _ = shared.audio_tx.send(audio::Cmd::Refresh);
@@ -171,14 +176,29 @@ pub fn import(app: &AppHandle, mut config: Config, replace: bool) {
     emit_state(app);
 }
 
-/// Send an EQ to the headset without saving it (live preview while dragging).
+/// Play an EQ without saving it (live preview while dragging): on the
+/// headset, or in kit's EQ when that's where the EQ runs.
 pub fn preview_eq(app: &AppHandle, bands: Vec<Band>, bass: f32) {
+    let shared = app.state::<Shared>();
+    let current = shared.core.lock().unwrap().clone();
     let preset = Preset { bands, ..Preset::default() };
     let mut config = Config { presets: vec![preset], ..Config::default() };
     config.headset.bass = bass;
     config.normalize();
-    let eq = config.presets[0].to_eq(config.headset.bass);
-    let _ = app.state::<Shared>().headset_tx.send(device::Cmd::PreviewEq(eq));
+    // The last scan's status: this runs many times a second while dragging.
+    let installed = shared.audio.lock().unwrap().eq_apo_installed;
+    if current.headset.eq_in_kit && installed {
+        let curve = config.presets[0].to_curve(config.headset.bass, current.headset.preamp);
+        let _ = sysaudio::apo::set_headset_eq(true, &curve.to_string());
+    } else {
+        let eq = config.presets[0].to_eq(config.headset.bass);
+        let _ = shared.headset_tx.send(device::Cmd::PreviewEq(eq));
+    }
+}
+
+/// The EQ runs in kit: chosen, and kit's EQ is installed on the headset.
+fn kit_eq_ready(config: &Config) -> bool {
+    config.headset.eq_in_kit && audio::eq_apo_installed()
 }
 
 /// What the tray menu shows: the active preset and every preset's name.

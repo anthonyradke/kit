@@ -1,7 +1,9 @@
-//! Installing kit's noise suppression APO on one capture endpoint.
+//! Installing kit's APOs: mic noise suppression on the headset's capture
+//! endpoint and the headset EQ on its render endpoint. Both classes live in
+//! one DLL.
 //!
-//! Everything here needs administrator rights except [`status`] and
-//! [`set_mic_settings`]. Installing:
+//! Everything here needs administrator rights except [`status`],
+//! [`set_mic_settings`] and [`set_headset_eq`]. Installing:
 //! 1. copies the DLL to `Program Files\kit` (audiodg runs as LOCAL
 //!    SERVICE and can't read a user profile),
 //! 2. registers it as a COM class and as an audio processing object,
@@ -33,8 +35,49 @@ const IID_AUDIO_PROCESSING_OBJECT: &str = "{FD7F2B29-24D0-4B5C-B177-592C39F9CA10
 /// Values we write in FxProperties, so uninstall knows what to restore.
 const TOUCHED: [&str; 3] = [EFX, EFX_COMPOSITE, EFX_MODES];
 
-fn clsid() -> String {
-    format!("{{{:?}}}", kit_apo::CLSID)
+/// One of kit's effects and the endpoint it goes on.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Effect {
+    /// On the headset's mic.
+    MicDenoise,
+    /// On the headset's output.
+    HeadsetEq,
+}
+
+impl Effect {
+    fn guid(self) -> windows::core::GUID {
+        match self {
+            Effect::MicDenoise => kit_apo::CLSID,
+            Effect::HeadsetEq => kit_apo::eq::CLSID,
+        }
+    }
+
+    fn clsid(self) -> String {
+        format!("{{{:?}}}", self.guid())
+    }
+
+    fn name(self) -> &'static str {
+        match self {
+            Effect::MicDenoise => kit_apo::FRIENDLY_NAME,
+            Effect::HeadsetEq => kit_apo::eq::FRIENDLY_NAME,
+        }
+    }
+
+    fn other(self) -> Effect {
+        match self {
+            Effect::MicDenoise => Effect::HeadsetEq,
+            Effect::HeadsetEq => Effect::MicDenoise,
+        }
+    }
+
+    /// Whether the class is registered with its DLL in place.
+    fn registered(self) -> bool {
+        let dll: Option<String> = hklm()
+            .open_subkey(format!(r"SOFTWARE\Classes\CLSID\{}\InprocServer32", self.clsid()))
+            .and_then(|k| k.get_value(""))
+            .ok();
+        dll.is_some_and(|p| Path::new(&p).exists())
+    }
 }
 
 fn hklm() -> RegKey {
@@ -72,17 +115,12 @@ pub struct Status {
     pub on_endpoint: bool,
 }
 
-pub fn status(ep: &Endpoint) -> Status {
-    let dll: Option<String> = hklm()
-        .open_subkey(format!(r"SOFTWARE\Classes\CLSID\{}\InprocServer32", clsid()))
-        .and_then(|k| k.get_value(""))
-        .ok();
-    let registered = dll.is_some_and(|p| Path::new(&p).exists());
+pub fn status(ep: &Endpoint, effect: Effect) -> Status {
     let on_endpoint = hklm()
         .open_subkey(fx_path(ep))
         .and_then(|k| k.get_value::<String, _>(EFX))
-        .is_ok_and(|v| v.eq_ignore_ascii_case(&clsid()));
-    Status { registered, on_endpoint }
+        .is_ok_and(|v| v.eq_ignore_ascii_case(&effect.clsid()));
+    Status { registered: effect.registered(), on_endpoint }
 }
 
 /// Whether the installed DLL is the one at `bundled` (the copy next to the
@@ -122,7 +160,17 @@ pub fn set_mic_settings(enabled: bool, strength_percent: u32) -> Result<()> {
     Ok(())
 }
 
-pub fn install(dll_source: &Path, ep: &Endpoint) -> Result<()> {
+/// The headset EQ the APO runs: `curve` in Equalizer APO's text format,
+/// or passthrough when `on` is false. Works unelevated once installed.
+pub fn set_headset_eq(on: bool, curve: &str) -> Result<()> {
+    let key = hklm().open_subkey_with_flags(SETTINGS_KEY, KEY_WRITE)?;
+    // The curve first, so the APO never runs the old curve after "on".
+    key.set_value("HeadsetEq", &curve)?;
+    key.set_value("HeadsetEqOn", &(on as u32))?;
+    Ok(())
+}
+
+pub fn install(dll_source: &Path, ep: &Endpoint, effect: Effect) -> Result<()> {
     let dir = install_dir();
     std::fs::create_dir_all(&dir)?;
     let data = data_dir();
@@ -131,61 +179,69 @@ pub fn install(dll_source: &Path, ep: &Endpoint) -> Result<()> {
     run("icacls", &[data.to_str().unwrap(), "/grant", "*S-1-5-19:(OI)(CI)M", "/q"])?;
     let _ = std::fs::OpenOptions::new().create(true).append(true).open(log_path());
 
-    // Only a mic that opens now says anything about the APO afterwards (it
-    // also fails when Windows' privacy settings block desktop apps).
-    let opened_before = crate::capture_opens(&ep.id).is_ok();
+    // Only an endpoint that opens now says anything about the APO afterwards
+    // (a mic also fails when Windows' privacy settings block desktop apps).
+    let opened_before = crate::stream_opens(&ep.id).is_ok();
     // The DLL may be loaded by audiodg; stop the audio service to replace it.
     restart_audio(|| {
         std::fs::copy(dll_source, dir.join(DLL_NAME))?;
-        register_com(&dir.join(DLL_NAME))?;
+        register_com(&dir.join(DLL_NAME), effect)?;
         register_settings_key()?;
-        attach(ep)?;
+        attach(ep, effect)?;
         Ok(())
     })?;
     if !opened_before {
         return Ok(());
     }
-    // A broken APO doesn't crash anything: apps just can't open the mic. Check,
-    // giving the restarted audio service a moment, and undo it if so.
+    // A broken APO doesn't crash anything: apps just can't open the device.
+    // Check, giving the restarted audio service a moment, and undo it if so.
     let mut last = Ok(());
     for _ in 0..10 {
-        last = crate::capture_opens(&ep.id);
+        last = crate::stream_opens(&ep.id);
         if last.is_ok() {
             return Ok(());
         }
         std::thread::sleep(std::time::Duration::from_millis(500));
     }
     let err = last.unwrap_err();
-    uninstall(Some(ep))?;
-    Err(Error::Msg(format!(
-        "Noise suppression stopped the mic from opening ({err}), so it was removed again. The mic works as before."
-    )))
+    uninstall(Some(ep), effect)?;
+    Err(Error::Msg(match effect {
+        Effect::MicDenoise => format!(
+            "Noise suppression stopped the mic from opening ({err}), so it was removed again. The mic works as before."
+        ),
+        Effect::HeadsetEq => format!(
+            "kit's EQ stopped the headset from playing ({err}), so it was removed again. The headset works as before."
+        ),
+    }))
 }
 
-pub fn uninstall(ep: Option<&Endpoint>) -> Result<()> {
+pub fn uninstall(ep: Option<&Endpoint>, effect: Effect) -> Result<()> {
     restart_audio(|| {
         if let Some(ep) = ep {
             detach(ep)?;
         }
         let classes = hklm().open_subkey_with_flags(r"SOFTWARE\Classes", KEY_WRITE)?;
-        let _ = classes.delete_subkey_all(format!(r"CLSID\{}", clsid()));
-        let _ = classes.delete_subkey_all(format!(r"AudioEngine\AudioProcessingObjects\{}", clsid()));
-        let _ = std::fs::remove_file(install_dir().join(DLL_NAME));
+        let _ = classes.delete_subkey_all(format!(r"CLSID\{}", effect.clsid()));
+        let _ = classes.delete_subkey_all(format!(r"AudioEngine\AudioProcessingObjects\{}", effect.clsid()));
+        // The other effect shares the DLL.
+        if !effect.other().registered() {
+            let _ = std::fs::remove_file(install_dir().join(DLL_NAME));
+        }
         Ok(())
     })
 }
 
-fn register_com(dll: &Path) -> Result<()> {
-    let id = clsid();
+fn register_com(dll: &Path, effect: Effect) -> Result<()> {
+    let id = effect.clsid();
     let (server, _) = hklm().create_subkey(format!(r"SOFTWARE\Classes\CLSID\{id}\InprocServer32"))?;
     server.set_value("", &dll.to_string_lossy().to_string())?;
     server.set_value("ThreadingModel", &"Both")?;
     let (class, _) = hklm().create_subkey(format!(r"SOFTWARE\Classes\CLSID\{id}"))?;
-    class.set_value("", &kit_apo::FRIENDLY_NAME)?;
+    class.set_value("", &effect.name())?;
 
-    let props = kit_apo::registration_properties();
+    let props = kit_apo::registration_properties(effect.guid(), effect.name());
     let (apo, _) = hklm().create_subkey(format!(r"SOFTWARE\Classes\AudioEngine\AudioProcessingObjects\{id}"))?;
-    apo.set_value("FriendlyName", &kit_apo::FRIENDLY_NAME)?;
+    apo.set_value("FriendlyName", &effect.name())?;
     apo.set_value("Copyright", &"MIT License")?;
     apo.set_value("MajorVersion", &props.u32MajorVersion)?;
     apo.set_value("MinorVersion", &props.u32MinorVersion)?;
@@ -208,6 +264,10 @@ fn register_settings_key() -> Result<()> {
     }
     if key.get_value::<u32, _>("MicStrength").is_err() {
         key.set_value("MicStrength", &90u32)?;
+    }
+    // Off until the app sends a curve.
+    if key.get_value::<u32, _>("HeadsetEqOn").is_err() {
+        key.set_value("HeadsetEqOn", &0u32)?;
     }
     // SYSTEM and admins: full. Users: read/write. LOCAL SERVICE (audiodg): read.
     set_key_sddl(&key, "D:P(A;OICI;KA;;;SY)(A;OICI;KA;;;BA)(A;OICI;KRKW;;;BU)(A;OICI;KR;;;LS)")
@@ -233,10 +293,10 @@ fn set_key_sddl(key: &RegKey, sddl: &str) -> Result<()> {
     Ok(())
 }
 
-fn attach(ep: &Endpoint) -> Result<()> {
+fn attach(ep: &Endpoint, effect: Effect) -> Result<()> {
     let fx = hklm().open_subkey_with_flags(fx_path(ep), FX_ACCESS)?;
     let (backup, _) = hklm().create_subkey(format!(r"{BACKUP_KEY}\{}", ep.guid()))?;
-    let already = status(ep).on_endpoint;
+    let already = status(ep, effect).on_endpoint;
     for name in TOUCHED {
         // Back up the original values once; reinstalling must not back up our own.
         if already {
@@ -247,8 +307,8 @@ fn attach(ep: &Endpoint) -> Result<()> {
             Err(_) => backup.set_value(name, &"<absent>")?,
         }
     }
-    fx.set_value(EFX, &clsid())?;
-    fx.set_value(EFX_COMPOSITE, &vec![clsid()])?;
+    fx.set_value(EFX, &effect.clsid())?;
+    fx.set_value(EFX_COMPOSITE, &vec![effect.clsid()])?;
     fx.set_value(EFX_MODES, &vec![MODE_DEFAULT.to_string()])?;
     Ok(())
 }

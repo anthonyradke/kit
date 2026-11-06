@@ -1692,7 +1692,12 @@ dependencies = [
  "anyhow",
  "arctis",
  "hidapi",
+ "kit-apo",
+ "kit-eq",
+ "realfft",
  "sysaudio",
+ "windows",
+ "windows-core 0.61.2",
 ]
 
 [[package]]
@@ -2266,6 +2271,7 @@ version = "0.7.0"
 dependencies = [
  "arctis",
  "hidpp",
+ "kit-eq",
  "rfd",
  "serde",
  "serde_json",
@@ -2287,6 +2293,7 @@ name = "kit-apo"
 version = "0.1.0"
 dependencies = [
  "deep_filter",
+ "kit-eq",
  "ndarray",
  "rtrb",
  "tract-core",
@@ -2296,6 +2303,10 @@ dependencies = [
  "windows",
  "windows-core 0.61.2",
 ]
+
+[[package]]
+name = "kit-eq"
+version = "0.1.0"
 
 [[package]]
 name = "kstring"

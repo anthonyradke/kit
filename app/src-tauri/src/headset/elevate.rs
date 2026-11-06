@@ -1,4 +1,4 @@
-//! Installing the mic APO needs administrator rights. The app re-runs its own
+//! Installing kit's APOs (mic noise suppression, the headset EQ) needs administrator rights. The app re-runs its own
 //! exe elevated (one UAC prompt) with a helper flag; that process does the
 //! work without starting the UI and reports back through a result file.
 
@@ -12,6 +12,8 @@ use windows::Win32::UI::WindowsAndMessaging::SW_HIDE;
 
 pub const INSTALL_ARG: &str = "--install-apo";
 pub const UNINSTALL_ARG: &str = "--uninstall-apo";
+pub const INSTALL_EQ_ARG: &str = "--install-eq-apo";
+pub const UNINSTALL_EQ_ARG: &str = "--uninstall-eq-apo";
 const RESULT_ARG: &str = "--result";
 
 /// The DLL ships next to the exe (installer resources, or the cargo target dir in development).
@@ -73,7 +75,7 @@ fn quote(s: &str) -> String {
 /// `None` when the arguments aren't a helper invocation.
 pub fn helper_main(args: &[String]) -> Option<i32> {
     let action = args.get(1)?.as_str();
-    if action != INSTALL_ARG && action != UNINSTALL_ARG {
+    if ![INSTALL_ARG, UNINSTALL_ARG, INSTALL_EQ_ARG, UNINSTALL_EQ_ARG].contains(&action) {
         return None;
     }
     let result_file = args.iter().position(|a| a == RESULT_ARG).and_then(|i| args.get(i + 1)).map(PathBuf::from);
@@ -91,13 +93,19 @@ pub fn helper_main(args: &[String]) -> Option<i32> {
 }
 
 fn run_helper(action: &str, dll: Option<&Path>) -> Result<(), String> {
+    use sysaudio::apo::Effect;
     sysaudio::com_init();
-    let mic = sysaudio::find_arctis(sysaudio::Flow::Input).map_err(|e| e.to_string())?;
-    if action == INSTALL_ARG {
-        let dll = dll.ok_or("missing DLL path")?;
-        let mic = mic.ok_or("The Arctis Nova 5 microphone isn't connected. Plug in the base station and try again.")?;
-        sysaudio::apo::install(dll, &mic).map_err(|e| e.to_string())
+    let (effect, flow, missing) = if action == INSTALL_EQ_ARG || action == UNINSTALL_EQ_ARG {
+        (Effect::HeadsetEq, sysaudio::Flow::Output, "The Arctis Nova 5 isn't connected. Plug in the base station and try again.")
     } else {
-        sysaudio::apo::uninstall(mic.as_ref()).map_err(|e| e.to_string())
+        (Effect::MicDenoise, sysaudio::Flow::Input, "The Arctis Nova 5 microphone isn't connected. Plug in the base station and try again.")
+    };
+    let ep = sysaudio::find_arctis(flow).map_err(|e| e.to_string())?;
+    if action == INSTALL_ARG || action == INSTALL_EQ_ARG {
+        let dll = dll.ok_or("missing DLL path")?;
+        let ep = ep.ok_or(missing)?;
+        sysaudio::apo::install(dll, &ep, effect).map_err(|e| e.to_string())
+    } else {
+        sysaudio::apo::uninstall(ep.as_ref(), effect).map_err(|e| e.to_string())
     }
 }

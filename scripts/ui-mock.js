@@ -7,6 +7,8 @@
   const fw = q.get("fw") || "old";
   // Surround: on (7.1 playing), stereo, off, nocable (VB-CABLE missing), error.
   const sur = q.get("surround") || "on";
+  // kit's EQ: on (installed and running), installed (switched off), none (not installed).
+  const keq = q.get("kiteq") || "none";
   const id = () => Math.random().toString(16).slice(2, 10);
   const key = (name, scan, ext = false) => ({ vk: 0, scan, ext, name });
   const M = {
@@ -31,9 +33,9 @@
   };
   const bands = [32, 64, 125, 250, 500, 1000, 2000, 4000, 8000, 16000].map((freq, i) => ({ enabled: true, filter: "peaking", freq, gain: [3, 2, 0, -1, 0, 0, 1, 2, 1, 0][i], q: 1.414 }));
   const H = {
-    config: { presets: [{ id: "h1", name: "Main", bands }, { id: "h2", name: "Footsteps", bands }], active: "h1", headset: { sidetone: 1, micVolume: 15, micLed: 3, volumeLimiter: true, autoOff: 30, bass: 0, surround: sur !== "off" && sur !== "nocable", room: 50 }, mic: { denoise: true, strength: 90 }, keepDefault: true },
+    config: { presets: [{ id: "h1", name: "Main", bands }, { id: "h2", name: "Footsteps", bands }], active: "h1", headset: { sidetone: 1, micVolume: 15, micLed: 3, volumeLimiter: true, autoOff: 30, bass: 0, surround: sur !== "off" && sur !== "nocable", room: 50, eqInKit: keq === "on", preamp: "auto" }, mic: { denoise: true, strength: 90 }, keepDefault: true },
     headset: { present: true, connected: true, battery: 64, charging: false, error: null },
-    audio: { output: "Headphones (Arctis Nova 5)", input: "Headset Microphone (Arctis Nova 5)", defaultOutput: "Headphones (Arctis Nova 5)", defaultInput: "Headset Microphone (Arctis Nova 5)", headsetIsDefault: true, apoInstalled: true, apoOutdated: false, error: null },
+    audio: { output: "Headphones (Arctis Nova 5)", input: "Headset Microphone (Arctis Nova 5)", defaultOutput: "Headphones (Arctis Nova 5)", defaultInput: "Headset Microphone (Arctis Nova 5)", headsetIsDefault: true, apoInstalled: true, apoOutdated: false, eqApoInstalled: keq !== "none", eqApoOutdated: false, error: null },
     surround: {
       cable: sur !== "nocable",
       running: sur === "on" || sur === "stereo",
@@ -112,6 +114,7 @@
   };
   const handlers = {
     set_mic_test: setMicTest,
+    set_eq_apo_installed: ({ install }) => ((H.audio.eqApoInstalled = install), (H.config.headset.eqInKit = install), H),
     mouse_state: () => M, headset_state: () => H, keyboard_state: () => K, app_config: () => A,
     get_autostart: () => false, set_autostart: ({ enabled }) => enabled,
     update_state: () => ({ current: "0.3.0", available: null, notes: null, checking: false, checked: true, progress: null, error: null }),
