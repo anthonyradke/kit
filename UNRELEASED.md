@@ -4,7 +4,3 @@ Changes since the last release. Each fix or feature adds a line here; `scripts/r
 this list into the release notes and empties it for the next batch. The notes show as a list in
 Settings, so keep each line to one short sentence about what changed for the user.
 
-- The Main headset preset is back to the Sonar curve it came from, with its fuller 50-160 Hz bass.
-- The EQ can run in kit instead of on the headset, sounding the same as Sonar did, with a preamp and a limiter (Sound page, Run in kit).
-- The Main preset's bass boost is now a peak at 80 Hz, the way Sonar applies it, instead of a low shelf.
-- Virtual 7.1 surround for games on the new Surround page, with a Room slider and a speaker test (needs VB-CABLE).
