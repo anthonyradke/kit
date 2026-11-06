@@ -132,21 +132,38 @@ fn apply(eps: &Endpoints) -> Option<String> {
     error
 }
 
+/// Run `f` on a thread of its own in the multithreaded apartment. These are
+/// called from the main thread, which must stay free for the window's
+/// single-threaded COM: joining the MTA there first makes the window's
+/// OleInitialize fail, and kit panics at startup.
+fn in_mta<T: Send>(f: impl FnOnce() -> T + Send) -> T {
+    std::thread::scope(|s| {
+        s.spawn(|| {
+            sysaudio::com_init();
+            f()
+        })
+        .join()
+        .expect("audio endpoint lookup panicked")
+    })
+}
+
 /// kit's EQ is installed on the headset's output (looked up now, not from
 /// the last scan, so the first settings pushed at startup are right).
 pub fn eq_apo_installed() -> bool {
-    sysaudio::com_init();
-    let Ok(Some(out)) = sysaudio::find_arctis(Flow::Output) else { return false };
-    let s = sysaudio::apo::status(&out, sysaudio::apo::Effect::HeadsetEq);
-    s.registered && s.on_endpoint
+    in_mta(|| {
+        let Ok(Some(out)) = sysaudio::find_arctis(Flow::Output) else { return false };
+        let s = sysaudio::apo::status(&out, sysaudio::apo::Effect::HeadsetEq);
+        s.registered && s.on_endpoint
+    })
 }
 
 /// Put the headset back as the default for everything (quitting with surround on).
 pub fn restore_headset() {
-    sysaudio::com_init();
-    if let Ok(Some(out)) = sysaudio::find_arctis(Flow::Output) {
-        let _ = sysaudio::set_default(&out.id);
-    }
+    in_mta(|| {
+        if let Ok(Some(out)) = sysaudio::find_arctis(Flow::Output) {
+            let _ = sysaudio::set_default(&out.id);
+        }
+    })
 }
 
 fn describe(eps: Endpoints, error: Option<String>) -> Status {
