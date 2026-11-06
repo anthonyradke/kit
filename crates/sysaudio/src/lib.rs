@@ -10,7 +10,7 @@ pub use stream::{Capture, Format, Loopback, Render, RATE};
 use windows::core::PWSTR;
 use windows::Win32::Devices::FunctionDiscovery::{PKEY_DeviceInterface_FriendlyName, PKEY_Device_FriendlyName};
 use windows::Win32::Foundation::PROPERTYKEY;
-use windows::Win32::Media::Audio::Endpoints::IAudioMeterInformation;
+use windows::Win32::Media::Audio::Endpoints::{IAudioEndpointVolume, IAudioMeterInformation};
 use windows::Win32::Media::Audio::{
     eCapture, eCommunications, eConsole, eMultimedia, eRender, EDataFlow, IAudioClient, IMMDevice, IMMDeviceEnumerator,
     MMDeviceEnumerator, AUDCLNT_SHAREMODE_SHARED, DEVICE_STATE_ACTIVE,
@@ -200,9 +200,10 @@ fn audio_client(id: &str) -> Result<IAudioClient> {
     }
 }
 
-/// Open a shared-mode capture stream on the endpoint `id` and run it
-/// briefly, the way any app opening the mic would.
-pub fn capture_opens(id: &str) -> Result<()> {
+/// Open a shared-mode stream on the endpoint `id` (capture or render, as
+/// the endpoint is) and run it briefly, the way any app would. A broken
+/// effect on the endpoint makes this fail.
+pub fn stream_opens(id: &str) -> Result<()> {
     let client = audio_client(id)?;
     unsafe {
         let format = client.GetMixFormat()?;
@@ -215,6 +216,69 @@ pub fn capture_opens(id: &str) -> Result<()> {
         client.Stop()?;
     }
     Ok(())
+}
+
+/// [`stream_opens`] for a mic.
+pub fn capture_opens(id: &str) -> Result<()> {
+    stream_opens(id)
+}
+
+/// An endpoint's own volume slider: (level in dB, muted). Loopback records
+/// before it, but a virtual device like Sonar's may apply it to what it
+/// forwards.
+pub fn endpoint_volume(id: &str) -> Result<(f32, bool)> {
+    let vol = volume_control(id)?;
+    unsafe { Ok((vol.GetMasterVolumeLevel()?, vol.GetMute()?.as_bool())) }
+}
+
+/// One app's audio session on an endpoint, as the volume mixer lists it.
+#[derive(Debug, Clone)]
+pub struct Session {
+    pub pid: u32,
+    pub volume: f32,
+    pub muted: bool,
+    pub active: bool,
+}
+
+/// The audio sessions on the endpoint `id`.
+pub fn sessions(id: &str) -> Result<Vec<Session>> {
+    use windows::core::Interface;
+    use windows::Win32::Media::Audio::{IAudioSessionControl2, IAudioSessionManager2, ISimpleAudioVolume, AudioSessionStateActive};
+    let e = enumerator()?;
+    let wide: Vec<u16> = id.encode_utf16().chain(Some(0)).collect();
+    let mut out = Vec::new();
+    unsafe {
+        let dev = e.GetDevice(windows::core::PCWSTR(wide.as_ptr()))?;
+        let mgr: IAudioSessionManager2 = dev.Activate(CLSCTX_ALL, None)?;
+        let list = mgr.GetSessionEnumerator()?;
+        for i in 0..list.GetCount()? {
+            let ctl = list.GetSession(i)?;
+            let ctl2: IAudioSessionControl2 = ctl.cast()?;
+            let vol: ISimpleAudioVolume = ctl.cast()?;
+            out.push(Session {
+                pid: ctl2.GetProcessId().unwrap_or(0),
+                volume: vol.GetMasterVolume()?,
+                muted: vol.GetMute()?.as_bool(),
+                active: ctl.GetState()? == AudioSessionStateActive,
+            });
+        }
+    }
+    Ok(out)
+}
+
+/// Mute or unmute the endpoint `id`, as its speaker icon would.
+pub fn set_endpoint_mute(id: &str, mute: bool) -> Result<()> {
+    let vol = volume_control(id)?;
+    unsafe { Ok(vol.SetMute(mute, std::ptr::null())?) }
+}
+
+fn volume_control(id: &str) -> Result<IAudioEndpointVolume> {
+    let e = enumerator()?;
+    let wide: Vec<u16> = id.encode_utf16().chain(Some(0)).collect();
+    unsafe {
+        let dev = e.GetDevice(windows::core::PCWSTR(wide.as_ptr()))?;
+        Ok(dev.Activate(CLSCTX_ALL, None)?)
+    }
 }
 
 /// How loud the default output device is playing, for lighting that follows

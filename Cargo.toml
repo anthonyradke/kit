@@ -5,6 +5,7 @@ members = [
     "crates/mouse-probe",
     "crates/arctis",
     "crates/apo",
+    "crates/eq",
     "crates/sysaudio",
     "crates/headset-probe",
     "crates/via",
@@ -89,6 +90,10 @@ opt-level = 3
 debug-assertions = false
 overflow-checks = false
 [profile.dev.package.miniz_oxide]
+opt-level = 3
+debug-assertions = false
+overflow-checks = false
+[profile.dev.package.kit-eq]
 opt-level = 3
 debug-assertions = false
 overflow-checks = false

@@ -1,5 +1,5 @@
 "use strict";
-// Headset pages: Sound (onboard EQ presets), Mic (noise suppression and mic settings), Device.
+// Headset pages: Sound (EQ presets, on the headset or in kit), Mic (noise suppression and mic settings), Device.
 
 const GAIN_MAX = 10;
 const Q_MIN = 0.2;
@@ -28,6 +28,11 @@ const hv = { band: 0, log: null };
 let installing = false;
 // Why the last install or removal failed, shown on the Mic page until the next try.
 let apoError = null;
+let eqInstalling = false;
+let eqError = null; // the same for kit's EQ, on the Sound page
+// The rate the graph's filters are computed at: the headset's, or twice it
+// for kit's EQ, which matches filters designed at 96 kHz the way Sonar runs them.
+let eqRate = SAMPLE_RATE;
 let drag = null; // { i, rect } while a graph node is dragged
 let graphSize = { w: 0, h: 0 };
 // The Mic page's test, pushed by mic_test.rs: { mode, position, live, sample, error }.
@@ -42,6 +47,8 @@ const roundGain = (g) => Math.round(clamp(g, -GAIN_MAX, GAIN_MAX) * 2) / 2;
 const roundQ = (q) => Math.round(clamp(q, Q_MIN, Q_MAX) * 1000) / 1000;
 const roundFreq = (f) => Math.round(clamp(f, F_MIN, F_MAX));
 const hasGain = (b) => b.filter === "peaking" || b.filter === "lowShelf" || b.filter === "highShelf";
+// The EQ runs in kit's APO (chosen and installed) rather than on the headset.
+const eqInKit = () => hcfg().headset.eqInKit && H.audio.eqApoInstalled;
 
 const headsetSaver = makeSaver("headset_save", hcfg, (st) => {
   H.headset = st.headset;
@@ -107,10 +114,11 @@ function statusCellH(key) {
 }
 
 // ---------- EQ math ----------
-// RBJ audio-EQ-cookbook biquads, the same filter shapes the headset uses.
+// RBJ audio-EQ-cookbook biquads, the same filter shapes the headset uses,
+// at `eqRate`.
 
 function coeffs(b) {
-  const w = (2 * Math.PI * b.freq) / SAMPLE_RATE;
+  const w = (2 * Math.PI * b.freq) / eqRate;
   const cos = Math.cos(w);
   const alpha = Math.sin(w) / (2 * b.q);
   const A = Math.pow(10, b.gain / 40);
@@ -133,7 +141,7 @@ function coeffs(b) {
 
 // Response of one band in dB at frequency f.
 function bandDb(c, f) {
-  const w = (2 * Math.PI * f) / SAMPLE_RATE;
+  const w = (2 * Math.PI * f) / eqRate;
   const c1 = Math.cos(w), s1 = Math.sin(w), c2 = Math.cos(2 * w), s2 = Math.sin(2 * w);
   const [b0, b1, b2, a0, a1, a2] = c;
   const nr = b0 + b1 * c1 + b2 * c2, ni = -(b1 * s1 + b2 * s2);
@@ -157,6 +165,18 @@ function withBass(bands, bass) {
   return out;
 }
 
+// The biggest boost of the bands the EQ plays, in dB (0 if they only cut):
+// what kit's Auto preamp takes off. Mirrors `Preset::to_curve`.
+function maxBoost(p) {
+  const heard = withBass(p.bands, hcfg().headset.bass).filter((b) => b.enabled).map(coeffs);
+  let max = 0;
+  for (let k = 0; k <= 400; k++) {
+    const f = 20 * Math.pow(1000, k / 400);
+    max = Math.max(max, heard.reduce((s, c) => s + bandDb(c, f), 0));
+  }
+  return max;
+}
+
 // False when the preset uses every band and has no low shelf to add bass to.
 const bassFits = (p) => p.bands.some((b) => !b.enabled || (b.gain === 0 && hasGain(b)) || b.filter === "lowShelf");
 
@@ -177,6 +197,7 @@ const GRAPH = { L: 38, R: 14, T: 12, B: 26 };
 function graphSvg(p) {
   const { w: W, h: Ht } = graphSize;
   if (!W || !Ht) return "";
+  eqRate = eqInKit() ? 2 * SAMPLE_RATE : SAMPLE_RATE;
   const { L, R, T, B } = GRAPH;
   const lf0 = Math.log10(F_MIN), lf1 = Math.log10(F_MAX);
   const x = (f) => L + ((Math.log10(f) - lf0) / (lf1 - lf0)) * (W - L - R);
@@ -257,7 +278,7 @@ function soundPage() {
         <div class="canvas-head">
           <input class="pname" data-field="preset-name" value="${esc(p.name)}" spellcheck="false" maxlength="40" aria-label="Preset name" />
           <div class="pactions">
-            ${h.connected ? `<span class="live-mark" title="The EQ runs on the headset itself">On headset</span>` : `<span class="off-mark" title="The headset uses it as soon as it turns on">Saved on headset</span>`}
+            ${eqInKit() ? `<span class="live-mark" title="kit's EQ runs on the headset's output inside Windows">In kit</span>` : h.connected ? `<span class="live-mark" title="The EQ runs on the headset itself">On headset</span>` : `<span class="off-mark" title="The headset uses it as soon as it turns on">Saved on headset</span>`}
             <button class="tbtn" data-act="preset-duplicate">${icons.copy}Duplicate</button>
             <button class="tbtn ${deleting ? "confirm" : "danger"}" data-act="preset-delete" ${lastPreset ? "disabled" : ""}>${icons.trash}${deleting ? "Confirm delete" : "Delete"}</button>
           </div>
@@ -288,13 +309,57 @@ function soundPage() {
           <div class="scale"><span>Less</span><span>More</span></div>
           <p class="hint">${bassFits(p) ? `A low shelf below ${BASS_FREQ} Hz added on top of the preset.` : "This preset uses all 10 bands and has no low shelf, so the bass slider can't apply. Turn a band off to make room."}</p>
         </section>
+        ${eqEngineSection(p)}
         <section class="sec">
           <button class="tbtn" data-act="band-reset">${icons.reset}Flatten band ${hv.band + 1}</button>
-          <p class="hint">The EQ runs on the headset itself (10 bands, ±10 dB), so it applies to everything you hear, even when kit isn't running.</p>
+          <p class="hint">${eqInKit()
+            ? "kit's EQ runs inside Windows on the headset's output, after every app is mixed, so it applies to everything you hear, even when kit isn't running. The headset's own EQ is kept flat."
+            : "The EQ runs on the headset itself (10 bands, ±10 dB), so it applies to everything you hear, even when kit isn't running."}</p>
         </section>
       </aside>
     </div>
   </div>`;
+}
+
+// Where the EQ runs: on the headset, or in kit's APO the way Sonar ran it.
+function eqEngineSection(p) {
+  const h = hcfg().headset;
+  const a = H.audio;
+  const inKit = eqInKit();
+  let status;
+  if (eqInstalling) {
+    status = `<div class="state-line"><span class="off-mark">Installing… approve the Windows prompt.</span></div>`;
+  } else if (!a.output) {
+    status = `<div class="state-line warn">The Arctis Nova 5 isn't connected.</div>`;
+  } else if (a.eqApoInstalled && a.eqApoOutdated) {
+    status = `<div class="state-line warn"><span class="grow">This version of kit has a newer EQ. Windows asks for permission once to update it.</span>
+      <button class="btn" data-act="eq-install">${icons.shield}Update</button></div>`;
+  } else if (a.eqApoInstalled) {
+    status = `<div class="state-line">${inKit ? `<span class="live-mark">Active on ${esc(a.output)}</span>` : `<span class="off-mark">Installed, switched off</span>`}
+      <span class="grow"></span><button class="tbtn danger" data-act="eq-uninstall">Remove</button></div>`;
+  } else {
+    status = `<div class="state-line warn"><span class="grow">Not installed yet. Windows asks for permission once.</span>
+      <button class="btn" data-act="eq-install">${icons.shield}Install</button></div>`;
+  }
+  if (eqError && !eqInstalling) status += `<div class="state-line bad">${esc(eqError)}</div>`;
+  eqRate = 2 * SAMPLE_RATE;
+  const boost = maxBoost(p);
+  eqRate = inKit ? 2 * SAMPLE_RATE : SAMPLE_RATE;
+  const preamp = inKit
+    ? `<div class="row"><div class="rtitle">Preamp</div>
+        <div class="seg"><button class="${h.preamp === "auto" ? "on" : ""}" data-act="preamp" data-v="auto">Auto ${boost > 0.05 ? `−${boost.toFixed(1)} dB` : "0 dB"}</button><button class="${h.preamp === "off" ? "on" : ""}" data-act="preamp" data-v="off">Off, like Sonar</button></div></div>
+      <p class="hint">${h.preamp === "auto"
+        ? "Turned down by the curve's biggest boost so loud music never reaches the limiter. Turn the volume up to make up for it."
+        : "As loud as Sonar was. Boosts can push loud music past full scale; kit's limiter turns those peaks down instead of letting them clip."}</p>`
+    : "";
+  return `<section class="sec">
+    <div class="sec-head"><span class="sec-title">Run in kit<small>as Sonar did</small></span>
+      <label class="switch" ${a.eqApoInstalled ? "" : 'title="Install kit\'s EQ first"'}><input type="checkbox" data-field="eqInKit" ${inKit ? "checked" : ""} ${a.eqApoInstalled ? "" : "disabled"} aria-label="Run the EQ in kit" /><span></span></label>
+    </div>
+    <p class="hint">Runs the EQ in Windows on the headset's output in floating point, with Sonar's exact filter shapes (as computed at 96 kHz), a preamp and a limiter, instead of on the headset. Quit Sonar first, or its EQ adds to this one.</p>
+    ${status}
+    ${preamp}
+  </section>`;
 }
 
 // The graph is drawn in real pixels, so re-render when its box changes size.
@@ -578,6 +643,30 @@ async function setApo(install) {
   }
 }
 
+// Installing kit's EQ also switches it on; removing it puts the EQ back on the headset.
+async function setEqApo(install) {
+  hcfg().headset.eqInKit = install;
+  await headsetSaver.flush();
+  eqInstalling = true;
+  eqError = null;
+  render();
+  try {
+    H = await invoke("set_eq_apo_installed", { install });
+    toast(install ? "kit's EQ installed" : "kit's EQ removed; the EQ is back on the headset");
+  } catch (err) {
+    eqError = String(err);
+    H = await invoke("headset_state");
+    // Not installed after all: don't leave it to switch itself on later.
+    if (install && !H.audio.eqApoInstalled) {
+      hcfg().headset.eqInKit = false;
+      headsetSaver.save(0);
+    }
+  } finally {
+    eqInstalling = false;
+    render();
+  }
+}
+
 // Pending edits go first, so a sample is labelled with the strength it was recorded at.
 async function setMicTest(mode) {
   micWanted = mode;
@@ -688,6 +777,17 @@ Object.assign(handlers, {
   "apo-install"() {
     setApo(true);
   },
+  "eq-install"() {
+    setEqApo(true);
+  },
+  "eq-uninstall"() {
+    setEqApo(false);
+  },
+  preamp(el) {
+    hcfg().headset.preamp = el.dataset.v;
+    headsetSaver.save(0);
+    render();
+  },
   "apo-uninstall"() {
     setApo(false);
   },
@@ -777,6 +877,11 @@ Object.assign(changeFields, {
   },
   volumeLimiter(el) {
     hcfg().headset.volumeLimiter = el.checked;
+    headsetSaver.save(0);
+    render();
+  },
+  eqInKit(el) {
+    hcfg().headset.eqInKit = el.checked;
     headsetSaver.save(0);
     render();
   },

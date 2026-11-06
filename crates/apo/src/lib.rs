@@ -1,4 +1,6 @@
-//! kit's mic noise suppression, as a Windows Audio Processing Object.
+//! kit's Windows Audio Processing Objects: mic noise suppression on the
+//! headset's mic (this file) and the headset EQ on its output (`eq`). One
+//! DLL holds both classes.
 //!
 //! The audio engine (audiodg.exe) loads this DLL for the endpoints whose
 //! FxProperties list our CLSID, and calls `APOProcess` on its real-time
@@ -16,6 +18,7 @@
 
 mod aggregate;
 pub mod denoise;
+pub mod eq;
 pub mod settings;
 
 use std::ffi::c_void;
@@ -48,7 +51,7 @@ static LOGGED_FORMAT_REJECT: AtomicBool = AtomicBool::new(false);
 static FAILED: AtomicBool = AtomicBool::new(false);
 
 /// Best-effort diagnostics. Never called from `APOProcess`.
-fn log(msg: &str) {
+pub(crate) fn log(msg: &str) {
     let Ok(mut f) = std::fs::OpenOptions::new().append(true).open(LOG_PATH) else { return };
     if f.metadata().map(|m| m.len() > 256 * 1024).unwrap_or(false) {
         return;
@@ -90,14 +93,14 @@ impl Drop for Apo {
     }
 }
 
-fn format_of(t: &IAudioMediaType) -> windows::core::Result<UNCOMPRESSEDAUDIOFORMAT> {
+pub(crate) fn format_of(t: &IAudioMediaType) -> windows::core::Result<UNCOMPRESSEDAUDIOFORMAT> {
     let mut f = UNCOMPRESSEDAUDIOFORMAT::default();
     unsafe { t.GetUncompressedAudioFormat(&mut f)? };
     Ok(f)
 }
 
 /// We process 32-bit float only, with the same layout on both sides.
-fn check_format(opposite: Ref<'_, IAudioMediaType>, requested: Ref<'_, IAudioMediaType>) -> windows::core::Result<IAudioMediaType> {
+pub(crate) fn check_format(opposite: Ref<'_, IAudioMediaType>, requested: Ref<'_, IAudioMediaType>) -> windows::core::Result<IAudioMediaType> {
     let requested = requested.ok().map_err(|_| windows::core::Error::from(E_POINTER))?;
     let req = format_of(requested)?;
     let mut ok = req.guidFormatType == KSDATAFORMAT_SUBTYPE_IEEE_FLOAT && req.dwBytesPerSampleContainer == 4;
@@ -138,7 +141,7 @@ impl IAudioProcessingObject_Impl for Apo_Impl {
             if p.is_null() {
                 return Err(windows::Win32::Foundation::E_OUTOFMEMORY.into());
             }
-            p.write(registration_properties());
+            p.write(registration_properties(CLSID, FRIENDLY_NAME));
             Ok(p)
         }
     }
@@ -313,7 +316,7 @@ impl Apo {
     }
 }
 
-fn passthrough(input: &APO_CONNECTION_PROPERTY, output: &mut APO_CONNECTION_PROPERTY, len: usize) {
+pub(crate) fn passthrough(input: &APO_CONNECTION_PROPERTY, output: &mut APO_CONNECTION_PROPERTY, len: usize) {
     if output.pBuffer == input.pBuffer || len == 0 {
         return;
     }
@@ -327,9 +330,11 @@ fn passthrough(input: &APO_CONNECTION_PROPERTY, output: &mut APO_CONNECTION_PROP
 
 impl IAudioSystemEffects_Impl for Apo_Impl {}
 
-pub fn registration_properties() -> APO_REG_PROPERTIES {
+/// What the class `clsid` tells the audio engine about itself; the installer
+/// writes the same values to the registry.
+pub fn registration_properties(clsid: GUID, friendly_name: &str) -> APO_REG_PROPERTIES {
     let mut p = APO_REG_PROPERTIES {
-        clsid: CLSID,
+        clsid,
         Flags: APO_FLAG_DEFAULT,
         u32MajorVersion: 1,
         u32MinorVersion: 0,
@@ -342,7 +347,7 @@ pub fn registration_properties() -> APO_REG_PROPERTIES {
         iidAPOInterfaceList: [IAudioProcessingObject::IID],
         ..Default::default()
     };
-    copy_wide(&mut p.szFriendlyName, FRIENDLY_NAME);
+    copy_wide(&mut p.szFriendlyName, friendly_name);
     copy_wide(&mut p.szCopyrightInfo, COPYRIGHT);
     p
 }
@@ -354,8 +359,9 @@ fn copy_wide(dst: &mut [u16], s: &str) {
     }
 }
 
+/// Makes the class with this CLSID: [`CLSID`] or [`eq::CLSID`].
 #[implement(IClassFactory)]
-struct Factory;
+struct Factory(GUID);
 
 impl IClassFactory_Impl for Factory_Impl {
     fn CreateInstance(
@@ -368,7 +374,7 @@ impl IClassFactory_Impl for Factory_Impl {
             return Err(E_POINTER.into());
         }
         unsafe { *ppvobject = std::ptr::null_mut() };
-        let unknown: IUnknown = Apo::new().into();
+        let unknown: IUnknown = if self.0 == eq::CLSID { eq::EqApo::new().into() } else { Apo::new().into() };
         let Some(outer) = punkouter.as_ref() else {
             return unsafe { unknown.query(&*riid, ppvobject).ok() };
         };
@@ -393,10 +399,10 @@ extern "system" fn DllGetClassObject(rclsid: *const GUID, riid: *const GUID, ppv
     }
     unsafe {
         *ppv = std::ptr::null_mut();
-        if *rclsid != CLSID {
+        if *rclsid != CLSID && *rclsid != eq::CLSID {
             return CLASS_E_CLASSNOTAVAILABLE;
         }
-        let factory: IClassFactory = Factory.into();
+        let factory: IClassFactory = Factory(*rclsid).into();
         factory.query(&*riid, ppv)
     }
 }

@@ -5,6 +5,7 @@
 #   &fw=old|kit|restore (NK65: stock firmware, kit's firmware, kit's just flashed)
 #   &micerror=1 (the mic test fails to start)
 #   &surround=on|stereo|off|nocable|error (virtual surround states)
+#   &kiteq=on|installed|none (kit's EQ on the headset output: running, switched off, not installed)
 #   &import=tkl (the settings file to import is from another keyboard)
 set -e
 here=$(cd "$(dirname "$0")" && pwd)

@@ -42,6 +42,9 @@ pub struct Status {
     pub apo_installed: bool,
     /// Installed, but an older DLL than the one this version of kit ships.
     pub apo_outdated: bool,
+    /// kit's EQ APO installed on the headset output.
+    pub eq_apo_installed: bool,
+    pub eq_apo_outdated: bool,
     pub error: Option<String>,
 }
 
@@ -129,6 +132,15 @@ fn apply(eps: &Endpoints) -> Option<String> {
     error
 }
 
+/// kit's EQ is installed on the headset's output (looked up now, not from
+/// the last scan, so the first settings pushed at startup are right).
+pub fn eq_apo_installed() -> bool {
+    sysaudio::com_init();
+    let Ok(Some(out)) = sysaudio::find_arctis(Flow::Output) else { return false };
+    let s = sysaudio::apo::status(&out, sysaudio::apo::Effect::HeadsetEq);
+    s.registered && s.on_endpoint
+}
+
 /// Put the headset back as the default for everything (quitting with surround on).
 pub fn restore_headset() {
     sysaudio::com_init();
@@ -150,13 +162,20 @@ fn describe(eps: Endpoints, error: Option<String>) -> Status {
         && is(&out, &out_comm)
         && is(&inp, &in_def)
         && is(&inp, &in_comm);
-    let apo_installed = inp.as_ref().is_some_and(|ep| {
-        let s = sysaudio::apo::status(ep);
-        s.registered && s.on_endpoint
-    });
+    let installed = |ep: &Option<Endpoint>, effect| {
+        ep.as_ref().is_some_and(|ep| {
+            let s = sysaudio::apo::status(ep, effect);
+            s.registered && s.on_endpoint
+        })
+    };
+    let apo_installed = installed(&inp, sysaudio::apo::Effect::MicDenoise);
+    let eq_apo_installed = installed(&out, sysaudio::apo::Effect::HeadsetEq);
+    let outdated = || super::elevate::apo_dll().is_some_and(|dll| !sysaudio::apo::is_current(&dll));
     Status {
         apo_installed,
-        apo_outdated: apo_installed && super::elevate::apo_dll().is_some_and(|dll| !sysaudio::apo::is_current(&dll)),
+        apo_outdated: apo_installed && outdated(),
+        eq_apo_installed,
+        eq_apo_outdated: eq_apo_installed && outdated(),
         output: out.map(|e| e.name),
         input: inp.map(|e| e.name),
         default_output: out_def.map(|e| e.name),
