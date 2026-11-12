@@ -10,6 +10,10 @@ use tauri_plugin_updater::{Update, UpdaterExt};
 
 use crate::tray;
 
+/// How long a check may take, and the download of an update.
+const CHECK_TIMEOUT: Duration = Duration::from_secs(30);
+const DOWNLOAD_TIMEOUT: Duration = Duration::from_secs(10 * 60);
+
 /// Let startup (and sign-in, when launched with Windows) settle before the first check.
 const FIRST_CHECK: Duration = Duration::from_secs(30);
 const CHECK_EVERY: Duration = Duration::from_secs(6 * 60 * 60);
@@ -72,7 +76,19 @@ pub async fn check(app: &AppHandle) {
         return;
     }
     set(app, |s| s.checking = true);
-    let result = match app.updater() {
+    let h = app.clone();
+    let updater = app
+        .updater_builder()
+        .timeout(CHECK_TIMEOUT)
+        // On Windows the installer starts and kit ends right away, without
+        // the usual exit: undo what kit changed first. This replaces the
+        // plugin's own hook, so that runs too.
+        .on_before_exit(move || {
+            crate::before_exit(&h);
+            h.cleanup_before_exit();
+        })
+        .build();
+    let result = match updater {
         Ok(updater) => updater.check().await,
         Err(e) => Err(e),
     };
@@ -105,7 +121,8 @@ pub async fn check(app: &AppHandle) {
 /// Download, verify and run the installer. On success the process exits and
 /// the installer starts the new kit, so this only returns on failure.
 pub async fn install(app: &AppHandle) -> Result<(), String> {
-    let update = app.state::<Shared>().pending.lock().unwrap().clone().ok_or("No update to install.")?;
+    let mut update = app.state::<Shared>().pending.lock().unwrap().clone().ok_or("No update to install.")?;
+    update.timeout = Some(DOWNLOAD_TIMEOUT);
     if status(app).progress.is_some() {
         return Ok(());
     }

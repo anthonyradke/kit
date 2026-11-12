@@ -52,6 +52,22 @@ fn migrate_configs(app: &AppHandle) {
     }
 }
 
+/// Undo what kit does to the PC while it runs: let go of keys a macro or
+/// button holds, give a Logitech keyboard its own lighting back and make the
+/// headset the default device again. Runs once, on Quit or just before an
+/// update's installer starts (which ends kit without `RunEvent::Exit`).
+pub fn before_exit(app: &AppHandle) {
+    use std::sync::atomic::{AtomicBool, Ordering};
+    static DONE: AtomicBool = AtomicBool::new(false);
+    if DONE.swap(true, Ordering::SeqCst) {
+        return;
+    }
+    log::info!("exiting");
+    mouse::exec::release_all(app);
+    keyboard::state::release(app);
+    headset::on_exit(app);
+}
+
 #[tauri::command]
 fn get_autostart(app: AppHandle) -> bool {
     app.autolaunch().is_enabled().unwrap_or(false)
@@ -151,11 +167,7 @@ fn main() {
         .run(|app, event| match event {
             // Keep running in the tray when the last window closes; only Quit exits.
             RunEvent::ExitRequested { code: None, api, .. } => api.prevent_exit(),
-            // Quit or an update restart: give a Logitech keyboard its own lighting back.
-            RunEvent::Exit => {
-                keyboard::state::release(app);
-                headset::on_exit(app);
-            }
+            RunEvent::Exit => before_exit(app),
             _ => {}
         });
 }

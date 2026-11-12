@@ -2,7 +2,7 @@
 
 use std::collections::HashMap;
 use std::sync::atomic::{AtomicBool, Ordering};
-use std::sync::mpsc::Receiver;
+use std::sync::mpsc::{Receiver, Sender};
 use std::sync::Arc;
 use std::thread::Thread;
 use std::time::{Duration, Instant};
@@ -20,8 +20,25 @@ pub enum Msg {
     Key { scan: u16, ext: bool, down: bool },
     /// Play a macro once from the UI's Test button.
     Test { id: String },
-    /// Stop every running macro (profile switch, macro edited).
+    /// Stop every running macro (profile switch, macro or binding edited).
     CancelAll,
+    /// Stop every macro, let go of every key and button kit holds down, then
+    /// reply: kit is about to exit.
+    ReleaseAll(Sender<()>),
+}
+
+/// Stop every running macro.
+pub fn cancel_all(app: &AppHandle) {
+    let _ = app.state::<Shared>().exec_tx.send(Msg::CancelAll);
+}
+
+/// Before exiting: stop every macro and release what kit holds down, waiting
+/// (briefly) until it has, so no key stays stuck once kit is gone.
+pub fn release_all(app: &AppHandle) {
+    let (tx, rx) = std::sync::mpsc::channel();
+    if app.state::<Shared>().exec_tx.send(Msg::ReleaseAll(tx)).is_ok() {
+        let _ = rx.recv_timeout(Duration::from_millis(500));
+    }
 }
 
 pub fn spawn(app: AppHandle, rx: Receiver<Msg>) {
@@ -53,6 +70,24 @@ impl Executor {
                 for run in self.running.drain().map(|(_, r)| r) {
                     run.cancel();
                 }
+            }
+            Msg::ReleaseAll(done) => {
+                let runs: Vec<Arc<Run>> = self.running.drain().map(|(_, r)| r).collect();
+                runs.iter().for_each(|r| r.cancel());
+                // Each run lets go of its own keys as it stops.
+                let deadline = Instant::now() + Duration::from_millis(300);
+                while runs.iter().any(|r| !r.done.load(Ordering::SeqCst)) && Instant::now() < deadline {
+                    std::thread::sleep(Duration::from_millis(5));
+                }
+                for (side, action) in self.pressed.iter_mut().enumerate() {
+                    if let Some(action) = action.take() {
+                        Self::let_go(&action, Some(Self::native(side == 1)));
+                    }
+                }
+                for (_, action) in self.keys.drain() {
+                    Self::let_go(&action, None);
+                }
+                let _ = done.send(());
             }
             Msg::Test { id } => {
                 if let Some(m) = self.macro_def(&id) {
@@ -126,6 +161,16 @@ impl Executor {
             }
             Action::NextKeyProfile => crate::keyboard::state::next_profile(&self.app),
             Action::KeyProfile { id } => crate::keyboard::state::activate_profile(&self.app, id),
+            _ => {}
+        }
+    }
+
+    /// Release only what `action` holds down, without doing anything else a
+    /// release would (switching profiles, say).
+    fn let_go(action: &Action, native: Option<MouseButton>) {
+        match action {
+            Action::Default => native.into_iter().for_each(|b| input::send_mouse(b, false)),
+            Action::Keys { keys } => keys.iter().rev().for_each(|k| input::send_key(k, false)),
             _ => {}
         }
     }
