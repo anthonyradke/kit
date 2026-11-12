@@ -149,7 +149,7 @@ impl Curve {
             let Some((head, rest)) = line.split_once(':') else { return Err(err("expected `Preamp:` or `Filter:`")) };
             let words: Vec<&str> = rest.split_whitespace().collect();
             if head.trim().eq_ignore_ascii_case("preamp") {
-                curve.preamp_db = words.first().and_then(|w| w.parse().ok()).ok_or_else(|| err("bad preamp"))?;
+                curve.preamp_db = words.first().and_then(|w| w.parse::<f64>().ok()).filter(|p| p.is_finite()).ok_or_else(|| err("bad preamp"))?;
                 continue;
             }
             if !head.trim().to_ascii_lowercase().starts_with("filter") {
@@ -165,12 +165,17 @@ impl Curve {
                 words.get(i + 1)?.parse().ok()
             };
             let freq = value("Fc").ok_or_else(|| err("missing Fc"))?;
-            curve.filters.push(Filter {
+            let filter = Filter {
                 kind,
                 freq,
                 gain_db: value("Gain").unwrap_or(0.0),
                 q: value("Q").unwrap_or(std::f64::consts::FRAC_1_SQRT_2),
-            });
+            };
+            let finite = [filter.freq, filter.gain_db, filter.q].iter().all(|x| x.is_finite());
+            if !finite || filter.freq <= 0.0 || filter.q <= 0.0 {
+                return Err(err("Fc and Q must be positive numbers"));
+            }
+            curve.filters.push(filter);
         }
         Ok(curve)
     }
@@ -185,6 +190,12 @@ impl fmt::Display for Curve {
         Ok(())
     }
 }
+
+/// Below this a filter's state is as good as silence. Zeroing it keeps a
+/// decaying filter out of the denormal range, where the CPU runs its math
+/// many times slower; with no input, the rounding in a recursive filter can
+/// otherwise hold the state there for good.
+pub const TINY: f64 = 1e-30;
 
 /// Runs a [`Design`] on interleaved audio, every channel alike, in a
 /// transposed direct form II with 64-bit state (low-frequency filters at
@@ -243,13 +254,29 @@ impl Processor {
                     st[1] = q.b2 * x - q.a2 * y;
                     x = y;
                 }
-                *s = x as f32;
+                *s = if x.abs() < TINY { 0.0 } else { x as f32 };
             }
             if let Some(l) = &mut self.limiter {
                 self.frame.copy_from_slice(frame);
                 l.process(&mut self.frame);
                 frame.copy_from_slice(&self.frame);
             }
+        }
+        let mut broken = false;
+        for ch in 0..self.channels {
+            for st in &mut self.state[ch * MAX_SECTIONS..ch * MAX_SECTIONS + n] {
+                for v in st {
+                    if v.abs() < TINY {
+                        *v = 0.0;
+                    }
+                    broken |= !v.is_finite();
+                }
+            }
+        }
+        // A NaN from upstream would ring in the filters forever: start over.
+        if broken {
+            self.reset();
+            buf.fill(0.0);
         }
     }
 
@@ -295,6 +322,13 @@ mod tests {
     }
 
     #[test]
+    fn curves_that_would_make_noise_are_refused() {
+        for text in ["Preamp: NaN dB", "Filter: ON PK Fc 100 Hz Gain 3 dB Q 0", "Filter: ON PK Fc -5 Hz Gain 3 dB Q 1", "Filter: ON PK Fc 100 Hz Gain inf dB Q 1"] {
+            assert!(Curve::parse(text).is_err(), "{text}");
+        }
+    }
+
+    #[test]
     fn processing_matches_the_designed_response() {
         let curve = Curve { preamp_db: -3.0, filters: vec![Filter::new(Kind::Peaking, 1000.0, 6.0, 1.0)] };
         let mut p = Processor::new(&curve.design_rbj(48000.0), 48000, 2, false);
@@ -306,6 +340,39 @@ mod tests {
         let rms = (tail.iter().map(|&x| (x as f64).powi(2)).sum::<f64>() / tail.len() as f64).sqrt();
         let db = 20.0 * (rms / (0.1 / 2f64.sqrt())).log10();
         assert!((db - 3.0).abs() < 0.01, "{db}");
+    }
+
+    #[test]
+    fn silence_after_audio_settles_to_exact_zero() {
+        // Low, narrow filters ring longest; with no input their state used to
+        // settle into a denormal limit cycle instead of reaching zero.
+        let curve = Curve {
+            preamp_db: -6.0,
+            filters: vec![Filter::new(Kind::Peaking, 20.0, 12.0, 10.0), Filter::new(Kind::LowShelf, 40.0, 6.0, 0.7), Filter::new(Kind::Peaking, 15000.0, -6.0, 4.0)],
+        };
+        let mut p = Processor::new(&curve.design(48000.0), 48000, 2, true);
+        let mut buf: Vec<f32> = (0..9600).flat_map(|i| [(2.0 * PI * 30.0 * i as f64 / 48000.0).sin() as f32 * 0.5; 2]).collect();
+        p.process(&mut buf);
+        for _ in 0..2000 {
+            let mut silent = vec![0.0f32; 960];
+            p.process(&mut silent);
+        }
+        assert!(p.state.iter().flatten().all(|&v| v == 0.0), "state left: {:?}", p.state.iter().flatten().find(|&&v| v != 0.0));
+        let mut silent = vec![0.0f32; 960];
+        p.process(&mut silent);
+        assert!(silent.iter().all(|&s| s == 0.0));
+    }
+
+    #[test]
+    fn a_nan_from_upstream_doesnt_stick() {
+        let curve = Curve { preamp_db: 0.0, filters: vec![Filter::new(Kind::Peaking, 100.0, 6.0, 1.0)] };
+        let mut p = Processor::new(&curve.design(48000.0), 48000, 1, true);
+        let mut bad = vec![0.1f32; 480];
+        bad[7] = f32::NAN;
+        p.process(&mut bad);
+        let mut next: Vec<f32> = (0..4800).map(|i| (i as f32 * 0.01).sin() * 0.1).collect();
+        p.process(&mut next);
+        assert!(next.iter().all(|s| s.is_finite()));
     }
 
     #[test]

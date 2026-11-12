@@ -67,6 +67,12 @@ impl HighPass {
         let y = self.b[0] * x + self.s[0];
         self.s[0] = self.b[1] * x - self.a[0] * y + self.s[1];
         self.s[1] = self.b[2] * x - self.a[1] * y;
+        // Out of the denormal range once the input stops (a muted mic).
+        for s in &mut self.s {
+            if s.abs() < kit_eq::TINY {
+                *s = 0.0;
+            }
+        }
         y as f32
     }
 }

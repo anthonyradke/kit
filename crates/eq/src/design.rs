@@ -48,9 +48,11 @@ impl Default for Design {
 }
 
 impl Design {
-    /// Filters past [`MAX_SECTIONS`] are dropped.
+    /// Filters past [`MAX_SECTIONS`] are dropped. A preamp that isn't a
+    /// number is 0 dB.
     pub fn new(preamp_db: f64, sections: impl IntoIterator<Item = Biquad>) -> Self {
-        let mut d = Design { preamp: 10f64.powf(preamp_db / 20.0), ..Design::default() };
+        let preamp = if preamp_db.is_finite() { 10f64.powf(preamp_db.clamp(-60.0, 30.0) / 20.0) } else { 1.0 };
+        let mut d = Design { preamp, ..Design::default() };
         for s in sections.into_iter().take(MAX_SECTIONS) {
             d.sections[d.len] = s;
             d.len += 1;
@@ -81,6 +83,9 @@ impl Curve {
         Design::new(self.preamp_db, self.filters.iter().map(|f| f.matched(rate)))
     }
 }
+
+/// The rate Sonar runs its EQ at.
+const SONAR_RATE: f64 = 96000.0;
 
 /// Where the fit looks: 20 Hz to 20 kHz (or 90% of Nyquist), log spaced.
 const POINTS: usize = 160;
@@ -150,10 +155,23 @@ fn solve<const N: usize>(mut m: [[f64; N]; N], mut v: [f64; N]) -> Option<[f64; 
 
 impl Filter {
     /// This filter as Sonar runs it, designed at twice `rate` and matched at
-    /// `rate` (see the module docs). Falls back to the plain RBJ design at
-    /// `rate` if the match can't be made.
+    /// `rate` (see the module docs). At 96 kHz and up that is the plain RBJ
+    /// design, as Sonar has it. Falls back to the plain design if the match
+    /// can't be made, and to no filter at all if neither is stable or the
+    /// filter makes no sense at this rate (a frequency past Nyquist, Q of 0).
     pub fn matched(&self, rate: f64) -> Biquad {
-        self.try_matched(rate).unwrap_or_else(|| self.biquad(rate))
+        if !self.valid(rate) {
+            return IDENTITY;
+        }
+        let plain = || Some(self.biquad(rate)).filter(stable);
+        let m = if rate >= SONAR_RATE { plain() } else { self.try_matched(rate).or_else(plain) };
+        m.unwrap_or(IDENTITY)
+    }
+
+    /// Whether the filter can be built at `rate`.
+    fn valid(&self, rate: f64) -> bool {
+        let finite = [self.freq, self.gain_db, self.q, rate].iter().all(|x| x.is_finite());
+        finite && self.freq > 0.0 && self.freq < 0.49 * rate && self.q > 0.0 && self.gain_db.abs() <= 40.0
     }
 
     fn try_matched(&self, rate: f64) -> Option<Biquad> {
@@ -327,6 +345,29 @@ mod tests {
                 }
             }
         }
+    }
+
+    #[test]
+    fn at_96k_the_design_is_sonars() {
+        let f = Filter::new(Kind::Peaking, 12000.0, 3.0, 0.707);
+        assert_eq!(f.matched(96000.0), f.biquad(96000.0));
+    }
+
+    #[test]
+    fn nonsense_filters_become_no_filter() {
+        for f in [
+            Filter::new(Kind::Peaking, 1000.0, 6.0, 0.0),
+            Filter::new(Kind::Peaking, 1000.0, 6.0, -1.0),
+            Filter::new(Kind::Peaking, 1000.0, 6.0, f64::NAN),
+            Filter::new(Kind::Peaking, f64::INFINITY, 6.0, 1.0),
+            Filter::new(Kind::Peaking, 0.0, 6.0, 1.0),
+            Filter::new(Kind::Peaking, 30000.0, 6.0, 1.0),
+            Filter::new(Kind::LowShelf, 100.0, f64::NAN, 1.0),
+        ] {
+            assert_eq!(f.matched(48000.0), IDENTITY, "{f:?}");
+        }
+        let d = Curve { preamp_db: f64::NAN, filters: vec![] }.design(48000.0);
+        assert_eq!(d.preamp, 1.0);
     }
 
     #[test]

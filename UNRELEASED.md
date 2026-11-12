@@ -7,3 +7,6 @@ Settings, so keep each line to one short sentence about what changed for the use
 - A settings file kit can't read is kept aside instead of being overwritten with defaults, and Settings says what happened.
 - Each import keeps its own copy of the previous settings (the last five), instead of replacing the one before.
 - A settings file with crafted profile or macro ids can no longer run code in kit's window.
+- kit's EQ, the mic filter and surround no longer slow down after a stretch of silence.
+- An EQ setting that can't be built (or a stray NaN from an app) passes audio through instead of making noise.
+- kit's EQ at 96 kHz matches Sonar's exactly.
