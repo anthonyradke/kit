@@ -1,0 +1,40 @@
+# Builds and tests every push to main on Windows, where the app and the APO run. The release
+# workflow runs this too, and only publishes when it passes on the tagged commit.
+name: check
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+  workflow_call:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: check-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  test:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          persist-credentials: false
+
+      - uses: dtolnay/rust-toolchain@stable
+
+      # Shared with the release build, which restores it from main (tag runs can't save a cache
+      # anything else can use, so only main saves).
+      - uses: Swatinem/rust-cache@v2
+        with:
+          shared-key: windows
+          save-if: ${{ github.ref == 'refs/heads/main' }}
+
+      # The app's build script needs the APO DLL it bundles, so build that first.
+      - name: Build the APO
+        run: cargo build --release --locked -p kit-apo
+
+      - name: Test
+        run: cargo test --workspace --locked
