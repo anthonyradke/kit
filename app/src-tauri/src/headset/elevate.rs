@@ -14,7 +14,13 @@ pub const INSTALL_ARG: &str = "--install-apo";
 pub const UNINSTALL_ARG: &str = "--uninstall-apo";
 pub const INSTALL_EQ_ARG: &str = "--install-eq-apo";
 pub const UNINSTALL_EQ_ARG: &str = "--uninstall-eq-apo";
+/// kit's uninstaller: remove both effects, asking for elevation only when
+/// something is installed.
+pub const REMOVE_ALL_ARG: &str = "--remove-audio-effects";
+/// The elevated half of [`REMOVE_ALL_ARG`].
+const REMOVE_ALL_ELEVATED_ARG: &str = "--remove-audio-effects-elevated";
 const RESULT_ARG: &str = "--result";
+const HELPER_ARGS: [&str; 6] = [INSTALL_ARG, UNINSTALL_ARG, INSTALL_EQ_ARG, UNINSTALL_EQ_ARG, REMOVE_ALL_ARG, REMOVE_ALL_ELEVATED_ARG];
 
 /// The DLL ships next to the exe (installer resources, or the cargo target dir in development).
 pub fn apo_dll() -> Option<PathBuf> {
@@ -23,10 +29,15 @@ pub fn apo_dll() -> Option<PathBuf> {
     dll.exists().then_some(dll)
 }
 
-/// Run `exe <args> --result <file>` elevated and wait for it.
+/// Run `exe <args> --result <file>` elevated and wait for it. One at a time:
+/// installs restart the audio service and copy the same DLL, so a second
+/// one waits for the first.
 pub fn run_elevated(args: &[&str]) -> Result<(), String> {
+    static ONE_AT_A_TIME: std::sync::Mutex<()> = std::sync::Mutex::new(());
+    let _turn = ONE_AT_A_TIME.lock().unwrap_or_else(|e| e.into_inner());
     let exe = std::env::current_exe().map_err(|e| e.to_string())?;
-    let result_file = std::env::temp_dir().join(format!("kit-setup-{}.txt", std::process::id()));
+    let nanos = std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).map(|d| d.as_nanos()).unwrap_or(0);
+    let result_file = std::env::temp_dir().join(format!("kit-setup-{}-{nanos:x}.txt", std::process::id()));
     let _ = std::fs::remove_file(&result_file);
     let mut params: Vec<String> = args.iter().map(|a| quote(a)).collect();
     params.push(RESULT_ARG.into());
@@ -75,8 +86,18 @@ fn quote(s: &str) -> String {
 /// `None` when the arguments aren't a helper invocation.
 pub fn helper_main(args: &[String]) -> Option<i32> {
     let action = args.get(1)?.as_str();
-    if ![INSTALL_ARG, UNINSTALL_ARG, INSTALL_EQ_ARG, UNINSTALL_EQ_ARG].contains(&action) {
+    if !HELPER_ARGS.contains(&action) {
         return None;
+    }
+    if action == REMOVE_ALL_ARG {
+        // From the uninstaller, which runs as the user: elevate only if needed.
+        if !sysaudio::apo::anything_installed() {
+            return Some(0);
+        }
+        return Some(match run_elevated(&[REMOVE_ALL_ELEVATED_ARG]) {
+            Ok(()) => 0,
+            Err(_) => 1,
+        });
     }
     let result_file = args.iter().position(|a| a == RESULT_ARG).and_then(|i| args.get(i + 1)).map(PathBuf::from);
     let result = run_helper(action, args.get(2).filter(|a| *a != RESULT_ARG).map(Path::new));
@@ -95,6 +116,9 @@ pub fn helper_main(args: &[String]) -> Option<i32> {
 fn run_helper(action: &str, dll: Option<&Path>) -> Result<(), String> {
     use sysaudio::apo::Effect;
     sysaudio::com_init();
+    if action == REMOVE_ALL_ELEVATED_ARG {
+        return sysaudio::apo::uninstall_all().map_err(|e| e.to_string());
+    }
     let (effect, flow, missing) = if action == INSTALL_EQ_ARG || action == UNINSTALL_EQ_ARG {
         (Effect::HeadsetEq, sysaudio::Flow::Output, "The Arctis Nova 5 isn't connected. Plug in the base station and try again.")
     } else {
@@ -106,6 +130,7 @@ fn run_helper(action: &str, dll: Option<&Path>) -> Result<(), String> {
         let ep = ep.ok_or(missing)?;
         sysaudio::apo::install(dll, &ep, effect).map_err(|e| e.to_string())
     } else {
-        sysaudio::apo::uninstall(ep.as_ref(), effect).map_err(|e| e.to_string())
+        // From every endpoint that lists it, the headset plugged in or not.
+        sysaudio::apo::uninstall(effect).map_err(|e| e.to_string())
     }
 }

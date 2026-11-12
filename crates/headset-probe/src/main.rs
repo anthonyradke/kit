@@ -89,8 +89,7 @@ fn main() -> Result<()> {
             println!("installed on {}", ep.name);
         }
         Some("uninstall-apo") => {
-            let ep = sysaudio::find_arctis(sysaudio::Flow::Input)?;
-            sysaudio::apo::uninstall(ep.as_ref(), sysaudio::apo::Effect::MicDenoise)?;
+            sysaudio::apo::uninstall(sysaudio::apo::Effect::MicDenoise)?;
             println!("uninstalled");
         }
         Some("install-eq") if args.len() == 2 => {
@@ -99,8 +98,7 @@ fn main() -> Result<()> {
             println!("installed on {}", ep.name);
         }
         Some("uninstall-eq") => {
-            let ep = capture::nova().ok();
-            sysaudio::apo::uninstall(ep.as_ref(), sysaudio::apo::Effect::HeadsetEq)?;
+            sysaudio::apo::uninstall(sysaudio::apo::Effect::HeadsetEq)?;
             println!("uninstalled");
         }
         Some("eq") if args.len() == 2 || args.len() == 3 => {

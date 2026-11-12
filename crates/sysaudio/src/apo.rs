@@ -14,11 +14,11 @@
 use std::path::{Path, PathBuf};
 use std::process::Command;
 
-use winreg::enums::{HKEY_LOCAL_MACHINE, KEY_QUERY_VALUE, KEY_SET_VALUE, KEY_WRITE};
+use winreg::enums::{HKEY_LOCAL_MACHINE, KEY_ALL_ACCESS, KEY_QUERY_VALUE, KEY_SET_VALUE, KEY_WRITE};
 use winreg::types::FromRegValue;
 use winreg::RegKey;
 
-use crate::{Endpoint, Error, Result};
+use crate::{Endpoint, Error, Flow, Result};
 
 const MMDEVICES: &str = r"SOFTWARE\Microsoft\Windows\CurrentVersion\MMDevices\Audio";
 const SETTINGS_KEY: &str = r"SOFTWARE\kit";
@@ -70,6 +70,11 @@ impl Effect {
         }
     }
 
+    /// Whether the class is in the registry at all, DLL or not.
+    fn listed(self) -> bool {
+        hklm().open_subkey(format!(r"SOFTWARE\Classes\CLSID\{}", self.clsid())).is_ok()
+    }
+
     /// Whether the class is registered with its DLL in place.
     fn registered(self) -> bool {
         let dll: Option<String> = hklm()
@@ -104,7 +109,45 @@ pub fn log_path() -> PathBuf {
 const FX_ACCESS: u32 = KEY_QUERY_VALUE | KEY_SET_VALUE;
 
 fn fx_path(ep: &Endpoint) -> String {
-    format!(r"{MMDEVICES}\{}\{}\FxProperties", ep.flow.registry_name(), ep.guid())
+    fx_key(ep.flow, ep.guid())
+}
+
+fn fx_key(flow: Flow, guid: &str) -> String {
+    format!(r"{MMDEVICES}\{}\{guid}\FxProperties", flow.registry_name())
+}
+
+/// An endpoint whose FxProperties lists one of kit's effects.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct Attached {
+    pub flow: Flow,
+    /// The endpoint's registry key name, `{guid}`.
+    pub guid: String,
+    pub effect: Effect,
+}
+
+/// Every endpoint, connected or not, that lists one of kit's effects. An
+/// unplugged headset and the old endpoints a driver update leaves behind
+/// count too: their settings stay in the registry. Readable without
+/// administrator rights.
+pub fn attached() -> Vec<Attached> {
+    let mut out = Vec::new();
+    for flow in [Flow::Output, Flow::Input] {
+        let Ok(root) = hklm().open_subkey(format!(r"{MMDEVICES}\{}", flow.registry_name())) else { continue };
+        for guid in root.enum_keys().filter_map(|k| k.ok()) {
+            let Ok(efx) = hklm().open_subkey(fx_key(flow, &guid)).and_then(|k| k.get_value::<String, _>(EFX)) else { continue };
+            for effect in [Effect::MicDenoise, Effect::HeadsetEq] {
+                if efx.eq_ignore_ascii_case(&effect.clsid()) {
+                    out.push(Attached { flow, guid: guid.clone(), effect });
+                }
+            }
+        }
+    }
+    out
+}
+
+/// Whether any of kit's effects is registered or listed on an endpoint.
+pub fn anything_installed() -> bool {
+    Effect::MicDenoise.listed() || Effect::HeadsetEq.listed() || !attached().is_empty()
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -204,7 +247,7 @@ pub fn install(dll_source: &Path, ep: &Endpoint, effect: Effect) -> Result<()> {
         std::thread::sleep(std::time::Duration::from_millis(500));
     }
     let err = last.unwrap_err();
-    uninstall(Some(ep), effect)?;
+    uninstall(effect)?;
     Err(Error::Msg(match effect {
         Effect::MicDenoise => format!(
             "Noise suppression stopped the mic from opening ({err}), so it was removed again. The mic works as before."
@@ -215,20 +258,40 @@ pub fn install(dll_source: &Path, ep: &Endpoint, effect: Effect) -> Result<()> {
     }))
 }
 
-pub fn uninstall(ep: Option<&Endpoint>, effect: Effect) -> Result<()> {
+/// Remove `effect`: from every endpoint that lists it, connected or not (an
+/// endpoint left naming a class that's gone can't be opened), then the
+/// class, then the DLL once neither effect uses it.
+pub fn uninstall(effect: Effect) -> Result<()> {
+    restart_audio(|| remove(effect))
+}
+
+/// Both effects and everything kit keeps outside its own folder (the
+/// settings key, the DLL's folder, the APO log), for kit's uninstaller.
+pub fn uninstall_all() -> Result<()> {
     restart_audio(|| {
-        if let Some(ep) = ep {
-            detach(ep)?;
+        remove(Effect::MicDenoise)?;
+        remove(Effect::HeadsetEq)?;
+        if let Ok(software) = hklm().open_subkey_with_flags("SOFTWARE", KEY_WRITE) {
+            let _ = software.delete_subkey_all("kit");
         }
-        let classes = hklm().open_subkey_with_flags(r"SOFTWARE\Classes", KEY_WRITE)?;
-        let _ = classes.delete_subkey_all(format!(r"CLSID\{}", effect.clsid()));
-        let _ = classes.delete_subkey_all(format!(r"AudioEngine\AudioProcessingObjects\{}", effect.clsid()));
-        // The other effect shares the DLL.
-        if !effect.other().registered() {
-            let _ = std::fs::remove_file(install_dir().join(DLL_NAME));
-        }
+        let _ = std::fs::remove_dir_all(install_dir());
+        let _ = std::fs::remove_dir_all(data_dir());
         Ok(())
     })
+}
+
+fn remove(effect: Effect) -> Result<()> {
+    for a in attached().into_iter().filter(|a| a.effect == effect) {
+        detach(a.flow, &a.guid)?;
+    }
+    let classes = hklm().open_subkey_with_flags(r"SOFTWARE\Classes", KEY_WRITE)?;
+    let _ = classes.delete_subkey_all(format!(r"CLSID\{}", effect.clsid()));
+    let _ = classes.delete_subkey_all(format!(r"AudioEngine\AudioProcessingObjects\{}", effect.clsid()));
+    // The other effect shares the DLL.
+    if !effect.other().registered() {
+        let _ = std::fs::remove_file(install_dir().join(DLL_NAME));
+    }
+    Ok(())
 }
 
 fn register_com(dll: &Path, effect: Effect) -> Result<()> {
@@ -270,7 +333,24 @@ fn register_settings_key() -> Result<()> {
         key.set_value("HeadsetEqOn", &0u32)?;
     }
     // SYSTEM and admins: full. Users: read/write. LOCAL SERVICE (audiodg): read.
-    set_key_sddl(&key, "D:P(A;OICI;KA;;;SY)(A;OICI;KA;;;BA)(A;OICI;KRKW;;;BU)(A;OICI;KR;;;LS)")
+    set_key_sddl(&key, "D:P(A;OICI;KA;;;SY)(A;OICI;KA;;;BA)(A;OICI;KRKW;;;BU)(A;OICI;KR;;;LS)")?;
+    protect_backups()
+}
+
+/// What the uninstaller writes back into an endpoint's FxProperties comes
+/// from the backups, so only administrators may change them (they used to
+/// inherit the settings key's write access for users).
+const BACKUP_SDDL: &str = "D:P(A;OICI;KA;;;SY)(A;OICI;KA;;;BA)(A;OICI;KR;;;BU)";
+
+fn protect_backups() -> Result<()> {
+    let (backups, _) = hklm().create_subkey(BACKUP_KEY)?;
+    set_key_sddl(&backups, BACKUP_SDDL)?;
+    for guid in backups.enum_keys().filter_map(|k| k.ok()) {
+        if let Ok(k) = hklm().open_subkey_with_flags(format!(r"{BACKUP_KEY}\{guid}"), KEY_ALL_ACCESS) {
+            set_key_sddl(&k, BACKUP_SDDL)?;
+        }
+    }
+    Ok(())
 }
 
 fn set_key_sddl(key: &RegKey, sddl: &str) -> Result<()> {
@@ -295,7 +375,9 @@ fn set_key_sddl(key: &RegKey, sddl: &str) -> Result<()> {
 
 fn attach(ep: &Endpoint, effect: Effect) -> Result<()> {
     let fx = hklm().open_subkey_with_flags(fx_path(ep), FX_ACCESS)?;
+    protect_backups()?;
     let (backup, _) = hklm().create_subkey(format!(r"{BACKUP_KEY}\{}", ep.guid()))?;
+    set_key_sddl(&backup, BACKUP_SDDL)?;
     let already = status(ep, effect).on_endpoint;
     for name in TOUCHED {
         // Back up the original values once; reinstalling must not back up our own.
@@ -313,9 +395,11 @@ fn attach(ep: &Endpoint, effect: Effect) -> Result<()> {
     Ok(())
 }
 
-fn detach(ep: &Endpoint) -> Result<()> {
-    let Ok(fx) = hklm().open_subkey_with_flags(fx_path(ep), FX_ACCESS) else { return Ok(()) };
-    let backup = hklm().open_subkey(format!(r"{BACKUP_KEY}\{}", ep.guid())).ok();
+/// Put back what an endpoint's FxProperties had before kit (or clear kit's
+/// values when there's no backup).
+fn detach(flow: Flow, guid: &str) -> Result<()> {
+    let Ok(fx) = hklm().open_subkey_with_flags(fx_key(flow, guid), FX_ACCESS) else { return Ok(()) };
+    let backup = hklm().open_subkey(format!(r"{BACKUP_KEY}\{guid}")).ok();
     for name in TOUCHED {
         let saved = backup.as_ref().and_then(|b| b.get_raw_value(name).ok());
         match saved {
@@ -326,7 +410,7 @@ fn detach(ep: &Endpoint) -> Result<()> {
         }
     }
     if let Ok(k) = hklm().open_subkey_with_flags(BACKUP_KEY, KEY_WRITE) {
-        let _ = k.delete_subkey_all(ep.guid());
+        let _ = k.delete_subkey_all(guid);
     }
     Ok(())
 }
