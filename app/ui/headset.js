@@ -47,8 +47,9 @@ const roundGain = (g) => Math.round(clamp(g, -GAIN_MAX, GAIN_MAX) * 2) / 2;
 const roundQ = (q) => Math.round(clamp(q, Q_MIN, Q_MAX) * 1000) / 1000;
 const roundFreq = (f) => Math.round(clamp(f, F_MIN, F_MAX));
 const hasGain = (b) => b.filter === "peaking" || b.filter === "lowShelf" || b.filter === "highShelf";
-// The EQ runs in kit's APO (chosen and installed) rather than on the headset.
-const eqInKit = () => hcfg().headset.eqInKit && H.audio.eqApoInstalled;
+// The EQ runs in kit's APO (chosen and installed) rather than on the headset,
+// as the backend last applied it.
+const eqInKit = () => H.eqInKit ?? (hcfg().headset.eqInKit && H.audio.eqApoInstalled);
 
 const headsetSaver = makeSaver("headset_save", hcfg, (st) => {
   H.headset = st.headset;

@@ -46,6 +46,9 @@ pub struct Status {
     pub eq_apo_installed: bool,
     pub eq_apo_outdated: bool,
     pub error: Option<String>,
+    /// A scan has finished (the window doesn't need this).
+    #[serde(skip)]
+    pub scanned: bool,
 }
 
 const POLL_EVERY: Duration = Duration::from_secs(2);
@@ -63,6 +66,8 @@ fn run(app: AppHandle, rx: Receiver<Cmd>) {
     // Endpoint ids seen last time; a new id means a device (re)appeared.
     let mut seen: [Option<String>; 3] = [None, None, None];
     let mut was_surround = None;
+    // Whether kit's EQ was on the headset output at the last successful scan.
+    let mut eq_seen = None;
     loop {
         let mut force = false;
         match rx.recv_timeout(POLL_EVERY) {
@@ -87,10 +92,21 @@ fn run(app: AppHandle, rx: Receiver<Cmd>) {
             }
             Err(e) => Status { error: Some(e.to_string()), ..Status::default() },
         };
+        // kit's EQ appeared or went (installed, removed, or the endpoint was
+        // recreated by a driver update): move the EQ to match.
+        let mut eq_moved = false;
+        if next.scanned {
+            eq_moved = eq_seen.is_some_and(|was| was != next.eq_apo_installed);
+            eq_seen = Some(next.eq_apo_installed);
+        }
         if next != status {
             status = next;
             *app.state::<Shared>().audio.lock().unwrap() = status.clone();
             let _ = app.emit("audio", &status);
+            if eq_moved {
+                super::state::apply(&app);
+                super::state::emit_state(&app);
+            }
         }
     }
 }
@@ -200,5 +216,6 @@ fn describe(eps: Endpoints, error: Option<String>) -> Status {
         cable: cable.map(|e| e.name),
         headset_is_default,
         error,
+        scanned: true,
     }
 }

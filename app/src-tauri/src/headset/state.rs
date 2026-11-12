@@ -1,6 +1,7 @@
 //! App-wide state and the operations that change it.
 
 use std::path::PathBuf;
+use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::mpsc::Sender;
 use std::sync::Mutex;
 
@@ -21,6 +22,9 @@ pub struct Shared {
     pub audio_tx: Sender<audio::Cmd>,
     pub surround_tx: Sender<surround::Cmd>,
     pub config_path: PathBuf,
+    /// Where `apply` last put the EQ: kit's APO (true) or the headset.
+    /// Previews follow it, so a drag never plays the EQ in both places.
+    pub eq_in_kit: AtomicBool,
 }
 
 #[derive(Clone, Serialize)]
@@ -31,6 +35,8 @@ pub struct UiState {
     pub audio: audio::Status,
     pub surround: surround::Status,
     pub config_path: String,
+    /// The EQ runs in kit's APO right now (chosen and installed).
+    pub eq_in_kit: bool,
 }
 
 pub fn init(app: &AppHandle) -> tauri::Result<()> {
@@ -50,6 +56,7 @@ pub fn init(app: &AppHandle) -> tauri::Result<()> {
         audio_tx,
         surround_tx,
         config_path,
+        eq_in_kit: AtomicBool::new(false),
     });
     device::spawn(app.clone(), headset_rx);
     audio::spawn(app.clone(), audio_rx);
@@ -64,7 +71,8 @@ pub fn ui_state(app: &AppHandle) -> UiState {
     let headset = shared.headset.lock().unwrap().clone();
     let audio = shared.audio.lock().unwrap().clone();
     let surround = shared.surround.lock().unwrap().clone();
-    UiState { config, headset, audio, surround, config_path: shared.config_path.display().to_string() }
+    let eq_in_kit = shared.eq_in_kit.load(Ordering::Relaxed);
+    UiState { config, headset, audio, surround, config_path: shared.config_path.display().to_string(), eq_in_kit }
 }
 
 pub fn emit_state(app: &AppHandle) {
@@ -77,7 +85,8 @@ pub fn apply(app: &AppHandle) {
     let config = shared.core.lock().unwrap().clone();
     let preset = config.active_preset();
     // With the EQ in kit, the headset's own EQ stays flat so the two never stack.
-    let in_kit = kit_eq_ready(&config);
+    let in_kit = kit_eq_ready(app, &config);
+    shared.eq_in_kit.store(in_kit, Ordering::Relaxed);
     let eq = if in_kit { [None; arctis::BANDS] } else { preset.to_eq(config.headset.bass) };
     let _ = shared.headset_tx.send(device::Cmd::Apply { eq, settings: config.headset.clone() });
     let curve = preset.to_curve(config.headset.bass, config.headset.preamp);
@@ -185,9 +194,8 @@ pub fn preview_eq(app: &AppHandle, bands: Vec<Band>, bass: f32) {
     let mut config = Config { presets: vec![preset], ..Config::default() };
     config.headset.bass = bass;
     config.normalize();
-    // The last scan's status: this runs many times a second while dragging.
-    let installed = shared.audio.lock().unwrap().eq_apo_installed;
-    if current.headset.eq_in_kit && installed {
+    // Where `apply` put the EQ: this runs many times a second while dragging.
+    if shared.eq_in_kit.load(Ordering::Relaxed) {
         let curve = config.presets[0].to_curve(config.headset.bass, current.headset.preamp);
         let _ = sysaudio::apo::set_headset_eq(true, &curve.to_string());
     } else {
@@ -197,8 +205,19 @@ pub fn preview_eq(app: &AppHandle, bands: Vec<Band>, bass: f32) {
 }
 
 /// The EQ runs in kit: chosen, and kit's EQ is installed on the headset.
-fn kit_eq_ready(config: &Config) -> bool {
-    config.headset.eq_in_kit && audio::eq_apo_installed()
+/// From the audio thread's last scan once there is one (it applies again
+/// whenever that changes); before it, looked up now so the first settings
+/// pushed at startup are right.
+fn kit_eq_ready(app: &AppHandle, config: &Config) -> bool {
+    if !config.headset.eq_in_kit {
+        return false;
+    }
+    let scanned = app.state::<Shared>().audio.lock().unwrap().clone();
+    if scanned.scanned {
+        scanned.eq_apo_installed
+    } else {
+        audio::eq_apo_installed()
+    }
 }
 
 /// What the tray menu shows: the active preset and every preset's name.
