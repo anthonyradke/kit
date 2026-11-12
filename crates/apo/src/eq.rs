@@ -14,11 +14,11 @@ use std::sync::{Arc, Mutex};
 
 use kit_eq::{Curve, Design, Processor};
 use windows::core::{implement, Ref, GUID};
-use windows::Win32::Foundation::{E_INVALIDARG, E_UNEXPECTED};
+use windows::Win32::Foundation::E_INVALIDARG;
 use windows::Win32::Media::Audio::Apo::*;
 use windows::Win32::System::Com::CoTaskMemAlloc;
 
-use crate::{check_format, format_of, log, passthrough, settings};
+use crate::{check_format, format_of, guard, log, passthrough, settings};
 
 pub const CLSID: GUID = GUID::from_u128(0x5f4b3c0e_8d7a_4b1e_9c62_3a91e0d4b7f5);
 pub const FRIENDLY_NAME: &str = "kit headset EQ";
@@ -92,12 +92,14 @@ impl EqApo {
 
 impl IAudioProcessingObject_Impl for EqApo_Impl {
     fn Reset(&self) -> windows::core::Result<()> {
-        if let Ok(mut l) = self.locked.lock() {
-            if let Some(l) = l.as_mut() {
-                l.processor.reset();
+        guard("headset EQ: Reset", || {
+            if let Ok(mut l) = self.locked.lock() {
+                if let Some(l) = l.as_mut() {
+                    l.processor.reset();
+                }
             }
-        }
-        Ok(())
+            Ok(())
+        })
     }
 
     fn GetLatency(&self) -> windows::core::Result<i64> {
@@ -116,17 +118,19 @@ impl IAudioProcessingObject_Impl for EqApo_Impl {
     }
 
     fn Initialize(&self, cbdatasize: u32, pbydata: *const u8) -> windows::core::Result<()> {
-        if cbdatasize as usize >= size_of::<APOInitSystemEffects2>() && !pbydata.is_null() {
-            let init = unsafe { &*(pbydata as *const APOInitSystemEffects2) };
-            log(&format!(
-                "headset EQ: initialize, mode {:?} discovery-only {}",
-                init.AudioProcessingMode,
-                init.InitializeForDiscoveryOnly.as_bool()
-            ));
-        } else {
-            log(&format!("headset EQ: initialize, {cbdatasize} bytes"));
-        }
-        Ok(())
+        guard("headset EQ: Initialize", || {
+            if cbdatasize as usize >= size_of::<APOInitSystemEffects2>() && !pbydata.is_null() {
+                let init = unsafe { &*(pbydata as *const APOInitSystemEffects2) };
+                log(&format!(
+                    "headset EQ: initialize, mode {:?} discovery-only {}",
+                    init.AudioProcessingMode,
+                    init.InitializeForDiscoveryOnly.as_bool()
+                ));
+            } else {
+                log(&format!("headset EQ: initialize, {cbdatasize} bytes"));
+            }
+            Ok(())
+        })
     }
 
     fn IsInputFormatSupported(
@@ -134,7 +138,9 @@ impl IAudioProcessingObject_Impl for EqApo_Impl {
         poppositeformat: Ref<'_, IAudioMediaType>,
         prequestedinputformat: Ref<'_, IAudioMediaType>,
     ) -> windows::core::Result<IAudioMediaType> {
-        check_format(poppositeformat, prequestedinputformat)
+        guard("headset EQ: IsInputFormatSupported", || {
+            check_format(poppositeformat, prequestedinputformat)
+        })
     }
 
     fn IsOutputFormatSupported(
@@ -142,7 +148,9 @@ impl IAudioProcessingObject_Impl for EqApo_Impl {
         poppositeformat: Ref<'_, IAudioMediaType>,
         prequestedoutputformat: Ref<'_, IAudioMediaType>,
     ) -> windows::core::Result<IAudioMediaType> {
-        check_format(poppositeformat, prequestedoutputformat)
+        guard("headset EQ: IsOutputFormatSupported", || {
+            check_format(poppositeformat, prequestedoutputformat)
+        })
     }
 
     fn GetInputChannelCount(&self) -> windows::core::Result<u32> {
@@ -158,44 +166,50 @@ impl IAudioProcessingObjectConfiguration_Impl for EqApo_Impl {
         u32numoutputconnections: u32,
         ppoutputconnections: *const *const APO_CONNECTION_DESCRIPTOR,
     ) -> windows::core::Result<()> {
-        if u32numinputconnections != 1 || u32numoutputconnections != 1 {
-            return Err(APOERR_NUM_CONNECTIONS_INVALID.into());
-        }
-        let mut locked = self.locked.lock().map_err(|_| windows::core::Error::from(E_UNEXPECTED))?;
-        if locked.is_some() {
-            return Err(APOERR_APO_LOCKED.into());
-        }
-        let input = unsafe { &**ppinputconnections };
-        let _ = ppoutputconnections;
-        let format = input.pFormat.as_ref().ok_or(windows::core::Error::from(E_INVALIDARG))?;
-        let f = format_of(format)?;
-        let channels = f.dwSamplesPerFrame.max(1) as usize;
-        let rate = f.fFramesPerSecond.round().max(1.0) as u32;
-        let design = design_for(rate as f64);
-        let mut processor = Processor::new(&design.unwrap_or_default(), rate, channels, true);
-        processor.reset();
-        let latency = processor.latency() as u64 * 10_000_000 / rate as u64;
-        self.latency.store(latency, Ordering::Relaxed);
-        let slot = Arc::new(Slot { rate: rate as f64, pending: Mutex::new(None) });
-        if let Ok(mut slots) = SLOTS.lock() {
-            slots.push(slot.clone());
-        }
-        log(&format!("headset EQ: lock, {channels} ch, {rate} Hz, EQ {}", if design.is_some() { "on" } else { "off" }));
-        self.channels.store(channels as u32, Ordering::Relaxed);
-        *locked = Some(Locked { channels, rate, slot, processor, on: design.is_some() });
-        Ok(())
+        guard("headset EQ: LockForProcess", || {
+            if u32numinputconnections != 1 || u32numoutputconnections != 1 {
+                return Err(APOERR_NUM_CONNECTIONS_INVALID.into());
+            }
+            let mut locked = self.locked.lock().unwrap_or_else(|e| e.into_inner());
+            if locked.is_some() {
+                return Err(APOERR_APO_LOCKED.into());
+            }
+            let input = unsafe { &**ppinputconnections };
+            let _ = ppoutputconnections;
+            let format = input.pFormat.as_ref().ok_or(windows::core::Error::from(E_INVALIDARG))?;
+            let f = format_of(format)?;
+            let channels = f.dwSamplesPerFrame.max(1) as usize;
+            let rate = f.fFramesPerSecond.round().max(1.0) as u32;
+            // Listed before the design is made, so a curve that changes in
+            // between is still sent here.
+            let slot = Arc::new(Slot { rate: rate as f64, pending: Mutex::new(None) });
+            if let Ok(mut slots) = SLOTS.lock() {
+                slots.push(slot.clone());
+            }
+            let design = design_for(rate as f64);
+            let mut processor = Processor::new(&design.unwrap_or_default(), rate, channels, true);
+            processor.reset();
+            let latency = processor.latency() as u64 * 10_000_000 / rate as u64;
+            self.latency.store(latency, Ordering::Relaxed);
+            log(&format!("headset EQ: lock, {channels} ch, {rate} Hz, EQ {}", if design.is_some() { "on" } else { "off" }));
+            self.channels.store(channels as u32, Ordering::Relaxed);
+            *locked = Some(Locked { channels, rate, slot, processor, on: design.is_some() });
+            Ok(())
+        })
     }
 
     fn UnlockForProcess(&self) -> windows::core::Result<()> {
-        let mut locked = self.locked.lock().map_err(|_| windows::core::Error::from(E_UNEXPECTED))?;
-        let Some(l) = locked.take() else {
-            return Err(APOERR_ALREADY_UNLOCKED.into());
-        };
-        if let Ok(mut slots) = SLOTS.lock() {
-            slots.retain(|s| !Arc::ptr_eq(s, &l.slot));
-        }
-        log(&format!("headset EQ: unlock ({} Hz)", l.rate));
-        Ok(())
+        guard("headset EQ: UnlockForProcess", || {
+            let mut locked = self.locked.lock().unwrap_or_else(|e| e.into_inner());
+            let Some(l) = locked.take() else {
+                return Err(APOERR_ALREADY_UNLOCKED.into());
+            };
+            if let Ok(mut slots) = SLOTS.lock() {
+                slots.retain(|s| !Arc::ptr_eq(s, &l.slot));
+            }
+            log(&format!("headset EQ: unlock ({} Hz)", l.rate));
+            Ok(())
+        })
     }
 }
 

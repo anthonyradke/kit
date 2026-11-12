@@ -24,7 +24,7 @@ pub mod settings;
 use std::ffi::c_void;
 use std::io::Write;
 use std::panic::AssertUnwindSafe;
-use std::sync::atomic::{AtomicBool, AtomicU32, Ordering};
+use std::sync::atomic::{AtomicBool, AtomicI64, AtomicU32, Ordering};
 use std::sync::Mutex;
 
 use windows::core::{implement, Interface, Ref, GUID, HRESULT, IUnknown};
@@ -49,6 +49,16 @@ static INSTANCES: AtomicU32 = AtomicU32::new(0);
 static LOGGED_FORMAT_REJECT: AtomicBool = AtomicBool::new(false);
 /// Set if processing ever panicked.
 static FAILED: AtomicBool = AtomicBool::new(false);
+
+/// Run the body of a COM method, turning a panic into `E_UNEXPECTED`. A
+/// panic can't unwind out through the vtable: it would abort audiodg and
+/// take every app's sound with it.
+pub(crate) fn guard<T>(what: &str, f: impl FnOnce() -> windows::core::Result<T>) -> windows::core::Result<T> {
+    std::panic::catch_unwind(AssertUnwindSafe(f)).unwrap_or_else(|_| {
+        log(&format!("{what} panicked"));
+        Err(E_UNEXPECTED.into())
+    })
+}
 
 /// Best-effort diagnostics. Never called from `APOProcess`.
 pub(crate) fn log(msg: &str) {
@@ -75,6 +85,9 @@ struct Locked {
 #[implement(IAudioProcessingObject, IAudioProcessingObjectRT, IAudioProcessingObjectConfiguration, IAudioSystemEffects)]
 struct Apo {
     channels: AtomicU32,
+    /// What the denoiser delays the mic by, in 100 ns units; 0 when this
+    /// stream passes it through.
+    latency: AtomicI64,
     locked: Mutex<Option<Locked>>,
 }
 
@@ -83,7 +96,7 @@ impl Apo {
         settings::start();
         let n = INSTANCES.fetch_add(1, Ordering::Relaxed) + 1;
         log(&format!("instance created ({n} total)"));
-        Apo { channels: AtomicU32::new(0), locked: Mutex::new(None) }
+        Apo { channels: AtomicU32::new(0), latency: AtomicI64::new(0), locked: Mutex::new(None) }
     }
 }
 
@@ -123,16 +136,18 @@ pub(crate) fn check_format(opposite: Ref<'_, IAudioMediaType>, requested: Ref<'_
 
 impl IAudioProcessingObject_Impl for Apo_Impl {
     fn Reset(&self) -> windows::core::Result<()> {
-        if let Ok(mut l) = self.locked.lock() {
-            if let Some(d) = l.as_mut().and_then(|l| l.denoiser.as_mut()) {
-                d.restart();
+        guard("mic: Reset", || {
+            if let Ok(mut l) = self.locked.lock() {
+                if let Some(d) = l.as_mut().and_then(|l| l.denoiser.as_mut()) {
+                    d.restart();
+                }
             }
-        }
-        Ok(())
+            Ok(())
+        })
     }
 
     fn GetLatency(&self) -> windows::core::Result<i64> {
-        Ok(LATENCY_HNS)
+        Ok(self.latency.load(Ordering::Relaxed))
     }
 
     fn GetRegistrationProperties(&self) -> windows::core::Result<*mut APO_REG_PROPERTIES> {
@@ -147,17 +162,19 @@ impl IAudioProcessingObject_Impl for Apo_Impl {
     }
 
     fn Initialize(&self, cbdatasize: u32, pbydata: *const u8) -> windows::core::Result<()> {
-        if cbdatasize as usize >= size_of::<APOInitSystemEffects2>() && !pbydata.is_null() {
-            let init = unsafe { &*(pbydata as *const APOInitSystemEffects2) };
-            log(&format!(
-                "initialize: mode {:?} discovery-only {}",
-                init.AudioProcessingMode,
-                init.InitializeForDiscoveryOnly.as_bool()
-            ));
-        } else {
-            log(&format!("initialize: {cbdatasize} bytes"));
-        }
-        Ok(())
+        guard("mic: Initialize", || {
+            if cbdatasize as usize >= size_of::<APOInitSystemEffects2>() && !pbydata.is_null() {
+                let init = unsafe { &*(pbydata as *const APOInitSystemEffects2) };
+                log(&format!(
+                    "initialize: mode {:?} discovery-only {}",
+                    init.AudioProcessingMode,
+                    init.InitializeForDiscoveryOnly.as_bool()
+                ));
+            } else {
+                log(&format!("initialize: {cbdatasize} bytes"));
+            }
+            Ok(())
+        })
     }
 
     fn IsInputFormatSupported(
@@ -165,7 +182,9 @@ impl IAudioProcessingObject_Impl for Apo_Impl {
         poppositeformat: Ref<'_, IAudioMediaType>,
         prequestedinputformat: Ref<'_, IAudioMediaType>,
     ) -> windows::core::Result<IAudioMediaType> {
-        check_format(poppositeformat, prequestedinputformat)
+        guard("mic: IsInputFormatSupported", || {
+            check_format(poppositeformat, prequestedinputformat)
+        })
     }
 
     fn IsOutputFormatSupported(
@@ -173,7 +192,9 @@ impl IAudioProcessingObject_Impl for Apo_Impl {
         poppositeformat: Ref<'_, IAudioMediaType>,
         prequestedoutputformat: Ref<'_, IAudioMediaType>,
     ) -> windows::core::Result<IAudioMediaType> {
-        check_format(poppositeformat, prequestedoutputformat)
+        guard("mic: IsOutputFormatSupported", || {
+            check_format(poppositeformat, prequestedoutputformat)
+        })
     }
 
     fn GetInputChannelCount(&self) -> windows::core::Result<u32> {
@@ -189,52 +210,57 @@ impl IAudioProcessingObjectConfiguration_Impl for Apo_Impl {
         u32numoutputconnections: u32,
         ppoutputconnections: *const *const APO_CONNECTION_DESCRIPTOR,
     ) -> windows::core::Result<()> {
-        if u32numinputconnections != 1 || u32numoutputconnections != 1 {
-            return Err(APOERR_NUM_CONNECTIONS_INVALID.into());
-        }
-        let mut locked = self.locked.lock().map_err(|_| windows::core::Error::from(E_UNEXPECTED))?;
-        if locked.is_some() {
-            return Err(APOERR_APO_LOCKED.into());
-        }
-        let (input, output) = unsafe { (&**ppinputconnections, &**ppoutputconnections) };
-        let format = input.pFormat.as_ref().ok_or(windows::core::Error::from(E_INVALIDARG))?;
-        let f = format_of(format)?;
-        let channels = f.dwSamplesPerFrame.max(1) as usize;
-        let max_frames = input.u32MaxFrameCount.max(output.u32MaxFrameCount) as usize;
-        let denoiser = if f.fFramesPerSecond != denoise::SAMPLE_RATE {
-            log(&format!("stream is {} Hz; noise suppression needs 48000 Hz, passing the mic through", f.fFramesPerSecond));
-            None
-        } else {
-            Denoiser::new(channels, log).map_err(|e| log(&format!("couldn't start the denoise worker: {e}"))).ok()
-        };
-        log(&format!(
-            "lock: {} ch, {} Hz, max {} frames, denoise {} at {:.0}%",
-            channels,
-            f.fFramesPerSecond,
-            max_frames,
-            settings::enabled(),
-            settings::strength() * 100.0
-        ));
-        self.channels.store(channels as u32, Ordering::Relaxed);
-        *locked = Some(Locked {
-            channels,
-            denoiser,
-            scratch: vec![0.0; max_frames * channels],
-            zeros: vec![0.0; max_frames * channels],
-            was_enabled: false,
-        });
-        Ok(())
+        guard("mic: LockForProcess", || {
+            if u32numinputconnections != 1 || u32numoutputconnections != 1 {
+                return Err(APOERR_NUM_CONNECTIONS_INVALID.into());
+            }
+            let mut locked = self.locked.lock().unwrap_or_else(|e| e.into_inner());
+            if locked.is_some() {
+                return Err(APOERR_APO_LOCKED.into());
+            }
+            let (input, output) = unsafe { (&**ppinputconnections, &**ppoutputconnections) };
+            let format = input.pFormat.as_ref().ok_or(windows::core::Error::from(E_INVALIDARG))?;
+            let f = format_of(format)?;
+            let channels = f.dwSamplesPerFrame.max(1) as usize;
+            let max_frames = input.u32MaxFrameCount.max(output.u32MaxFrameCount) as usize;
+            let denoiser = if f.fFramesPerSecond != denoise::SAMPLE_RATE {
+                log(&format!("stream is {} Hz; noise suppression needs 48000 Hz, passing the mic through", f.fFramesPerSecond));
+                None
+            } else {
+                Denoiser::new(channels, log).map_err(|e| log(&format!("couldn't start the denoise worker: {e}"))).ok()
+            };
+            log(&format!(
+                "lock: {} ch, {} Hz, max {} frames, denoise {} at {:.0}%",
+                channels,
+                f.fFramesPerSecond,
+                max_frames,
+                settings::enabled(),
+                settings::strength() * 100.0
+            ));
+            self.channels.store(channels as u32, Ordering::Relaxed);
+            self.latency.store(if denoiser.is_some() { LATENCY_HNS } else { 0 }, Ordering::Relaxed);
+            *locked = Some(Locked {
+                channels,
+                denoiser,
+                scratch: vec![0.0; max_frames * channels],
+                zeros: vec![0.0; max_frames * channels],
+                was_enabled: false,
+            });
+            Ok(())
+        })
     }
 
     fn UnlockForProcess(&self) -> windows::core::Result<()> {
-        let mut locked = self.locked.lock().map_err(|_| windows::core::Error::from(E_UNEXPECTED))?;
-        let Some(l) = locked.take() else {
-            return Err(APOERR_ALREADY_UNLOCKED.into());
-        };
-        if let Some(n) = l.denoiser.as_ref().map(Denoiser::underruns).filter(|&n| n > 0) {
-            log(&format!("unlock: the denoise worker fell behind {n} times"));
-        }
-        Ok(())
+        guard("mic: UnlockForProcess", || {
+            let mut locked = self.locked.lock().unwrap_or_else(|e| e.into_inner());
+            let Some(l) = locked.take() else {
+                return Err(APOERR_ALREADY_UNLOCKED.into());
+            };
+            if let Some(n) = l.denoiser.as_ref().map(Denoiser::underruns).filter(|&n| n > 0) {
+                log(&format!("unlock: the denoise worker fell behind {n} times"));
+            }
+            Ok(())
+        })
     }
 }
 

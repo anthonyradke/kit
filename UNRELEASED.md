@@ -10,3 +10,4 @@ Settings, so keep each line to one short sentence about what changed for the use
 - kit's EQ, the mic filter and surround no longer slow down after a stretch of silence.
 - An EQ setting that can't be built (or a stray NaN from an app) passes audio through instead of making noise.
 - kit's EQ at 96 kHz matches Sonar's exactly.
+- EQ changes made quickly in a row (dragging a band) always reach kit's EQ; one could be missed before.

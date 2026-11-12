@@ -10,10 +10,12 @@ use std::sync::Once;
 use std::time::Duration;
 
 use windows::core::{w, PCWSTR};
+use windows::Win32::Foundation::{ERROR_MORE_DATA, WAIT_OBJECT_0, WAIT_TIMEOUT};
 use windows::Win32::System::Registry::{
     RegCloseKey, RegGetValueW, RegNotifyChangeKeyValue, RegOpenKeyExW, HKEY, HKEY_LOCAL_MACHINE,
     KEY_NOTIFY, KEY_READ, REG_NOTIFY_CHANGE_LAST_SET, RRF_RT_REG_DWORD, RRF_RT_REG_SZ,
 };
+use windows::Win32::System::Threading::{CreateEventW, WaitForSingleObject};
 
 pub const KEY: PCWSTR = w!("SOFTWARE\\kit");
 pub const VALUE_ENABLED: PCWSTR = w!("MicDenoise");
@@ -57,30 +59,50 @@ fn read_dword(key: HKEY, name: PCWSTR) -> Option<u32> {
 }
 
 fn read_string(key: HKEY, name: PCWSTR) -> Option<String> {
-    let mut size = 0u32;
-    unsafe { RegGetValueW(key, None, name, RRF_RT_REG_SZ, None, None, Some(&mut size)) }.ok().ok()?;
-    let mut buf = vec![0u16; size as usize / 2 + 1];
-    let mut size = (buf.len() * 2) as u32;
-    unsafe { RegGetValueW(key, None, name, RRF_RT_REG_SZ, None, Some(buf.as_mut_ptr() as *mut _), Some(&mut size)) }
-        .ok()
-        .ok()?;
-    let len = buf.iter().position(|&c| c == 0).unwrap_or(buf.len());
-    Some(String::from_utf16_lossy(&buf[..len]))
+    // The value can grow between asking its size and reading it, when the
+    // app writes a longer curve right then: ask again.
+    for _ in 0..3 {
+        let mut size = 0u32;
+        unsafe { RegGetValueW(key, None, name, RRF_RT_REG_SZ, None, None, Some(&mut size)) }.ok().ok()?;
+        let mut buf = vec![0u16; size as usize / 2 + 1];
+        let mut size = (buf.len() * 2) as u32;
+        let r = unsafe { RegGetValueW(key, None, name, RRF_RT_REG_SZ, None, Some(buf.as_mut_ptr() as *mut _), Some(&mut size)) };
+        if r == ERROR_MORE_DATA {
+            continue;
+        }
+        r.ok().ok()?;
+        let len = buf.iter().position(|&c| c == 0).unwrap_or(buf.len());
+        return Some(String::from_utf16_lossy(&buf[..len]));
+    }
+    None
 }
 
 /// The headset EQ as the registry has it. A curve that doesn't parse turns
-/// the EQ off rather than playing something else.
-fn read_eq(key: HKEY) -> crate::eq::Wanted {
-    let text = read_string(key, VALUE_EQ).unwrap_or_default();
-    let curve = kit_eq::Curve::parse(&text);
-    if let Err(e) = &curve {
-        crate::log(&format!("headset EQ: unreadable curve ({e})"));
-    }
-    let on = read_dword(key, VALUE_EQ_ON).unwrap_or(0) != 0 && curve.is_ok();
-    crate::eq::Wanted { on, curve: curve.unwrap_or_default() }
+/// the EQ off rather than playing something else; one that can't be read
+/// right now (it's being rewritten) leaves the last good one running.
+fn read_eq(key: HKEY, last: &mut Option<kit_eq::Curve>) -> crate::eq::Wanted {
+    let on = read_dword(key, VALUE_EQ_ON).unwrap_or(0) != 0;
+    let curve = match read_string(key, VALUE_EQ) {
+        Some(text) => match kit_eq::Curve::parse(&text) {
+            Ok(c) => Some(c),
+            Err(e) => {
+                crate::log(&format!("headset EQ: unreadable curve ({e})"));
+                None
+            }
+        },
+        None => last.clone(),
+    };
+    last.clone_from(&curve);
+    crate::eq::Wanted { on: on && curve.is_some(), curve: curve.unwrap_or_default() }
 }
 
 fn watch() {
+    // Auto-reset: set by the registry when a value changes.
+    let Ok(changed) = (unsafe { CreateEventW(None, false, false, None) }) else {
+        crate::log("settings: couldn't create the change event");
+        return;
+    };
+    let mut last_curve = None;
     loop {
         let mut key = HKEY::default();
         if unsafe { RegOpenKeyExW(HKEY_LOCAL_MACHINE, KEY, None, KEY_READ | KEY_NOTIFY, &mut key) }.is_err() {
@@ -88,16 +110,22 @@ fn watch() {
             continue;
         }
         loop {
+            // Armed before reading, so a change made while the values are
+            // being read (the app writes several in a row) sets the event
+            // and is read on the next pass instead of being missed.
+            let r = unsafe { RegNotifyChangeKeyValue(key, false, REG_NOTIFY_CHANGE_LAST_SET, Some(changed), true) };
             if let Some(v) = read_dword(key, VALUE_ENABLED) {
                 ENABLED.store(v != 0, Ordering::Relaxed);
             }
             if let Some(v) = read_dword(key, VALUE_STRENGTH) {
                 STRENGTH.store(v.min(100), Ordering::Relaxed);
             }
-            crate::eq::set_wanted(read_eq(key));
-            // Blocks until a value under the key changes.
-            let r = unsafe { RegNotifyChangeKeyValue(key, false, REG_NOTIFY_CHANGE_LAST_SET, None, false) };
+            crate::eq::set_wanted(read_eq(key, &mut last_curve));
             if r.is_err() {
+                break;
+            }
+            let w = unsafe { WaitForSingleObject(changed, u32::MAX) };
+            if w != WAIT_OBJECT_0 && w != WAIT_TIMEOUT {
                 break;
             }
         }
