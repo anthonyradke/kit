@@ -59,6 +59,11 @@ const headsetSaver = makeSaver("headset_save", hcfg, (st) => {
 
 // Live EQ on the headset while dragging (not saved to its memory until the drag ends).
 let previewTimer = null;
+// A preview still waiting would land after the drag's save and undo it on the headset.
+function cancelPreview() {
+  clearTimeout(previewTimer);
+  previewTimer = null;
+}
 function preview() {
   if (previewTimer) return;
   previewTimer = setTimeout(() => {
@@ -779,14 +784,14 @@ Object.assign(handlers, {
   "apo-install"() {
     setApo(true);
   },
+  "eq-update"() {
+    setEqApo(true, true);
+  },
   "eq-install"() {
     setEqApo(true);
   },
   "eq-uninstall"() {
     setEqApo(false);
-  "eq-update"() {
-    setEqApo(true, true);
-  },
   },
   preamp(el) {
     hcfg().headset.preamp = el.dataset.v;
@@ -899,12 +904,29 @@ document.addEventListener("pointerdown", (e) => {
   if (!node || e.button !== 0) return;
   e.preventDefault();
   hv.band = Number(node.dataset.node);
-  drag = { i: hv.band, rect: $(".eq-svg").getBoundingClientRect() };
+  drag = { i: hv.band, rect: $(".eq-svg").getBoundingClientRect(), pointer: e.pointerId };
+  // Keep the pointer while dragging, so the release is seen even outside the window.
+  try {
+    document.documentElement.setPointerCapture(e.pointerId);
+  } catch {}
   render();
 });
 
+function endDrag() {
+  if (!drag) return;
+  try {
+    document.documentElement.releasePointerCapture(drag.pointer);
+  } catch {}
+  drag = null;
+  cancelPreview();
+  headsetSaver.save(0);
+  render();
+}
+
 document.addEventListener("pointermove", (e) => {
   if (!drag) return;
+  // The button came up without a pointerup reaching us (focus lost mid-drag).
+  if (!(e.buttons & 1)) return endDrag();
   const b = preset().bands[drag.i];
   const v = graphToValues(e.clientX, e.clientY, drag.rect);
   b.freq = v.freq;
@@ -913,12 +935,10 @@ document.addEventListener("pointermove", (e) => {
   render();
 });
 
-document.addEventListener("pointerup", () => {
-  if (!drag) return;
-  drag = null;
-  headsetSaver.save(0);
-  render();
-});
+document.addEventListener("pointerup", endDrag);
+document.addEventListener("pointercancel", endDrag);
+document.addEventListener("lostpointercapture", endDrag);
+window.addEventListener("blur", endDrag);
 
 document.addEventListener(
   "wheel",
@@ -949,8 +969,10 @@ document.addEventListener("dblclick", (e) => {
 
 function onHeadsetState(payload) {
   if (headsetSaver.unsaved() || drag) {
-    // Keep edits the backend doesn't have yet; take only the preset switch.
-    const config = { ...hcfg(), active: payload.config.active, mic: { ...hcfg().mic, denoise: payload.config.mic.denoise } };
+    // Keep edits the backend doesn't have yet; take only what the tray changes
+    // (preset, noise suppression, surround), or the pending save would undo it.
+    const headset = { ...hcfg().headset, surround: payload.config.headset.surround };
+    const config = { ...hcfg(), active: payload.config.active, headset, mic: { ...hcfg().mic, denoise: payload.config.mic.denoise } };
     H = { ...payload, config };
   } else {
     H = payload;

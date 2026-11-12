@@ -20,3 +20,4 @@ Settings, so keep each line to one short sentence about what changed for the use
 - When kit's EQ is added to or removed from the headset (including by a driver update), the EQ moves to match right away, so it is never missing or applied twice.
 - A future preset update keeps playing your edited version of the active built-in preset.
 - Updating kit's EQ no longer switches Run in kit on.
+- Dragging an EQ band ends cleanly when the window loses focus, and a surround switch from the tray isn't undone by an edit still being saved.
