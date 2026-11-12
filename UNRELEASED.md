@@ -14,3 +14,4 @@ Settings, so keep each line to one short sentence about what changed for the use
 - Installing an update puts the headset back as the default device and the PRO X TKL back on its own lighting first, as Quit does.
 - Quitting or updating while a macro or key combination is held lets go of its keys.
 - An update check or download that stalls gives up instead of leaving Settings on "Checking…".
+- A looping macro stops when its button or key is given another action.

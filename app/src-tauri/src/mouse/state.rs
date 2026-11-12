@@ -143,7 +143,10 @@ pub fn update_config(app: &AppHandle, mut config: Config) {
             core.dpi_stage = new.dpi_index;
         }
         let macros_changed = core.config.macros != config.macros;
-        if macros_changed {
+        // A looping macro whose button now does something else couldn't be
+        // stopped by that button any more.
+        let bindings = |c: &Config| c.profiles.iter().map(|p| (p.id.clone(), p.back.clone(), p.forward.clone())).collect::<Vec<_>>();
+        if macros_changed || bindings(&core.config) != bindings(&config) {
             let _ = shared.exec_tx.send(exec::Msg::CancelAll);
         }
         core.config = config;

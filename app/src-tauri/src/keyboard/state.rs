@@ -196,6 +196,10 @@ pub fn update_config(app: &AppHandle, mut config: Config) {
         }
         let lighting_changed = core.active_preset() != config.active_preset() || core.idle_off != config.idle_off;
         let menu_changed = tray_entries(&core) != tray_entries(&config);
+        // A looping macro whose key now does something else couldn't be stopped by it.
+        if core.bindings != config.bindings || core.kit_keys != config.kit_keys {
+            crate::mouse::exec::cancel_all(app);
+        }
         *core = config;
         save(&shared, &core);
         (lighting_changed, menu_changed)
