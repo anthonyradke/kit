@@ -25,3 +25,4 @@ Settings, so keep each line to one short sentence about what changed for the use
 - Two installs started at once no longer get in each other's way.
 - VIA macros copied into kit fit on the NK65 again: plain typing is stored as text instead of key presses.
 - NK65 lighting changed with the Fn keys no longer stops kit from setting it, and lighting picked with a slider is stored on the keyboard.
+- NK65 macro edits made while the keyboard is unplugged reach it when it's back, and a failed restore after flashing keeps the macro backup.

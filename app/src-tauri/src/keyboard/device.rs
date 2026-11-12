@@ -174,8 +174,15 @@ struct Worker {
     keymap_due: Option<Instant>,
     /// NK65: no keymap write before this time (a failed one backs off).
     keymap_retry: Instant,
-    /// NK65: the raw macro buffer as on the board.
+    /// NK65: the raw macro buffer as on the board, and whether it could be
+    /// read (an empty one that couldn't must not become the backup).
     macro_buffer: Vec<u8>,
+    macros_read: bool,
+    /// NK65: the onboard macros kit owns, as last sent, and whether they
+    /// still have to reach the board (it was unplugged, or a write failed).
+    owned_macros: Option<BTreeMap<u8, Vec<u8>>>,
+    macros_due: bool,
+    next_macros: Instant,
     /// NK65: a kit effect playing, the key press count it last saw and the
     /// sound meter (Music).
     anim: Option<Anim>,
@@ -203,14 +210,18 @@ impl Worker {
             save: false,
             lights_out: false,
             via_values: BTreeMap::new(),
+            unsaved: false,
             kit_colors: None,
             keymap_due: None,
             keymap_retry: now,
             macro_buffer: vec![],
+            macros_read: false,
+            owned_macros: None,
+            macros_due: false,
+            next_macros: now,
             anim: None,
             presses: 0,
             meter: None,
-            unsaved: false,
             next_meter: now,
             next_frame: now,
             next_open: now,
@@ -236,6 +247,9 @@ impl Worker {
             }
             if self.dirty && Instant::now() >= self.next_apply {
                 self.apply();
+            }
+            if self.macros_due && Instant::now() >= self.next_macros && matches!(self.dev, Some(Dev::Via(_))) {
+                self.write_macros();
             }
             if Instant::now() >= self.keymap_retry && self.keymap_due.is_some_and(|by| Instant::now() >= by || input::keys_up()) {
                 self.write_keymap();
@@ -268,6 +282,7 @@ impl Worker {
     fn wait(&mut self, until: Instant) {
         // Pending lighting only matters once a keyboard is open (opening re-sends it).
         let until = if self.dirty && self.dev.is_some() { until.min(self.next_apply) } else { until };
+        let until = if self.macros_due && self.dev.is_some() { until.min(self.next_macros) } else { until };
         let until = if self.keymap_due.is_some() { until.min(Instant::now() + KEYS_UP_POLL) } else { until };
         let wait = if self.model.is_none() { Duration::from_secs(3600) } else { until.saturating_duration_since(Instant::now()) };
         match self.rx.recv_timeout(wait) {
@@ -306,7 +321,11 @@ impl Worker {
                 self.set_lights_out(out);
                 let _ = done.send(());
             }
-            Cmd::Macros(owned) => self.write_macros(owned),
+            Cmd::Macros(owned) => {
+                self.owned_macros = Some(owned);
+                self.macros_due = true;
+                self.next_macros = Instant::now();
+            }
             Cmd::Release(done) => {
                 self.release();
                 let _ = done.send(());
@@ -349,7 +368,13 @@ impl Worker {
         self.dev = None;
         self.keymap_due = None;
         self.via_values.clear();
+        self.unsaved = false;
         self.kit_colors = None;
+        self.macro_buffer.clear();
+        self.macros_read = false;
+        if self.owned_macros.is_some() {
+            self.macros_due = true;
+        }
         self.status = Status { error, ..Status::default() };
         self.next_open = Instant::now() + OPEN_RETRY;
         if self.desired.is_some() {
@@ -368,7 +393,6 @@ impl Worker {
         match &self.dev {
             Some(Dev::Via(_)) => self.apply_via(),
             Some(Dev::Logi(_)) => self.apply_logi(),
-        self.unsaved = false;
             None => {}
         }
     }
@@ -387,7 +411,8 @@ impl Worker {
     /// Keep what is on the board now as the backup.
     fn save_backup(&self) {
         let (Some(path), Some(protocol)) = (self.backup_path(), self.status.protocol) else { return };
-        if self.status.keymap.is_empty() {
+        // A failed macro read must not replace the backed-up macros with none.
+        if self.status.keymap.is_empty() || !self.macros_read {
             return;
         }
         let s = &self.status;
@@ -436,12 +461,21 @@ impl Worker {
                 self.status.keymap[i] = code;
             }
         }
-        // The macro format is the same before and after protocol 12.
+        // The macro format is the same before and after protocol 12. Rebuilt
+        // macro by macro for this board's buffer, so a smaller one can't cut
+        // a macro in half or leave the end marker QMK checks set.
         let size = self.macro_buffer.len();
         if !b.macros.is_empty() && size > 0 {
-            let mut buffer = b.macros.clone();
-            buffer.resize(size, 0);
-            if buffer != self.macro_buffer && self.with_via(|board| board.set_macro_buffer(&buffer)).is_some() {
+            let count = self.status.macros.len().max(1);
+            let Some(buffer) = via::macros::join(&via::macros::split(&b.macros, count), size) else {
+                crate::logging::set_error(&mut self.status.error, "keyboard", "The backed-up macros don't fit in this firmware's macro memory.".into());
+                return;
+            };
+            if buffer != self.macro_buffer {
+                // Keep the offer (and the backup) until the macros are back.
+                if self.with_via(|board| board.set_macro_buffer(&buffer)).is_none() {
+                    return;
+                }
                 self.read_macros();
             }
         }
@@ -535,6 +569,11 @@ impl Worker {
         self.dev = Some(Dev::Via(board));
         self.read_macros();
         self.check_backup();
+        // Macro edits made while it was unplugged.
+        if self.owned_macros.is_some() && self.status.restore.is_none() {
+            self.macros_due = true;
+            self.next_macros = Instant::now();
+        }
         self.take_in_keymap();
         self.read_via_lighting();
         // First time: keep what VIA set (state sends it back as the active preset).
@@ -591,16 +630,21 @@ impl Worker {
 
     fn read_macros(&mut self) {
         let Some((count, buffer)) = self.with_via(|b| Ok((b.macro_count()?, b.macro_buffer()?))) else { return };
+        self.macros_read = true;
         self.status.macro_space = buffer.len();
         self.status.macros =
             via::macros::split(&buffer, count as usize).iter().map(|m| via::macros::decode(m).into_iter().map(Into::into).collect()).collect();
         self.macro_buffer = buffer;
     }
 
-    fn write_macros(&mut self, owned: BTreeMap<u8, Vec<u8>>) {
-        if !matches!(self.dev, Some(Dev::Via(_))) || self.macro_buffer.is_empty() {
+    /// Put the macros kit owns into their onboard slots, keeping the others.
+    /// Tried again later if the board can't take them now.
+    fn write_macros(&mut self) {
+        let Some(owned) = self.owned_macros.clone() else { return };
+        if !matches!(self.dev, Some(Dev::Via(_))) || !self.macros_read || self.macro_buffer.is_empty() {
             return;
         }
+        self.macros_due = false;
         let count = self.status.macros.len();
         let mut slots = via::macros::split(&self.macro_buffer, count);
         for (slot, bytes) in owned {
@@ -620,6 +664,9 @@ impl Worker {
             if self.status.restore.is_none() {
                 self.save_backup();
             }
+        } else {
+            self.macros_due = true;
+            self.next_macros = Instant::now() + APPLY_RETRY;
         }
     }
 
@@ -655,6 +702,11 @@ impl Worker {
             self.write_via(&lights_out(p));
             return;
         }
+        if self.save {
+            // The board's own keys (kit's firmware has lighting keys on Fn)
+            // or VIA may have changed it since kit last looked.
+            self.read_via_lighting();
+        }
         let wrote = self.write_via(&p);
         let colors = self.write_kit_colors(&p);
         let kit = anim::is_kit(p.effect);
@@ -665,6 +717,7 @@ impl Worker {
         // another preset, and so may lighting written while a slider moved.
         if (wrote || colors || kit || self.unsaved) && self.save {
             self.save = false;
+            self.unsaved = false;
             let _ = self.with_via(|b| b.save_lighting());
             if colors || (kit && self.kit_colors_supported()) {
                 let _ = self.with_via(|b| b.save_kit_colors());
@@ -706,18 +759,12 @@ impl Worker {
             }
         }
         wrote
-        if self.save {
-            // The board's own keys (kit's firmware has lighting keys on Fn)
-            // or VIA may have changed it since kit last looked.
-            self.read_via_lighting();
-        }
     }
 
     /// kit's firmware 4+: the second color and background level its effects use. True if sent.
     fn write_kit_colors(&mut self, p: &Preset) -> bool {
         if !self.kit_colors_supported() || self.lighting_kind() != Some(via::Lighting::RgbMatrix) {
             return false;
-            self.unsaved = false;
         }
         let [h, s] = to_hue_sat(parse_color(&p.color2).unwrap_or([255, 255, 255]));
         let want = [h, s, (p.background.min(100) as u16 * 255 / 100) as u8];
