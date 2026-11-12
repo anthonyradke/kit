@@ -275,6 +275,6 @@ impl Headset {
 
     /// Minutes of silence before the headset turns itself off (0 = never).
     pub fn set_inactive_time(&self, minutes: u8) -> Result<()> {
-        self.send(&[op::INACTIVE_TIME, minutes])
+        self.set(&[op::INACTIVE_TIME, minutes])
     }
 }

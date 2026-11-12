@@ -122,8 +122,9 @@ impl Worker {
                         }
                     }
                 }
-                if self.with_dev(|h| h.set_eq(&eq, false)).is_some() {
-                    // Not saved: make sure the next Apply saves it.
+                // Not saved: unless it's what the headset already has, make
+                // sure the next Apply writes (and saves) the EQ again.
+                if self.with_dev(|h| h.set_eq(&eq, false)).is_some() && self.written.eq != Some(arctis::encode_eq(&eq)) {
                     self.written.eq = None;
                 }
             }
