@@ -465,7 +465,8 @@ pub fn encode_onboard(m: &Macro) -> Vec<u8> {
     for _ in 0..times {
         all.extend(once.iter().cloned());
     }
-    via::macros::encode(&all)
+    // Plain typing goes back in as text, a sixth of the size.
+    via::macros::encode(&via::macros::as_text(&all))
 }
 
 /// Hand the PRO X TKL's lights back before kit exits.

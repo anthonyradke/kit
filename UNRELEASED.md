@@ -23,3 +23,4 @@ Settings, so keep each line to one short sentence about what changed for the use
 - Dragging an EQ band ends cleanly when the window loses focus, and a surround switch from the tray isn't undone by an edit still being saved.
 - Removing noise suppression or kit's EQ takes it off the headset even while the headset is unplugged, and uninstalling kit removes both.
 - Two installs started at once no longer get in each other's way.
+- VIA macros copied into kit fit on the NK65 again: plain typing is stored as text instead of key presses.
