@@ -24,3 +24,4 @@ Settings, so keep each line to one short sentence about what changed for the use
 - Removing noise suppression or kit's EQ takes it off the headset even while the headset is unplugged, and uninstalling kit removes both.
 - Two installs started at once no longer get in each other's way.
 - VIA macros copied into kit fit on the NK65 again: plain typing is stored as text instead of key presses.
+- NK65 lighting changed with the Fn keys no longer stops kit from setting it, and lighting picked with a slider is stored on the keyboard.

@@ -163,6 +163,9 @@ struct Worker {
     lights_out: bool,
     /// NK65: lighting values last read from or written to the board.
     via_values: BTreeMap<u8, [u8; 2]>,
+    /// NK65: lighting was written without being stored (a slider being
+    /// dragged), so the board's EEPROM still has the lighting from before.
+    unsaved: bool,
     /// NK65 on kit's firmware 4+: second color and background level, as on the board.
     kit_colors: Option<[u8; 3]>,
     /// NK65: the board has to take the active profile's keymap, by this time
@@ -207,6 +210,7 @@ impl Worker {
             anim: None,
             presses: 0,
             meter: None,
+            unsaved: false,
             next_meter: now,
             next_frame: now,
             next_open: now,
@@ -364,6 +368,7 @@ impl Worker {
         match &self.dev {
             Some(Dev::Via(_)) => self.apply_via(),
             Some(Dev::Logi(_)) => self.apply_logi(),
+        self.unsaved = false;
             None => {}
         }
     }
@@ -653,8 +658,12 @@ impl Worker {
         let wrote = self.write_via(&p);
         let colors = self.write_kit_colors(&p);
         let kit = anim::is_kit(p.effect);
-        // A kit effect's base may already be on the board while EEPROM holds another preset.
-        if (wrote || colors || kit) && self.save {
+        if (wrote || colors) && !self.save {
+            self.unsaved = true;
+        }
+        // A kit effect's base may already be on the board while EEPROM holds
+        // another preset, and so may lighting written while a slider moved.
+        if (wrote || colors || kit || self.unsaved) && self.save {
             self.save = false;
             let _ = self.with_via(|b| b.save_lighting());
             if colors || (kit && self.kit_colors_supported()) {
@@ -697,12 +706,18 @@ impl Worker {
             }
         }
         wrote
+        if self.save {
+            // The board's own keys (kit's firmware has lighting keys on Fn)
+            // or VIA may have changed it since kit last looked.
+            self.read_via_lighting();
+        }
     }
 
     /// kit's firmware 4+: the second color and background level its effects use. True if sent.
     fn write_kit_colors(&mut self, p: &Preset) -> bool {
         if !self.kit_colors_supported() || self.lighting_kind() != Some(via::Lighting::RgbMatrix) {
             return false;
+            self.unsaved = false;
         }
         let [h, s] = to_hue_sat(parse_color(&p.color2).unwrap_or([255, 255, 255]));
         let want = [h, s, (p.background.min(100) as u16 * 255 / 100) as u8];
