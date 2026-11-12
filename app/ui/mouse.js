@@ -356,7 +356,7 @@ function macroEditor(m) {
   return `<div class="canvas-head">
       <input class="pname" value="${esc(m.name)}" data-field="macro-name" spellcheck="false" aria-label="Macro name" />
       <div class="pactions">
-        <button class="btn" data-act="macro-test" ${m.steps.length && !recording ? "" : "disabled"} title="Plays once after 2 seconds, so you can click into the target window">${icons.play}Test</button>
+        <button class="btn" data-act="macro-test" ${m.steps.length && !recording ? "" : "disabled"} title="Plays after 2 seconds (as many times as Repeat says), so you can click into the target window">${icons.play}Test</button>
         <button class="tbtn ${deleting ? "confirm" : "danger"}" data-act="macro-delete">${icons.trash}${deleting ? "Confirm delete" : "Delete"}</button>
       </div>
     </div>

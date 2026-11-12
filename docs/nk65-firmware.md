@@ -11,7 +11,8 @@ effects of my own.
 `firmware/nk65/keymaps/kit` is a QMK keymap, built on `novelkeys/nk65/v1_4`, that runs on both NK65 PCBs:
 
 - `keymap.c`: QMK's default NK65 layout with VIA. Fn+\ is the bootloader key; the Fn layer has lighting keys
-  (Fn + Q/W/E effect, A/S/D/F hue and saturation, Z/X/C/V brightness and speed). It also answers two values on
+  (Fn + Q on/off, W/E next and previous effect, A/S/D/F hue and saturation, Z/X/C/V brightness and speed) and
+  volume keys (Fn + left Ctrl/Win/Alt: up, down, mute). It also answers two values on
   VIA's custom channel: `0x6B` (get) returns the firmware version, the number of kit effects, the first kit
   effect number and (from version 2) which PCB's pins have seen a key press; `0x62` (set) restarts the board into
   its bootloader; `0x63` (get/set, from version 4) is the second color's hue and saturation and the background

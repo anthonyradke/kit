@@ -41,7 +41,7 @@ audio thread without blocking or allocating.
 - **Processing:** 64-bit state, transposed direct form II, all channels alike.
 - **Preamp:** *Auto* (the default) turns the curve down by its biggest boost, -7.4 dB for Main, so nothing is ever
   limited; turn the volume up to make up for it. *Off* is as loud as Sonar.
-- **Limiter:** a stereo-linked lookahead peak limiter (1 ms lookahead, 120 ms release, ceiling -0.3 dBFS) catches
+- **Limiter:** a stereo-linked lookahead peak limiter (48-frame lookahead, 1 ms at 48 kHz, 120 ms release, ceiling -0.3 dBFS) catches
   what Off lets past full scale.
 
 Measured offline, with the release DLL loaded and driven through its own COM interfaces and the curve read from the

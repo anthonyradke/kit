@@ -5,10 +5,11 @@
 Requires Rust (MSVC toolchain) and the Tauri CLI (`cargo install tauri-cli`).
 
 ```
-cargo build --release -p kit-apo            # once: the installer bundles this DLL
+cargo build --release -p kit-apo            # first: the app's build checks this DLL exists (it bundles it)
 cargo build -p kit && target\debug\kit.exe  # run the app (debug)
 cd app/src-tauri && cargo tauri build       # release exe + installer (needs the updater signing key)
 cargo test                                  # unit tests (VIA codes and macros, EQ and lighting config, denoise, surround)
+cargo clippy --workspace --all-targets      # lints; kept free of warnings
 cargo run --release -p spatial --example demo -- out   # surround demo WAVs and renderer timing
 cargo run -p mouse-probe                    # mouse hardware test: device info
 cargo run -p mouse-probe -- dpi 800         # set DPI directly

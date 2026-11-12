@@ -16,7 +16,7 @@ kit replaces Logitech G HUB, SteelSeries GG / Sonar and the VIA web app, which w
 A personal, single-purpose replacement for two vendors' bloated suites, covering exactly this mouse and this headset. No virtual audio devices, no accounts, no popups. The headset EQ runs on the headset's own onboard DSP, or optionally in kit's APO on the headset's output (Sonar's curve, matched to 0.1 dB); either way it keeps working even when kit is not running.
 
 ## Operating Context
-- Tauri 2 desktop app, frameless window drawing its own title bar; plain HTML/CSS/JS (no bundler, no Node). Window ~1240x800, min 1000x660, not maximizable.
+- Tauri 2 desktop app, frameless window drawing its own title bar; plain HTML/CSS/JS (no bundler, no Node). Window ~1240x800, min 1000x660; maximize and F11 full screen work.
 - Closing the window destroys the webview; the app lives in the system tray. Only tray Quit exits.
 - Used at a gaming desk, often at night, often while a game is running.
 

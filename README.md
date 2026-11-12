@@ -35,33 +35,36 @@ Mouse
 - Unlimited profiles, each with DPI stages, polling rate and side-button bindings.
 - Profiles switch from the tray, a global shortcut or a side button.
 - Macros recorded with their timing, editable step by step, played once, while held or as a toggle.
-- Side buttons bind to a key combination, a macro, a DPI shift, DPI cycling or a profile switch.
+- Side buttons bind to a key combination, a macro, a DPI shift, DPI cycling, a profile switch or nothing.
 
 Keyboard
 - NK65 key profiles: full keymaps including the Fn layer. The active one is written to the keyboard, so it works
   on any computer.
 - NK65 lighting: effects, colors, brightness and speed with a live preview, saved as presets.
-- An optional NK65 firmware (QMK with VIA) adds eight per-key effects that run on the keyboard itself. kit backs up
-  the keymap and macros before flashing and restores them after. See [docs/nk65-firmware.md](docs/nk65-firmware.md).
+- An optional NK65 firmware (QMK with VIA) adds eight per-key effects that run on the keyboard. kit keeps the
+  keymap and macros across a flash. See [docs/nk65-firmware.md](docs/nk65-firmware.md).
 - Seven whole-board effects that kit plays on any firmware, including ones that react to typing and to music.
 - Macros stored on the NK65 (keys and waits) or run through kit (clicks, hold-to-repeat, toggle).
 - PRO X TKL: lighting effects, per-key painting, and per-key macros or key combinations.
-- Keyboard lights go out while the PC is locked, asleep or has its displays off.
+- NK65 lights go out while the PC is locked, asleep or has its displays off.
 
 Headset
 - A 10-band parametric EQ with a draggable curve, stored on the headset, so it applies to every app and keeps
   working when kit isn't running.
 - Optionally the EQ runs on the PC instead, reproducing SteelSeries Sonar's filters to within 0.1 dB from 20 Hz to
-  20 kHz without a virtual audio device. See [docs/sonar-eq.md](docs/sonar-eq.md).
+  20 kHz at 48 kHz without a virtual audio device. See [docs/sonar-eq.md](docs/sonar-eq.md).
 - Optional virtual 7.1 surround rendered from measured dummy-head and room responses.
 - DeepFilterNet 3 noise suppression on the headset's microphone endpoint, so every app receives the clean signal.
 - A mic test with recorded or live playback, after noise suppression.
 - Mic volume, sidetone, mute light, auto-off, volume limiter and battery.
+- The ChatMix dial balances chat apps against everything else.
+- Settings shows how the audio effects run and repairs them after a driver update.
 - The headset is restored as the default playback and recording device whenever it reconnects.
 
 App
 - The tray icon warns when a device that isn't charging drops to 15% battery.
 - All settings export to and import from one JSON file. kit saves the previous settings before an import.
+- A log file, and a diagnostics file from Settings for reporting a problem.
 - Signed updates from this repo's releases, installed from Settings or the tray.
 
 <p align="center">
@@ -72,8 +75,8 @@ App
 
 - Windows 11, x64. Windows 10 is untested.
 - At least one of the supported devices.
-- G HUB, SteelSeries GG and VIA closed or uninstalled. They use the same device channels and audio endpoints, and
-  the setup screen checks for all three.
+- G HUB, SteelSeries GG and VIA closed or uninstalled. They use the same device channels and audio endpoints. The
+  setup screen checks for G HUB and GG and reminds you about VIA.
 - For surround only: [VB-CABLE](https://vb-audio.com/Cable/).
 
 ## Install
@@ -92,23 +95,21 @@ flowchart LR
   core -- "VIA raw HID" --> nk65["NK65<br/>(QMK + VIA)"]
   core -- "vendor HID" --> base["Nova 5 base station"]
   core -- "Core Audio" --> audio["Windows audio endpoints"]
-  audio --> apo["kit-apo.dll<br/>EQ and noise suppression"]
+  audio --> apo["kit_apo.dll<br/>EQ and noise suppression"]
   cable["VB-CABLE 7.1"] -- "WASAPI loopback" --> spatial["Surround renderer"] --> audio
 ```
 
 Each device has a worker thread that owns its HID handle. The UI is plain HTML, CSS and JavaScript in the system
 WebView, with no build step.
 
-- Device settings are stored on the device wherever it supports that (mouse profile, active keymap, headset EQ), so
-  they hold without kit running.
-- Macro playback uses `SendInput` with scan codes, so it works in games that ignore virtual-key input.
+- Settings are stored on the device wherever it supports that (active keymap, headset EQ), so they hold without
+  kit running. The mouse runs in host mode; kit re-applies its DPI and rate when it wakes.
 - Effects that kit animates are streamed to the keyboard about 30 times a second without saving, so the EEPROM
   isn't worn and a power cut restores the stored lighting.
 - The EQ and noise suppression are Windows Audio Processing Objects in one DLL, loaded by the audio engine on the
   headset's own endpoints. Noise suppression adds about 50 ms of microphone latency.
-- Surround convolves each of the eight channels with a Neumann KU100 response for that speaker's direction and
-  resamples continuously to absorb clock drift between the cable and the headset. It adds about 40 ms and uses
-  about 1.5% of one CPU core.
+- Surround convolves each of the eight channels with a Neumann KU100 response for that speaker's direction. It
+  adds about 40 ms and uses about 1.5% of one CPU core.
 
 [docs/architecture.md](docs/architecture.md) covers each subsystem in detail.
 

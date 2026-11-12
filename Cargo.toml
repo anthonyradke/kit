@@ -24,6 +24,7 @@ codegen-units = 1
 strip = true
 # Unwind (not abort) so a bug in the APO falls back to passthrough instead of
 # taking down audiodg.exe.
+panic = "unwind"
 
 # DeepFilterNet (the mic APO's model) is far too slow unoptimized for the
 # denoise tests, which run at the audio engine's pace, and for a debug APO.
