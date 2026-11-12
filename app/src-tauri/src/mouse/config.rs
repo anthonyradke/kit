@@ -1,5 +1,6 @@
 //! Profiles, macros and settings, persisted as JSON in the app config dir.
 
+use std::collections::HashMap;
 use std::path::Path;
 use std::time::{SystemTime, UNIX_EPOCH};
 
@@ -148,17 +149,30 @@ pub fn new_id() -> String {
 /// Append what `list` doesn't have yet. An item it has is one with the same id,
 /// or the same contents under another id (the presets every install starts
 /// with). A new item that shares a name with one here gets told apart.
-pub fn add_items<T: Clone + PartialEq>(list: &mut Vec<T>, new: Vec<T>, id: fn(&mut T) -> &mut String, name: fn(&mut T) -> &mut String) {
+/// Returns, for each item left out that has a different id here, its id in
+/// the file and the id of the one here, so references to it can follow.
+pub fn add_items<T: Clone + PartialEq>(
+    list: &mut Vec<T>,
+    new: Vec<T>,
+    id: fn(&mut T) -> &mut String,
+    name: fn(&mut T) -> &mut String,
+) -> HashMap<String, String> {
+    let mut renamed = HashMap::new();
     for mut item in new {
         let new_id = id(&mut item).clone();
-        let known = list.iter().any(|have| {
+        let known = list.iter().find_map(|have| {
             let mut have = have.clone();
-            *id(&mut have) == new_id || {
-                *id(&mut have) = new_id.clone();
-                have == item
+            let have_id = id(&mut have).clone();
+            if have_id == new_id {
+                return Some(have_id);
             }
+            *id(&mut have) = new_id.clone();
+            (have == item).then_some(have_id)
         });
-        if known {
+        if let Some(have_id) = known {
+            if have_id != new_id {
+                renamed.insert(new_id, have_id);
+            }
             continue;
         }
         let new_name = name(&mut item).clone();
@@ -167,6 +181,7 @@ pub fn add_items<T: Clone + PartialEq>(list: &mut Vec<T>, new: Vec<T>, id: fn(&m
         }
         list.push(item);
     }
+    renamed
 }
 
 pub fn clamp_dpi(dpi: u16) -> u16 {
@@ -240,11 +255,33 @@ impl Config {
     }
 
     /// Add the profiles and macros of `other` that this config lacks, without
-    /// their shortcuts: someone else's would clash with the ones here.
+    /// their shortcuts: someone else's would clash with the ones here. A
+    /// macro or profile that is already here under another id stays out, and
+    /// what the new profiles bind to it points at the one here instead.
     pub fn add_from(&mut self, mut other: Config) {
         other.profiles.iter_mut().for_each(|p| p.hotkey = None);
-        add_items(&mut self.macros, other.macros, |m| &mut m.id, |m| &mut m.name);
-        add_items(&mut self.profiles, other.profiles, |p| &mut p.id, |p| &mut p.name);
+        let macros = add_items(&mut self.macros, other.macros, |m| &mut m.id, |m| &mut m.name);
+        let follow = |action: &mut Action, map: &HashMap<String, String>| match action {
+            Action::Macro { id } | Action::Profile { id } => {
+                if let Some(here) = map.get(id) {
+                    id.clone_from(here);
+                }
+            }
+            _ => {}
+        };
+        for p in &mut other.profiles {
+            follow(&mut p.back, &macros);
+            follow(&mut p.forward, &macros);
+        }
+        let added: Vec<String> = other.profiles.iter().map(|p| p.id.clone()).collect();
+        let profiles = add_items(&mut self.profiles, other.profiles, |p| &mut p.id, |p| &mut p.name);
+        for p in self.profiles.iter_mut().filter(|p| added.contains(&p.id)) {
+            for action in [&mut p.back, &mut p.forward] {
+                if matches!(action, Action::Profile { .. }) {
+                    follow(action, &profiles);
+                }
+            }
+        }
     }
 
     pub fn active_profile(&self) -> &Profile {
@@ -289,6 +326,27 @@ mod tests {
         let names: Vec<_> = list.iter().map(|p| p.name.as_str()).collect();
         assert_eq!(names, ["Default", "Default (imported)", "Wiz"]);
         assert_eq!(list[1].id, "b");
+    }
+
+    #[test]
+    fn added_profiles_follow_a_macro_that_is_already_here() {
+        let steps = vec![Step::Delay { ms: 10 }];
+        let mut mine = Config::default();
+        mine.macros.push(Macro { id: "a".into(), name: "e spam".into(), steps: steps.clone(), ..Macro::default() });
+        let mut theirs = Config::default();
+        theirs.macros.push(Macro { id: "b".into(), name: "e spam".into(), steps, ..Macro::default() });
+        theirs.profiles = vec![
+            Profile { back: Action::Macro { id: "b".into() }, forward: Action::Profile { id: "q".into() }, ..stage_profile("p", "Theirs", 800) },
+            mine.profiles[0].clone(),
+        ];
+        theirs.profiles[1].id = "q".into();
+        mine.add_from(theirs);
+        mine.normalize();
+        assert_eq!(mine.macros.len(), 1);
+        let added = mine.profile("p").unwrap();
+        assert_eq!(added.back, Action::Macro { id: "a".into() });
+        // "q" is the same as the profile here, so it points there.
+        assert_eq!(added.forward, Action::Profile { id: mine.profiles[0].id.clone() });
     }
 
     #[test]
