@@ -2,24 +2,36 @@
 # Release kit: scripts/release.sh 0.4.0
 # Takes the list in UNRELEASED.md as the release notes (the tag message, which CI publishes
 # with the installer and the in-app update shows), bumps the version, empties the list,
-# commits, tags and pushes. CI then builds and publishes the release.
+# commits, tags and pushes main and the tag together. CI then builds and publishes the release.
 set -e
 cd "$(dirname "$0")/.."
 v=${1:?usage: scripts/release.sh X.Y.Z}
 notes=$(sed -n '/^- /,$p' UNRELEASED.md)
 [ -n "$notes" ] || { echo "UNRELEASED.md has no changes listed"; exit 1; }
 [ -z "$(git status --porcelain)" ] || { echo "commit or stash your changes first"; exit 1; }
+[ "$(git rev-parse --abbrev-ref HEAD)" = main ] || { echo "release from main"; exit 1; }
+git fetch -q origin main
+[ -z "$(git rev-list HEAD..origin/main)" ] || { echo "main is behind origin/main; pull first"; exit 1; }
 git rev-parse -q --verify "refs/tags/v$v" >/dev/null && { echo "v$v already exists"; exit 1; }
+git ls-remote --exit-code --tags origin "refs/tags/v$v" >/dev/null && { echo "v$v already exists on origin"; exit 1; }
 
-sed -i "0,/^version = \".*\"/s//version = \"$v\"/" app/src-tauri/Cargo.toml
-sed -i "0,/\"version\": \".*\"/s//\"version\": \"$v\"/" app/src-tauri/tauri.conf.json
-cargo update -p kit --offline -q
-sed -i '/^- /,$d' UNRELEASED.md
+files="UNRELEASED.md Cargo.lock app/src-tauri/Cargo.toml app/src-tauri/tauri.conf.json"
+undo() {
+    # shellcheck disable=SC2086
+    git checkout -q -- $files
+    echo "release stopped; the version files are as they were"
+    exit 1
+}
+sed -i "0,/^version = \".*\"/s//version = \"$v\"/" app/src-tauri/Cargo.toml || undo
+sed -i "0,/\"version\": \".*\"/s//\"version\": \"$v\"/" app/src-tauri/tauri.conf.json || undo
+cargo update -p kit --offline -q || undo
+sed -i '/^- /,$d' UNRELEASED.md || undo
 
-git add UNRELEASED.md Cargo.lock app/src-tauri/Cargo.toml app/src-tauri/tauri.conf.json
+# shellcheck disable=SC2086
+git add $files
 git commit -qm "release $v"
 printf '%s\n' "$notes" | git tag -a "v$v" -F -
-git push -q
-git push -q origin "v$v"
+# Both or neither: a release commit without its tag (or the reverse) can't happen.
+git push -q --atomic origin main "v$v"
 echo "pushed v$v; CI is building the release:"
 printf '%s\n' "$notes"
