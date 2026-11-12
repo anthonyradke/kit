@@ -138,6 +138,7 @@
       return { path: "C:\\Users\\you\\Documents\\kit-settings-2026-10-31.json", version: "0.6.0", mouse: { profiles: 3, macros: 1 }, keyboard: { model, fits: model === kb, profiles: 2, presets: 4 }, headset: { presets: 4 } };
     },
     settings_import: () => {},
+    settings_problems: () => (q.get("problems") ? ["mouse.json wasn't valid (expected value at line 1 column 1), so kit started with defaults. The old file is kept as mouse.json.1762900000.bak."] : []),
     open_vbcable_page: () => {},
     surround_test: () => {
       const names = ["Front left", "Center", "Front right", "Side right", "Rear right", "Rear left", "Side left"];

@@ -395,11 +395,8 @@ impl Worker {
             keymap: s.keymap.clone(),
             macros: self.macro_buffer.clone(),
         };
-        if let Ok(text) = serde_json::to_string(&b) {
-            let tmp = path.with_extension("json.tmp");
-            if std::fs::write(&tmp, text).is_ok() {
-                let _ = std::fs::rename(tmp, path);
-            }
+        if let Err(e) = crate::store::save(&path, &b) {
+            log::error!("failed to save the NK65 backup: {e}");
         }
     }
 

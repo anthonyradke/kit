@@ -8,6 +8,7 @@ mod logging;
 mod mouse;
 mod session;
 mod setup;
+mod store;
 mod tray;
 mod update;
 
@@ -140,6 +141,7 @@ fn main() {
             backup::settings_export,
             backup::settings_open,
             backup::settings_import,
+            backup::settings_problems,
             update::update_state,
             update::check_update,
             update::install_update,

@@ -15,8 +15,10 @@ use crate::{headset, keyboard, mouse, setup};
 /// Bump when an older kit could no longer read the file.
 const FORMAT: u64 = 1;
 const NOT_A_BACKUP: &str = "That isn't a kit settings file.";
-/// What's here is kept under this name, in kit's config folder, before an import.
-const BEFORE_IMPORT: &str = "before-import.json";
+/// What's here is kept as before-import-<time>.json, in kit's config folder,
+/// before an import. The newest few are kept.
+const BEFORE_IMPORT: &str = "before-import";
+const KEEP_BEFORE_IMPORT: usize = 5;
 
 #[derive(Debug, PartialEq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
@@ -54,8 +56,7 @@ impl Bundle {
     }
 
     fn write(&self, path: &Path) -> Result<(), String> {
-        let text = serde_json::to_string_pretty(self).map_err(|e| e.to_string())?;
-        std::fs::write(path, text).map_err(|e| e.to_string())
+        crate::store::save(path, self).map_err(|e| e.to_string())
     }
 
     /// The settings kit is running with now.
@@ -121,7 +122,7 @@ pub fn settings_open(app: AppHandle) -> Result<Option<Value>, String> {
 pub fn settings_import(app: AppHandle, path: String, mouse: bool, keyboard: bool, headset: bool, replace: bool) -> Result<(), String> {
     let bundle = Bundle::read(Path::new(&path))?;
     let dir = app.path().app_config_dir().map_err(|e| e.to_string())?;
-    Bundle::current(&app).write(&dir.join(BEFORE_IMPORT))?;
+    keep_current(&app, &dir)?;
     if let Some(config) = bundle.mouse.filter(|_| mouse) {
         mouse::state::import(&app, config, replace);
     }
@@ -133,6 +134,31 @@ pub fn settings_import(app: AppHandle, path: String, mouse: bool, keyboard: bool
         headset::state::import(&app, config, replace);
     }
     Ok(())
+}
+
+/// Save the settings kit runs with now as a new before-import file, and drop
+/// the oldest ones past the few kept.
+fn keep_current(app: &AppHandle, dir: &Path) -> Result<(), String> {
+    let name = format!("{BEFORE_IMPORT}-{}.json", crate::logging::file_stamp());
+    Bundle::current(app).write(&dir.join(name))?;
+    let mut old: Vec<PathBuf> = std::fs::read_dir(dir)
+        .map_err(|e| e.to_string())?
+        .filter_map(|e| e.ok().map(|e| e.path()))
+        .filter(|p| p.file_name().and_then(|n| n.to_str()).is_some_and(|n| n.starts_with(BEFORE_IMPORT) && n.ends_with(".json")))
+        .collect();
+    // The stamp sorts by time; the plain before-import.json of older kits sorts first.
+    old.sort();
+    let extra = old.len().saturating_sub(KEEP_BEFORE_IMPORT);
+    for path in &old[..extra] {
+        let _ = std::fs::remove_file(path);
+    }
+    Ok(())
+}
+
+/// Settings files kit couldn't use when it started, for the window to mention.
+#[tauri::command]
+pub fn settings_problems() -> Vec<String> {
+    crate::store::problems()
 }
 
 #[cfg(test)]

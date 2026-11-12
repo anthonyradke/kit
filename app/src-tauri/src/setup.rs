@@ -54,15 +54,16 @@ pub struct Shared {
 pub fn init(app: &AppHandle) -> tauri::Result<()> {
     let dir = app.path().app_config_dir()?;
     let path = dir.join("app.json");
-    let config = match std::fs::read_to_string(&path) {
-        Ok(text) => serde_json::from_str(text.trim_start_matches('\u{feff}')).unwrap_or_default(),
+    let config = if path.exists() {
+        crate::store::load(&path)
+    } else {
         // Before setup existed kit was the white mouse and headset; offer those.
-        Err(_) => AppConfig {
+        AppConfig {
             setup_done: false,
             mouse: dir.join("mouse.json").exists().then(Product::default),
             headset: dir.join("headset.json").exists().then(Product::default),
             keyboard: None,
-        },
+        }
     };
     app.manage(Shared { config: Mutex::new(normalized(config)), path });
     Ok(())
@@ -109,11 +110,7 @@ pub fn app_save(app: AppHandle, config: AppConfig) -> Result<AppConfig, String> 
     let old = {
         let shared = app.state::<Shared>();
         let mut current = shared.config.lock().unwrap();
-        let text = serde_json::to_string_pretty(&config).map_err(|e| e.to_string())?;
-        if let Some(dir) = shared.path.parent() {
-            std::fs::create_dir_all(dir).map_err(|e| e.to_string())?;
-        }
-        std::fs::write(&shared.path, text).map_err(|e| e.to_string())?;
+        crate::store::save(&shared.path, &config).map_err(|e| e.to_string())?;
         std::mem::replace(&mut *current, config.clone())
     };
     let model = config.keyboard.as_ref().map(|k| k.model);

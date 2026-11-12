@@ -388,18 +388,7 @@ pub fn new_id() -> String {
 
 impl Config {
     pub fn load(path: &Path) -> Self {
-        let mut config = match std::fs::read_to_string(path) {
-            Err(_) => Config::default(),
-            Ok(text) => match serde_json::from_str::<Config>(text.trim_start_matches('\u{feff}')) {
-                Ok(c) => c,
-                Err(e) => {
-                    // Keep the unreadable file instead of overwriting the user's presets.
-                    eprintln!("config unreadable ({e}); backing it up and starting fresh");
-                    let _ = std::fs::copy(path, path.with_extension("json.bak"));
-                    Config::default()
-                }
-            },
-        };
+        let mut config: Config = crate::store::load(path);
         config.normalize();
         if config.upgrade_presets() {
             let _ = config.save(path);
@@ -445,12 +434,7 @@ impl Config {
     }
 
     pub fn save(&self, path: &Path) -> std::io::Result<()> {
-        if let Some(dir) = path.parent() {
-            std::fs::create_dir_all(dir)?;
-        }
-        let tmp = path.with_extension("json.tmp");
-        std::fs::write(&tmp, serde_json::to_string_pretty(self)?)?;
-        std::fs::rename(tmp, path)
+        crate::store::save(path, self)
     }
 
     /// Add the presets of `other` that this config lacks.

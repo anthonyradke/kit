@@ -12,6 +12,8 @@ const DEVICE_ORDER = ["mouse", "keyboard", "headset"];
 const devices = () => DEVICE_ORDER.filter((d) => A[d]);
 
 let autostart = false;
+// Settings files kit couldn't use when it started (it kept them aside and used defaults).
+let settingsProblems = [];
 let upd = { current: "", available: null, notes: null, checking: false, checked: false, progress: null, error: null };
 // Which page is open; remembered across window closes (the webview is destroyed on close).
 const view = { page: "home", mouse: "profiles", keyboard: "keys", headset: "sound", ...JSON.parse(localStorage.getItem("kit.view") || "{}") };
@@ -403,6 +405,7 @@ function settingsPage() {
       <dt>Keyboard</dt><dd class="path">${esc(K.configPath)}</dd>
       <dt>Headset</dt><dd class="path">${esc(H.configPath)}</dd>
     </dl>
+    ${settingsProblems.map((p) => `<p class="hint warn">${esc(p)}</p>`).join("")}
 
     ${A.headset ? `<h2 class="h2">Noise suppression log</h2>
     <p class="hint">What Windows' audio engine reported when it loaded kit's noise suppression.</p>
@@ -439,7 +442,7 @@ function importPanel() {
     ${part("mouse", "Mouse and macros", info.mouse && `${counted(info.mouse.profiles, "profile")}, ${counted(info.mouse.macros, "macro")}`)}
     ${part("keyboard", "Keyboard", keyboard, k?.fits, k && `Made for a ${esc(PRODUCTS[k.model].name)}, so it can't go on ${A.keyboard ? "this keyboard" : "this PC"}.`)}
     ${part("headset", "Headset", info.headset && `${counted(info.headset.presets, "EQ preset")} and its settings`)}
-    <p class="hint">Add keeps everything you have and brings in what's new, without its shortcuts. Replace swaps what's ticked for the file's. Either way kit first saves your current settings as before-import.json, next to the files below.</p>
+    <p class="hint">Add keeps everything you have and brings in what's new, without its shortcuts. Replace swaps what's ticked for the file's. Either way kit first saves your current settings as a before-import file next to the files below, keeping the last five.</p>
     <div class="btn-row">
       <button class="btn" data-act="settings-import" data-replace="" ${off}>Add to mine</button>
       <button class="btn quiet" data-act="settings-import" data-replace="1" ${off}>Replace mine</button>
@@ -740,6 +743,8 @@ syncMaxButton();
     invoke("get_autostart"),
     invoke("update_state"),
   ]);
+  settingsProblems = (await invoke("settings_problems").catch(() => null)) || [];
+  if (settingsProblems.length) toast("Some settings couldn't be read, so kit started with defaults. Settings has the details.", 8000);
   mv.profileId = mcfg().active;
   render();
   if (!A.setupDone) detect();

@@ -43,6 +43,12 @@ fn timestamp() -> String {
     }
 }
 
+/// Local time for a file name, as `20261112-140307`.
+pub fn file_stamp() -> String {
+    let t = timestamp();
+    t.get(..19).unwrap_or(&t).replace(['-', ':'], "").replace(' ', "-")
+}
+
 fn open(path: &Path) -> Option<(File, u64)> {
     let file = OpenOptions::new().create(true).append(true).open(path).ok()?;
     let len = file.metadata().map(|m| m.len()).unwrap_or(0);

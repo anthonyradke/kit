@@ -7,6 +7,7 @@
 #   &surround=on|stereo|off|nocable|error (virtual surround states)
 #   &kiteq=on|installed|none (kit's EQ on the headset output: running, switched off, not installed)
 #   &import=tkl (the settings file to import is from another keyboard)
+#   &problems=1 (a settings file couldn't be read at startup)
 set -e
 here=$(cd "$(dirname "$0")" && pwd)
 dir=$(mktemp -d)
