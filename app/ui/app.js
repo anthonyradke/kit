@@ -407,15 +407,54 @@ function settingsPage() {
     </dl>
     ${settingsProblems.map((p) => `<p class="hint warn">${esc(p)}</p>`).join("")}
 
-    ${A.headset ? `<h2 class="h2">Noise suppression log</h2>
-    <p class="hint">What Windows' audio engine reported when it loaded kit's noise suppression.</p>
-    <div style="margin-top:10px"><button class="btn quiet" data-act="show-log">${hv.log === null ? "Show log" : "Refresh log"}</button></div>
-    ${hv.log !== null ? `<div class="logbox">${esc(hv.log || "Empty: the audio engine hasn't loaded noise suppression yet.")}</div>` : ""}` : ""}
+    ${A.headset ? audioEffectsSection() : ""}
 
     <h2 class="h2">About</h2>
     <p class="hint">Closing this window keeps kit running in the tray; use Quit in the tray menu to exit. Keep Logitech G HUB, SteelSeries GG and VIA closed: they fight kit for the same devices.</p>
   </div></div>`;
 }
+
+// ---------- audio effects ----------
+
+// Noise suppression and kit's EQ run inside Windows' audio engine: how they're
+// doing, a repair for when they aren't, and what the engine logged.
+let repairing = false;
+let repairError = null;
+
+function audioEffectsSection() {
+  const a = H.audio;
+  const lines = [
+    a.apoInstalled && `<div class="kv-row"><span class="cap">Noise suppression</span>${micHealthLine()}</div>`,
+    a.eqApoInstalled && `<div class="kv-row"><span class="cap">kit's EQ</span>${eqHealthLine()}</div>`,
+  ].filter(Boolean);
+  return `<h2 class="h2">Audio effects</h2>
+    <div class="row col">
+      ${lines.length ? lines.join("") : `<p class="hint">Neither noise suppression (Mic page) nor kit's EQ (Sound page) is installed.</p>`}
+      <div class="row-head">
+        <div><div class="rtitle">Repair</div><p class="hint">Puts noise suppression and kit's EQ back on the headset after a driver update, replaces missing or old files, takes them off devices they were left on and restarts Windows audio (sound stops for a second). Windows asks for permission once.</p></div>
+        <button class="btn quiet" data-act="repair-effects" ${repairing ? "disabled" : ""}>${icons.shield}${repairing ? "Repairing…" : "Repair"}</button>
+      </div>
+      ${repairError ? `<div class="state-line bad">${esc(repairError)}</div>` : ""}
+    </div>
+    <div style="margin-top:10px"><button class="btn quiet" data-act="show-log">${hv.log === null ? "Show the audio engine's log" : "Refresh log"}</button></div>
+    ${hv.log !== null ? `<div class="logbox">${esc(hv.log || "Empty: the audio engine hasn't loaded kit's effects yet.")}</div>` : ""}`;
+}
+
+handlers["repair-effects"] = async () => {
+  repairing = true;
+  repairError = null;
+  render();
+  try {
+    const r = await invoke("repair_audio_effects");
+    H = r.state;
+    toast(r.done.length ? r.done.join(" ") : "Nothing needed fixing; Windows audio was restarted.", 6000);
+  } catch (err) {
+    repairError = String(err);
+  } finally {
+    repairing = false;
+    render();
+  }
+};
 
 // ---------- import ----------
 

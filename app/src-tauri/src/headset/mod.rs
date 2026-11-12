@@ -71,7 +71,31 @@ pub fn set_apo_installed(app: AppHandle, install: bool) -> Result<UiState, Strin
         let _ = sysaudio::apo::set_mic_settings(mic.denoise, mic.strength as u32);
     }
     let _ = app.state::<Shared>().audio_tx.send(audio::Cmd::Refresh);
-    result.map(|()| state::ui_state(&app))
+    result.map(|_| state::ui_state(&app))
+}
+
+#[derive(serde::Serialize)]
+pub struct Repaired {
+    state: UiState,
+    /// What was fixed, one line each; empty when nothing needed it.
+    done: Vec<String>,
+}
+
+/// Put kit's audio effects back in working order (one UAC prompt); see
+/// `sysaudio::apo::repair`.
+#[tauri::command(async)]
+pub fn repair_audio_effects(app: AppHandle) -> Result<Repaired, String> {
+    let dll = elevate::apo_dll().map(|d| d.to_string_lossy().into_owned());
+    let mut args = vec![elevate::REPAIR_ARG];
+    if let Some(dll) = &dll {
+        args.push(dll);
+    }
+    let said = elevate::run_elevated(&args)?;
+    log::info!("repaired audio effects: {}", if said.is_empty() { "nothing to fix" } else { &said });
+    // The settings key may be new again: send the EQ and mic settings.
+    state::apply(&app);
+    let _ = app.state::<Shared>().audio_tx.send(audio::Cmd::Refresh);
+    Ok(Repaired { state: state::ui_state(&app), done: said.lines().map(str::to_owned).collect() })
 }
 
 /// Install or remove kit's EQ on the headset output (one UAC prompt).
@@ -87,7 +111,7 @@ pub fn set_eq_apo_installed(app: AppHandle, install: bool) -> Result<UiState, St
     // the preset goes back onto the headset.
     state::apply(&app);
     let _ = app.state::<Shared>().audio_tx.send(audio::Cmd::Refresh);
-    result.map(|()| state::ui_state(&app))
+    result.map(|_| state::ui_state(&app))
 }
 
 /// Record a mic sample, play it back or listen live; `Idle` stops. Progress

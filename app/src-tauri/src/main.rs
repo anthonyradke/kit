@@ -143,6 +143,7 @@ fn main() {
             headset::set_eq_apo_installed,
             headset::set_mic_test,
             headset::apo_log,
+            headset::repair_audio_effects,
             headset::surround_test,
             headset::open_vbcable_page,
             keyboard::keyboard_state,

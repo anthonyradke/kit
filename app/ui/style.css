@@ -793,6 +793,8 @@ body.in-setup .rail { display: none; }
 .fpage .plate { margin: 4px 0 6px; }
 .state-line { display: flex; align-items: center; gap: 10px; color: var(--ink-2); font-size: 13px; }
 .state-line .grow { flex: 1; }
+.kv-row { display: flex; align-items: center; gap: 12px; }
+.kv-row > .cap { flex: none; width: 140px; }
 .state-line.warn { color: var(--warn); }
 .state-line.bad { color: var(--bad-text); }
 .mic-btns { display: flex; flex: none; gap: 8px; }

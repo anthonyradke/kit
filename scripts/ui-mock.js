@@ -148,6 +148,8 @@
       return { path: "C:\\Users\\you\\Documents\\kit-settings-2026-10-31.json", version: "0.6.0", mouse: { profiles: 3, macros: 1 }, keyboard: { model, fits: model === kb, profiles: 2, presets: 4 }, headset: { presets: 4 } };
     },
     settings_import: () => {},
+    repair_audio_effects: () => new Promise((r) => setTimeout(() => r({ state: H, done: q.get("repair") ? ["Put kit headset EQ back on Headphones (Arctis Nova 5)."] : [] }), 800)),
+    apo_log: () => "[1234] instance created (1 total)\n[1234] lock: 1 ch, 48000 Hz, max 480 frames, denoise true at 90%",
     settings_problems: () => (q.get("problems") ? ["mouse.json wasn't valid (expected value at line 1 column 1), so kit started with defaults. The old file is kept as mouse.json.1762900000.bak."] : []),
     open_vbcable_page: () => {},
     surround_test: () => {

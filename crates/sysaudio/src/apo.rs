@@ -280,6 +280,70 @@ pub fn uninstall_all() -> Result<()> {
     })
 }
 
+/// Put kit's effects back in working order, saying what was done:
+/// - an endpoint left naming an effect that's gone, or one that isn't the
+///   headset's (a driver update recreates endpoints under new ids), drops it;
+/// - a missing or older DLL is replaced by `dll_source` (this kit's), or the
+///   effect is removed when there's no DLL to put back;
+/// - an installed effect missing from the headset's endpoint goes back on;
+/// - the settings key and the backups get their permissions back.
+///
+/// The audio service restarts either way, which also starts afresh an APO
+/// that fell back to passthrough after an error.
+pub fn repair(dll_source: Option<&Path>, output: Option<&Endpoint>, input: Option<&Endpoint>) -> Result<Vec<String>> {
+    let mut done = Vec::new();
+    restart_audio(|| {
+        if !anything_installed() {
+            return Ok(());
+        }
+        register_settings_key()?;
+        let dll = install_dir().join(DLL_NAME);
+        let mut dll_updated = false;
+        for effect in [Effect::MicDenoise, Effect::HeadsetEq] {
+            let ep = match effect {
+                Effect::MicDenoise => input,
+                Effect::HeadsetEq => output,
+            };
+            let listed = effect.listed();
+            for a in attached().into_iter().filter(|a| a.effect == effect) {
+                let current = ep.is_some_and(|e| e.flow == a.flow && e.guid().eq_ignore_ascii_case(&a.guid));
+                if !listed || (ep.is_some() && !current) {
+                    detach(a.flow, &a.guid)?;
+                    done.push(format!("Took {} off an audio device it no longer belongs on.", effect.name()));
+                }
+            }
+            if !listed {
+                continue;
+            }
+            match dll_source {
+                Some(src) if !dll.exists() || !is_current(src) => {
+                    if !dll_updated {
+                        std::fs::create_dir_all(install_dir())?;
+                        std::fs::copy(src, &dll)?;
+                        dll_updated = true;
+                        done.push("Put this version of kit's audio effects in place.".into());
+                    }
+                }
+                None if !dll.exists() => {
+                    remove(effect)?;
+                    done.push(format!("Removed {}: its DLL was missing. Install it again from kit.", effect.name()));
+                    continue;
+                }
+                _ => {}
+            }
+            register_com(&dll, effect)?;
+            if let Some(ep) = ep {
+                if !status(ep, effect).on_endpoint {
+                    attach(ep, effect)?;
+                    done.push(format!("Put {} back on {}.", effect.name(), ep.name));
+                }
+            }
+        }
+        Ok(())
+    })?;
+    Ok(done)
+}
+
 fn remove(effect: Effect) -> Result<()> {
     for a in attached().into_iter().filter(|a| a.effect == effect) {
         detach(a.flow, &a.guid)?;

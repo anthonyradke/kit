@@ -27,3 +27,4 @@ Settings, so keep each line to one short sentence about what changed for the use
 - NK65 lighting changed with the Fn keys no longer stops kit from setting it, and lighting picked with a slider is stored on the keyboard.
 - NK65 macro edits made while the keyboard is unplugged reach it when it's back, and a failed restore after flashing keeps the macro backup.
 - The Mic and Sound pages show what noise suppression and kit's EQ are doing inside Windows' audio engine, including when one has fallen back to passing audio through.
+- Settings has a Repair for noise suppression and kit's EQ: it puts them back after a driver update, replaces missing or old files and restarts Windows audio.

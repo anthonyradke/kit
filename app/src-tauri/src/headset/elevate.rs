@@ -19,8 +19,10 @@ pub const UNINSTALL_EQ_ARG: &str = "--uninstall-eq-apo";
 pub const REMOVE_ALL_ARG: &str = "--remove-audio-effects";
 /// The elevated half of [`REMOVE_ALL_ARG`].
 const REMOVE_ALL_ELEVATED_ARG: &str = "--remove-audio-effects-elevated";
+/// Put kit's effects back in working order (`sysaudio::apo::repair`).
+pub const REPAIR_ARG: &str = "--repair-audio-effects";
 const RESULT_ARG: &str = "--result";
-const HELPER_ARGS: [&str; 6] = [INSTALL_ARG, UNINSTALL_ARG, INSTALL_EQ_ARG, UNINSTALL_EQ_ARG, REMOVE_ALL_ARG, REMOVE_ALL_ELEVATED_ARG];
+const HELPER_ARGS: [&str; 7] = [INSTALL_ARG, UNINSTALL_ARG, INSTALL_EQ_ARG, UNINSTALL_EQ_ARG, REMOVE_ALL_ARG, REMOVE_ALL_ELEVATED_ARG, REPAIR_ARG];
 
 /// The DLL ships next to the exe (installer resources, or the cargo target dir in development).
 pub fn apo_dll() -> Option<PathBuf> {
@@ -31,8 +33,8 @@ pub fn apo_dll() -> Option<PathBuf> {
 
 /// Run `exe <args> --result <file>` elevated and wait for it. One at a time:
 /// installs restart the audio service and copy the same DLL, so a second
-/// one waits for the first.
-pub fn run_elevated(args: &[&str]) -> Result<(), String> {
+/// one waits for the first. On success, what the helper had to say (if anything).
+pub fn run_elevated(args: &[&str]) -> Result<String, String> {
     static ONE_AT_A_TIME: std::sync::Mutex<()> = std::sync::Mutex::new(());
     let _turn = ONE_AT_A_TIME.lock().unwrap_or_else(|e| e.into_inner());
     let exe = std::env::current_exe().map_err(|e| e.to_string())?;
@@ -69,7 +71,7 @@ pub fn run_elevated(args: &[&str]) -> Result<(), String> {
         let message = std::fs::read_to_string(&result_file).unwrap_or_default();
         let _ = std::fs::remove_file(&result_file);
         if code == 0 {
-            Ok(())
+            Ok(message)
         } else if message.is_empty() {
             Err(format!("Setup failed (exit code {code})."))
         } else {
@@ -95,14 +97,19 @@ pub fn helper_main(args: &[String]) -> Option<i32> {
             return Some(0);
         }
         return Some(match run_elevated(&[REMOVE_ALL_ELEVATED_ARG]) {
-            Ok(()) => 0,
+            Ok(_) => 0,
             Err(_) => 1,
         });
     }
     let result_file = args.iter().position(|a| a == RESULT_ARG).and_then(|i| args.get(i + 1)).map(PathBuf::from);
     let result = run_helper(action, args.get(2).filter(|a| *a != RESULT_ARG).map(Path::new));
     let code = match &result {
-        Ok(()) => 0,
+        Ok(said) => {
+            if let (Some(f), false) = (&result_file, said.is_empty()) {
+                let _ = std::fs::write(f, said);
+            }
+            0
+        }
         Err(e) => {
             if let Some(f) = &result_file {
                 let _ = std::fs::write(f, e);
@@ -113,11 +120,17 @@ pub fn helper_main(args: &[String]) -> Option<i32> {
     Some(code)
 }
 
-fn run_helper(action: &str, dll: Option<&Path>) -> Result<(), String> {
+fn run_helper(action: &str, dll: Option<&Path>) -> Result<String, String> {
     use sysaudio::apo::Effect;
     sysaudio::com_init();
     if action == REMOVE_ALL_ELEVATED_ARG {
-        return sysaudio::apo::uninstall_all().map_err(|e| e.to_string());
+        return sysaudio::apo::uninstall_all().map(|()| String::new()).map_err(|e| e.to_string());
+    }
+    if action == REPAIR_ARG {
+        let find = |flow| sysaudio::find_arctis(flow).ok().flatten();
+        let (output, input) = (find(sysaudio::Flow::Output), find(sysaudio::Flow::Input));
+        let done = sysaudio::apo::repair(dll, output.as_ref(), input.as_ref()).map_err(|e| e.to_string())?;
+        return Ok(done.join("\n"));
     }
     let (effect, flow, missing) = if action == INSTALL_EQ_ARG || action == UNINSTALL_EQ_ARG {
         (Effect::HeadsetEq, sysaudio::Flow::Output, "The Arctis Nova 5 isn't connected. Plug in the base station and try again.")
@@ -128,9 +141,9 @@ fn run_helper(action: &str, dll: Option<&Path>) -> Result<(), String> {
     if action == INSTALL_ARG || action == INSTALL_EQ_ARG {
         let dll = dll.ok_or("missing DLL path")?;
         let ep = ep.ok_or(missing)?;
-        sysaudio::apo::install(dll, &ep, effect).map_err(|e| e.to_string())
+        sysaudio::apo::install(dll, &ep, effect).map(|()| String::new()).map_err(|e| e.to_string())
     } else {
         // From every endpoint that lists it, the headset plugged in or not.
-        sysaudio::apo::uninstall(effect).map_err(|e| e.to_string())
+        sysaudio::apo::uninstall(effect).map(|()| String::new()).map_err(|e| e.to_string())
     }
 }
