@@ -86,7 +86,7 @@ fn apply_active(app: &AppHandle) {
 
 fn save(shared: &Shared, config: &Config) {
     if let Err(e) = config.save(&shared.config_path) {
-        eprintln!("failed to save config: {e}");
+        log::error!("failed to save mouse.json: {e}");
     }
 }
 

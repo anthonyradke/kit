@@ -56,14 +56,14 @@ unsafe fn session_thread() {
         std::ptr::null(),
     );
     if hwnd.is_null() {
-        eprintln!("session: creating the window failed; the keyboard won't notice the PC locking");
+        log::warn!("creating the window failed; the keyboard won't notice the PC locking");
         return;
     }
     if WTSRegisterSessionNotification(hwnd, NOTIFY_FOR_THIS_SESSION) == 0 {
-        eprintln!("session: lock notifications unavailable");
+        log::warn!("lock notifications unavailable");
     }
     if RegisterPowerSettingNotification(hwnd, &GUID_CONSOLE_DISPLAY_STATE, DEVICE_NOTIFY_WINDOW_HANDLE) == 0 {
-        eprintln!("session: display notifications unavailable");
+        log::warn!("display notifications unavailable");
     }
     let mut msg: MSG = std::mem::zeroed();
     while GetMessageW(&mut msg, std::ptr::null_mut(), 0, 0) > 0 {

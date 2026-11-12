@@ -218,7 +218,7 @@ impl Hook {
         if self.handle.is_null() {
             self.handle = SetWindowsHookExW(self.kind, self.proc, self.module, 0);
             if self.handle.is_null() {
-                eprintln!("input: installing the {} hook failed", self.name);
+                log::warn!("installing the {} hook failed", self.name);
             }
         }
     }
@@ -228,14 +228,14 @@ impl Hook {
     unsafe fn reinstall(&mut self) {
         let fresh = SetWindowsHookExW(self.kind, self.proc, self.module, 0);
         if fresh.is_null() {
-            eprintln!("input: re-installing the {} hook failed", self.name);
+            log::warn!("re-installing the {} hook failed", self.name);
             return;
         }
         if !self.handle.is_null() {
             UnhookWindowsHookEx(self.handle);
         }
         self.handle = fresh;
-        eprintln!("input: re-installed the {} hook", self.name);
+        log::info!("re-installed the {} hook", self.name);
     }
 
     unsafe fn remove(&mut self) {
@@ -268,7 +268,7 @@ unsafe fn hook_thread() {
     // watchdog re-installs one that has stopped seeing input that happened.
     create_power_window(module);
     if SetTimer(std::ptr::null_mut(), 0, WATCHDOG_MS, None) == 0 {
-        eprintln!("input: SetTimer failed; a dropped hook will not be noticed");
+        log::warn!("SetTimer failed; a dropped hook will not be noticed");
     }
     let mut cursor = cursor_pos();
 
@@ -390,7 +390,7 @@ unsafe fn create_power_window(module: HINSTANCE) {
         std::ptr::null(),
     );
     if hwnd.is_null() {
-        eprintln!("input: creating the power window failed; hooks will not be re-installed on resume");
+        log::warn!("creating the power window failed; hooks will not be re-installed on resume");
     }
 }
 

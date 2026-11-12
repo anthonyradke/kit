@@ -75,7 +75,7 @@ pub fn model(app: &AppHandle) -> Option<Model> {
 
 fn save(shared: &Shared, config: &Config) {
     if let Err(e) = config.save(&shared.config_path) {
-        eprintln!("failed to save keyboard config: {e}");
+        log::error!("failed to save keyboard.json: {e}");
     }
 }
 

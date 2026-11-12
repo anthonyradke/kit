@@ -160,7 +160,7 @@ impl Worker {
             Err(e) => {
                 self.status.present = !matches!(e, Error::NoInterface);
                 self.status.connected = false;
-                self.status.error = Some(e.to_string());
+                crate::logging::set_error(&mut self.status.error, "mouse", e.to_string());
                 self.next_open = Instant::now() + OPEN_RETRY;
             }
         }
@@ -276,19 +276,19 @@ impl Worker {
                 Some(v)
             }
             Err(Error::Hid(e)) => {
-                self.status.error = Some(e.to_string());
+                crate::logging::set_error(&mut self.status.error, "mouse", e.to_string());
                 self.drop_mouse();
                 None
             }
             Err(e @ Error::Timeout) => {
                 // The mouse is asleep or out of range.
                 self.status.connected = false;
-                self.status.error = Some(e.to_string());
+                crate::logging::set_error(&mut self.status.error, "mouse", e.to_string());
                 None
             }
             Err(e) => {
                 // The mouse answered, it just refused the request.
-                self.status.error = Some(e.to_string());
+                crate::logging::set_error(&mut self.status.error, "mouse", e.to_string());
                 None
             }
         }

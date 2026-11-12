@@ -2272,6 +2272,7 @@ dependencies = [
  "arctis",
  "hidpp",
  "kit-eq",
+ "log",
  "rfd",
  "serde",
  "serde_json",

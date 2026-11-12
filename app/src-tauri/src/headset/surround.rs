@@ -120,7 +120,7 @@ fn run(app: AppHandle, rx: Receiver<Cmd>) {
                 }
                 p.renderer.set_room(spatial::room_level(room));
                 if let Err(e) = p.pump() {
-                    eprintln!("surround stopped: {e}");
+                    log::warn!("surround stopped: {e}");
                     pipe = None;
                     next.error = Some(friendly(&e));
                     next_try = Instant::now() + RETRY;

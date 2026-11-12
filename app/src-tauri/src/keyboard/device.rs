@@ -554,7 +554,7 @@ impl Worker {
                 None
             }
             Err(e) => {
-                self.status.error = Some(e.to_string());
+                crate::logging::set_error(&mut self.status.error, "keyboard", e.to_string());
                 None
             }
         }
@@ -607,7 +607,7 @@ impl Worker {
             }
         }
         let Some(buffer) = via::macros::join(&slots, self.macro_buffer.len()) else {
-            self.status.error = Some("Those macros don't fit in the keyboard's macro memory.".into());
+            crate::logging::set_error(&mut self.status.error, "keyboard", "Those macros don't fit in the keyboard's macro memory.".into());
             return;
         };
         if buffer == self.macro_buffer {
@@ -820,11 +820,11 @@ impl Worker {
             }
             Err(e @ hidpp::Error::Timeout) => {
                 self.status.connected = false;
-                self.status.error = Some(e.to_string());
+                crate::logging::set_error(&mut self.status.error, "keyboard", e.to_string());
                 None
             }
             Err(e) => {
-                self.status.error = Some(e.to_string());
+                crate::logging::set_error(&mut self.status.error, "keyboard", e.to_string());
                 None
             }
         }

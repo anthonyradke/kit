@@ -4,6 +4,7 @@ mod backup;
 mod badge;
 mod headset;
 mod keyboard;
+mod logging;
 mod mouse;
 mod session;
 mod setup;
@@ -76,6 +77,9 @@ fn main() {
         .plugin(tauri_plugin_updater::Builder::new().build())
         .setup(move |app| {
             let handle = app.handle();
+            if let Ok(dir) = handle.path().app_log_dir() {
+                logging::init(&dir, &handle.package_info().version.to_string());
+            }
             migrate_configs(handle);
             setup::init(handle)?;
             mouse::init(handle)?;

@@ -91,7 +91,7 @@ pub fn apply(app: &AppHandle) {
 
 fn save(shared: &Shared, config: &Config) {
     if let Err(e) = config.save(&shared.config_path) {
-        eprintln!("failed to save config: {e}");
+        log::error!("failed to save headset.json: {e}");
     }
 }
 

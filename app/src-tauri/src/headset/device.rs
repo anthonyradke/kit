@@ -211,7 +211,7 @@ impl Worker {
                 None
             }
             Err(e) => {
-                self.status.error = Some(e.to_string());
+                crate::logging::set_error(&mut self.status.error, "headset", e.to_string());
                 None
             }
         }
