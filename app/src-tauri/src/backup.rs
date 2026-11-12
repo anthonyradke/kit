@@ -74,12 +74,18 @@ impl Bundle {
     }
 }
 
-/// Show a file dialog over kit's window. It gets its own thread because it
-/// blocks until closed and sets up COM its own way.
+/// Show a file dialog for kit settings files over kit's window.
 fn dialog(app: &AppHandle, show: impl FnOnce(FileDialog) -> Option<PathBuf> + Send + 'static) -> Option<PathBuf> {
+    file_dialog(app, ("kit settings", "json"), show)
+}
+
+/// Show a file dialog over kit's window, for files of one kind (a name and
+/// an extension). It gets its own thread because it blocks until closed and
+/// sets up COM its own way.
+pub fn file_dialog(app: &AppHandle, kind: (&'static str, &'static str), show: impl FnOnce(FileDialog) -> Option<PathBuf> + Send + 'static) -> Option<PathBuf> {
     let window = app.get_webview_window("main");
     let thread = std::thread::spawn(move || {
-        let mut dialog = FileDialog::new().add_filter("kit settings", &["json"]);
+        let mut dialog = FileDialog::new().add_filter(kind.0, &[kind.1]);
         if let Some(window) = &window {
             dialog = dialog.set_parent(window);
         }

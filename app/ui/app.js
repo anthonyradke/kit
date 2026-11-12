@@ -409,6 +409,16 @@ function settingsPage() {
 
     ${A.headset ? audioEffectsSection() : ""}
 
+    <h2 class="h2">Diagnostics</h2>
+    <div class="row">
+      <div><div class="rtitle">Save diagnostics</div><p class="hint">One text file to send along with a problem: versions, what kit sees of each device and of Windows audio, your settings and the end of kit's log. Nothing is sent anywhere by kit.</p></div>
+      <button class="btn quiet" data-act="diagnostics-export">Save…</button>
+    </div>
+    <div class="row">
+      <div><div class="rtitle">Log folder</div><p class="hint">kit's log, for when something went wrong a while ago.</p></div>
+      <button class="btn quiet" data-act="open-log-folder">Open</button>
+    </div>
+
     <h2 class="h2">About</h2>
     <p class="hint">Closing this window keeps kit running in the tray; use Quit in the tray menu to exit. Keep Logitech G HUB, SteelSeries GG and VIA closed: they fight kit for the same devices.</p>
   </div></div>`;
@@ -608,6 +618,19 @@ Object.assign(handlers, {
     } catch (err) {
       toast(`Couldn't export: ${err}`);
     }
+  },
+  async "diagnostics-export"() {
+    await flushSaves();
+    const today = new Date().toLocaleDateString("sv");
+    try {
+      const path = await invoke("diagnostics_export", { fileName: `kit-diagnostics-${today}.txt` });
+      if (path) toast(`Saved to ${fileName(path)}`);
+    } catch (err) {
+      toast(`Couldn't save: ${err}`);
+    }
+  },
+  "open-log-folder"() {
+    invoke("open_log_folder").catch((err) => toast(`Couldn't open it: ${err}`));
   },
   async "settings-open"() {
     try {

@@ -2,6 +2,7 @@
 
 mod backup;
 mod badge;
+mod diagnostics;
 mod headset;
 mod keyboard;
 mod logging;
@@ -159,6 +160,8 @@ fn main() {
             backup::settings_open,
             backup::settings_import,
             backup::settings_problems,
+            diagnostics::diagnostics_export,
+            diagnostics::open_log_folder,
             update::update_state,
             update::check_update,
             update::install_update,
