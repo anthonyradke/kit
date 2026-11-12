@@ -27,6 +27,11 @@ pub const FRIENDLY_NAME: &str = "kit headset EQ";
 /// audiodg restarts.
 static FAILED: AtomicBool = AtomicBool::new(false);
 
+/// The EQ panicked and passes audio through until audiodg restarts.
+pub(crate) fn failed() -> bool {
+    FAILED.load(Ordering::Relaxed)
+}
+
 /// What the app asked for, as the settings thread last read it.
 pub(crate) struct Wanted {
     pub on: bool,
@@ -193,6 +198,8 @@ impl IAudioProcessingObjectConfiguration_Impl for EqApo_Impl {
             self.latency.store(latency, Ordering::Relaxed);
             log(&format!("headset EQ: lock, {channels} ch, {rate} Hz, EQ {}", if design.is_some() { "on" } else { "off" }));
             self.channels.store(channels as u32, Ordering::Relaxed);
+            crate::health::EQ_STREAMS.fetch_add(1, Ordering::Relaxed);
+            crate::health::EQ_RATE.store(rate, Ordering::Relaxed);
             *locked = Some(Locked { channels, rate, slot, processor, on: design.is_some() });
             Ok(())
         })
@@ -207,6 +214,7 @@ impl IAudioProcessingObjectConfiguration_Impl for EqApo_Impl {
             if let Ok(mut slots) = SLOTS.lock() {
                 slots.retain(|s| !Arc::ptr_eq(s, &l.slot));
             }
+            crate::health::EQ_STREAMS.fetch_sub(1, Ordering::Relaxed);
             log(&format!("headset EQ: unlock ({} Hz)", l.rate));
             Ok(())
         })

@@ -8,6 +8,7 @@
 #   &kiteq=on|installed|none (kit's EQ on the headset output: running, switched off, not installed)
 #   &import=tkl (the settings file to import is from another keyboard)
 #   &problems=1 (a settings file couldn't be read at startup)
+#   &health=ok|drops|failed|none (what kit's APOs report from the audio engine)
 set -e
 here=$(cd "$(dirname "$0")" && pwd)
 dir=$(mktemp -d)

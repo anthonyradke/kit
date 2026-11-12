@@ -348,6 +348,7 @@ function eqEngineSection(p) {
       <button class="btn" data-act="eq-install">${icons.shield}Install</button></div>`;
   }
   if (eqError && !eqInstalling) status += `<div class="state-line bad">${esc(eqError)}</div>`;
+  if (a.eqApoInstalled && !eqInstalling) status += eqHealthLine();
   eqRate = 2 * SAMPLE_RATE;
   const boost = maxBoost(p);
   eqRate = inKit ? 2 * SAMPLE_RATE : SAMPLE_RATE;
@@ -516,6 +517,34 @@ function micTestRows() {
     </div>`;
 }
 
+// What kit's APOs report from inside Windows' audio engine (null until one has
+// loaded since the audio service started).
+function micHealth() {
+  const m = H.audio.apoHealth?.mic;
+  if (!m) return { level: "off", text: "Not loaded by Windows' audio engine yet: it loads when an app opens the mic." };
+  if (m.failed) return { level: "bad", text: "Stopped after an error and passes the mic through. Repair audio effects in Settings, or restart the PC." };
+  if (m.model === "failed") return { level: "bad", text: "The noise model couldn't load, so the mic passes through. Repair audio effects in Settings." };
+  if (m.otherRate && !m.denoising) return { level: "warn", text: `The mic runs at ${m.otherRate / 1000} kHz; noise suppression needs 48 kHz (Sound settings, the mic's Advanced tab), so it passes through.` };
+  if (!m.streams) return { level: "off", text: "Loaded, waiting for an app to open the mic." };
+  if (m.model === "loading") return { level: "off", text: "Loading the noise model…" };
+  const dropouts = m.underruns ? ` · fell behind ${m.underruns} time${m.underruns === 1 ? "" : "s"} since Windows audio started` : "";
+  return { level: "live", text: `Running in Windows' audio engine${m.modelMs ? ` · model loaded in ${(m.modelMs / 1000).toFixed(1)} s` : ""}${dropouts}` };
+}
+
+function eqHealth() {
+  const e = H.audio.apoHealth?.eq;
+  if (!e) return { level: "off", text: "Not loaded by Windows' audio engine yet: it loads when something plays." };
+  if (e.failed) return { level: "bad", text: "Stopped after an error and passes audio through. Repair audio effects in Settings, or restart the PC." };
+  if (e.curveError) return { level: "bad", text: "The EQ curve kit sent couldn't be read, so audio passes through. Change any band to send it again." };
+  if (!e.streams) return { level: "off", text: "Loaded, waiting for sound." };
+  return { level: e.on ? "live" : "off", text: e.on ? `Running in Windows' audio engine at ${e.rate / 1000} kHz` : "Loaded, passing audio through (switched off)" };
+}
+
+const MARK = { live: "live-mark", off: "off-mark", warn: "off-mark warn", bad: "off-mark bad" };
+const healthLine = ({ level, text }) => `<div class="state-line"><span class="${MARK[level]}">${esc(text)}</span></div>`;
+const micHealthLine = () => healthLine(micHealth());
+const eqHealthLine = () => healthLine(eqHealth());
+
 function micPage() {
   const m = hcfg().mic;
   const h = hcfg().headset;
@@ -536,6 +565,7 @@ function micPage() {
       <button class="btn" data-act="apo-install">${icons.shield}Install</button></div>`;
   }
   if (apoError && !installing) status += `<div class="state-line bad">${esc(apoError)}</div>`;
+  if (a.apoInstalled && !installing) status += micHealthLine();
   return `<div class="page fpage" data-key="headset-mic"><div class="fpage-inner">
     ${sonarNotice()}
     <h1 class="h1">Microphone</h1>

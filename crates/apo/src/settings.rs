@@ -93,6 +93,8 @@ fn read_eq(key: HKEY, last: &mut Option<kit_eq::Curve>) -> crate::eq::Wanted {
         None => last.clone(),
     };
     last.clone_from(&curve);
+    crate::health::EQ_ON.store(on, Ordering::Relaxed);
+    crate::health::CURVE_ERROR.store(on && curve.is_none(), Ordering::Relaxed);
     crate::eq::Wanted { on: on && curve.is_some(), curve: curve.unwrap_or_default() }
 }
 
@@ -124,8 +126,15 @@ fn watch() {
             if r.is_err() {
                 break;
             }
-            let w = unsafe { WaitForSingleObject(changed, u32::MAX) };
-            if w != WAIT_OBJECT_0 && w != WAIT_TIMEOUT {
+            // Between changes, publish what the APOs are doing every few seconds.
+            let w = loop {
+                crate::health::publish();
+                let w = unsafe { WaitForSingleObject(changed, 5000) };
+                if w != WAIT_TIMEOUT {
+                    break w;
+                }
+            };
+            if w != WAIT_OBJECT_0 {
                 break;
             }
         }

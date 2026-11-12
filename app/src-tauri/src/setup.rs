@@ -163,6 +163,11 @@ pub fn vendor_apps() -> Vec<&'static str> {
 
 /// Lowercase executable names of every running process.
 fn process_names() -> Vec<String> {
+    processes().into_iter().map(|(_, name)| name).collect()
+}
+
+/// Every running process: its id and lowercase executable name.
+pub fn processes() -> Vec<(u32, String)> {
     use windows_sys::Win32::Foundation::{CloseHandle, INVALID_HANDLE_VALUE};
     use windows_sys::Win32::System::Diagnostics::ToolHelp::{
         CreateToolhelp32Snapshot, Process32FirstW, Process32NextW, PROCESSENTRY32W, TH32CS_SNAPPROCESS,
@@ -178,7 +183,7 @@ fn process_names() -> Vec<String> {
         let mut ok = Process32FirstW(snap, &mut entry) != 0;
         while ok {
             let len = entry.szExeFile.iter().position(|&c| c == 0).unwrap_or(entry.szExeFile.len());
-            out.push(String::from_utf16_lossy(&entry.szExeFile[..len]).to_lowercase());
+            out.push((entry.th32ProcessID, String::from_utf16_lossy(&entry.szExeFile[..len]).to_lowercase()));
             ok = Process32NextW(snap, &mut entry) != 0;
         }
         CloseHandle(snap);

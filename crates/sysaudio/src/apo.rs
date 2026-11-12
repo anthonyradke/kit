@@ -334,7 +334,16 @@ fn register_settings_key() -> Result<()> {
     }
     // SYSTEM and admins: full. Users: read/write. LOCAL SERVICE (audiodg): read.
     set_key_sddl(&key, "D:P(A;OICI;KA;;;SY)(A;OICI;KA;;;BA)(A;OICI;KRKW;;;BU)(A;OICI;KR;;;LS)")?;
+    // Where the APOs report what they're doing: LOCAL SERVICE writes, users read.
+    let (status, _) = hklm().create_subkey(kit_apo::health::KEY)?;
+    set_key_sddl(&status, "D:P(A;OICI;KA;;;SY)(A;OICI;KA;;;BA)(A;OICI;KR;;;BU)(A;OICI;KRKW;;;LS)")?;
     protect_backups()
+}
+
+/// What the APOs in the audio engine last reported about themselves (JSON,
+/// see `kit_apo::health`), if they have. Readable without administrator rights.
+pub fn health() -> Option<String> {
+    hklm().open_subkey(kit_apo::health::KEY).ok()?.get_value(kit_apo::health::VALUE).ok()
 }
 
 /// What the uninstaller writes back into an endpoint's FxProperties comes

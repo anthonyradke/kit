@@ -147,6 +147,7 @@ impl Denoiser {
                 if r.is_err() {
                     log("denoise worker panicked; passing the mic through");
                     s.failed.store(true, Ordering::Release);
+                    crate::health::set_model(crate::health::Model::Failed);
                 }
             })?
             .thread()
@@ -223,6 +224,7 @@ impl Denoiser {
         output[take * n..frames * n].fill(0.0);
         if take < frames {
             self.shared.underruns.fetch_add(1, Ordering::Relaxed);
+            crate::health::UNDERRUNS.fetch_add(1, Ordering::Relaxed);
             // Skip the samples this dropout replaced once they arrive, but only
             // ones that were sent before this period and aren't already being
             // skipped: input the full ring refused never comes back.
@@ -259,6 +261,7 @@ impl Drop for Denoiser {
 fn work(shared: &Shared, mut input: Consumer<f32>, mut output: Producer<f32>, log: fn(&str)) {
     raise_priority();
     let started = std::time::Instant::now();
+    crate::health::set_model(crate::health::Model::Loading);
     // The thresholds of DeepFilterNet's own command-line tool. The library's
     // defaults (-10, 30, 20 dB) zero out quiet syllables and skip the
     // harmonic filter on clear speech; on the test recordings they cost
@@ -272,15 +275,19 @@ fn work(shared: &Shared, mut input: Consumer<f32>, mut output: Producer<f32>, lo
         Err(e) => {
             log(&format!("denoise model failed to load: {e}; passing the mic through"));
             shared.failed.store(true, Ordering::Release);
+            crate::health::set_model(crate::health::Model::Failed);
             return;
         }
     };
     if model.hop_size != FRAME || model.sr != SAMPLE_RATE as usize {
         log(&format!("denoise model has hop {} at {} Hz, expected {FRAME} at 48000", model.hop_size, model.sr));
         shared.failed.store(true, Ordering::Release);
+        crate::health::set_model(crate::health::Model::Failed);
         return;
     }
     log(&format!("denoise model loaded in {} ms", started.elapsed().as_millis()));
+    crate::health::MODEL_MS.store(started.elapsed().as_millis().min(u32::MAX as u128) as u32, Ordering::Relaxed);
+    crate::health::set_model(crate::health::Model::Loaded);
     shared.ready.store(true, Ordering::Release);
 
     let mut atten = f32::NAN;
@@ -302,6 +309,7 @@ fn work(shared: &Shared, mut input: Consumer<f32>, mut output: Producer<f32>, lo
             if let Err(e) = model.process(noisy.view(), enhanced.view_mut()) {
                 log(&format!("denoise failed: {e}; passing the mic through"));
                 shared.failed.store(true, Ordering::Release);
+                crate::health::set_model(crate::health::Model::Failed);
                 return;
             }
             // A full ring means the real-time side stopped reading; drop rather than wait.

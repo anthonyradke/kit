@@ -9,6 +9,16 @@
   const sur = q.get("surround") || "on";
   // kit's EQ: on (installed and running), installed (switched off), none (not installed).
   const keq = q.get("kiteq") || "none";
+  // What kit's APOs report: ok, drops (fell behind), failed, none (not loaded yet).
+  const health = q.get("health") || "ok";
+  const apoHealth =
+    health === "none"
+      ? null
+      : {
+          pid: 1,
+          mic: { streams: 1, denoising: 1, otherRate: 0, model: "loaded", modelMs: 820, underruns: health === "drops" ? 3 : 0, failed: health === "failed" },
+          eq: { streams: 1, rate: 48000, on: keq === "on", curveError: false, failed: health === "failed" },
+        };
   const id = () => Math.random().toString(16).slice(2, 10);
   const key = (name, scan, ext = false) => ({ vk: 0, scan, ext, name });
   const M = {
@@ -35,7 +45,7 @@
   const H = {
     config: { presets: [{ id: "h1", name: "Main", bands }, { id: "h2", name: "Footsteps", bands }], active: "h1", headset: { sidetone: 1, micVolume: 15, micLed: 3, volumeLimiter: true, autoOff: 30, bass: 0, surround: sur !== "off" && sur !== "nocable", room: 50, eqInKit: keq === "on", preamp: "auto" }, mic: { denoise: true, strength: 90 }, keepDefault: true },
     headset: { present: true, connected: true, battery: 64, charging: false, error: null },
-    audio: { output: "Headphones (Arctis Nova 5)", input: "Headset Microphone (Arctis Nova 5)", defaultOutput: "Headphones (Arctis Nova 5)", defaultInput: "Headset Microphone (Arctis Nova 5)", headsetIsDefault: true, apoInstalled: true, apoOutdated: false, eqApoInstalled: keq !== "none", eqApoOutdated: false, error: null },
+    audio: { output: "Headphones (Arctis Nova 5)", input: "Headset Microphone (Arctis Nova 5)", defaultOutput: "Headphones (Arctis Nova 5)", defaultInput: "Headset Microphone (Arctis Nova 5)", headsetIsDefault: true, apoInstalled: true, apoOutdated: false, eqApoInstalled: keq !== "none", eqApoOutdated: false, apoHealth, error: null },
     surround: {
       cable: sur !== "nocable",
       running: sur === "on" || sur === "stereo",

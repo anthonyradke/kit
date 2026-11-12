@@ -19,6 +19,7 @@
 mod aggregate;
 pub mod denoise;
 pub mod eq;
+pub mod health;
 pub mod settings;
 
 use std::ffi::c_void;
@@ -49,6 +50,11 @@ static INSTANCES: AtomicU32 = AtomicU32::new(0);
 static LOGGED_FORMAT_REJECT: AtomicBool = AtomicBool::new(false);
 /// Set if processing ever panicked.
 static FAILED: AtomicBool = AtomicBool::new(false);
+
+/// Noise suppression panicked and passes the mic through until audiodg restarts.
+pub(crate) fn mic_failed() -> bool {
+    FAILED.load(Ordering::Relaxed)
+}
 
 /// Run the body of a COM method, turning a panic into `E_UNEXPECTED`. A
 /// panic can't unwind out through the vtable: it would abort audiodg and
@@ -239,6 +245,12 @@ impl IAudioProcessingObjectConfiguration_Impl for Apo_Impl {
             ));
             self.channels.store(channels as u32, Ordering::Relaxed);
             self.latency.store(if denoiser.is_some() { LATENCY_HNS } else { 0 }, Ordering::Relaxed);
+            health::MIC_STREAMS.fetch_add(1, Ordering::Relaxed);
+            if denoiser.is_some() {
+                health::MIC_DENOISING.fetch_add(1, Ordering::Relaxed);
+            } else if f.fFramesPerSecond != denoise::SAMPLE_RATE {
+                health::MIC_OTHER_RATE.store(f.fFramesPerSecond.round() as u32, Ordering::Relaxed);
+            }
             *locked = Some(Locked {
                 channels,
                 denoiser,
@@ -256,6 +268,10 @@ impl IAudioProcessingObjectConfiguration_Impl for Apo_Impl {
             let Some(l) = locked.take() else {
                 return Err(APOERR_ALREADY_UNLOCKED.into());
             };
+            health::MIC_STREAMS.fetch_sub(1, Ordering::Relaxed);
+            if l.denoiser.is_some() {
+                health::MIC_DENOISING.fetch_sub(1, Ordering::Relaxed);
+            }
             if let Some(n) = l.denoiser.as_ref().map(Denoiser::underruns).filter(|&n| n > 0) {
                 log(&format!("unlock: the denoise worker fell behind {n} times"));
             }

@@ -13,7 +13,7 @@
 use std::sync::mpsc::{Receiver, RecvTimeoutError};
 use std::time::Duration;
 
-use serde::Serialize;
+use serde::{Deserialize, Serialize};
 use sysaudio::{Endpoint, Flow};
 use tauri::{AppHandle, Emitter, Manager};
 
@@ -45,10 +45,58 @@ pub struct Status {
     /// kit's EQ APO installed on the headset output.
     pub eq_apo_installed: bool,
     pub eq_apo_outdated: bool,
+    /// What kit's APOs in the audio engine say about themselves, when one
+    /// has loaded since the audio service started.
+    pub apo_health: Option<ApoHealth>,
     pub error: Option<String>,
     /// A scan has finished (the window doesn't need this).
     #[serde(skip)]
     pub scanned: bool,
+}
+
+/// `kit_apo::health`'s report, read back from the registry.
+#[derive(Clone, Debug, Default, PartialEq, Serialize, Deserialize)]
+#[serde(default, rename_all = "camelCase")]
+pub struct ApoHealth {
+    /// The audiodg process that wrote it.
+    pub pid: u32,
+    pub mic: MicHealth,
+    pub eq: EqHealth,
+}
+
+#[derive(Clone, Debug, Default, PartialEq, Serialize, Deserialize)]
+#[serde(default, rename_all = "camelCase")]
+pub struct MicHealth {
+    /// Mic streams open now, and how many of them run the denoiser.
+    pub streams: u32,
+    pub denoising: u32,
+    /// A mic stream at another rate than 48 kHz (passed through), if any.
+    pub other_rate: u32,
+    /// "notLoaded", "loading", "loaded" or "failed".
+    pub model: String,
+    pub model_ms: u32,
+    /// Times the denoiser fell behind since the audio service started.
+    pub underruns: u32,
+    /// It hit an error and passes the mic through until the service restarts.
+    pub failed: bool,
+}
+
+#[derive(Clone, Debug, Default, PartialEq, Serialize, Deserialize)]
+#[serde(default, rename_all = "camelCase")]
+pub struct EqHealth {
+    pub streams: u32,
+    pub rate: u32,
+    pub on: bool,
+    pub curve_error: bool,
+    pub failed: bool,
+}
+
+/// The APOs' report, if the audio engine process that wrote it still runs
+/// (a report from before the service restarted says nothing about now).
+pub fn apo_health() -> Option<ApoHealth> {
+    let health: ApoHealth = serde_json::from_str(&sysaudio::apo::health()?).ok()?;
+    let alive = crate::setup::processes().iter().any(|(pid, name)| *pid == health.pid && name == "audiodg.exe");
+    alive.then_some(health)
 }
 
 const POLL_EVERY: Duration = Duration::from_secs(2);
@@ -209,6 +257,7 @@ fn describe(eps: Endpoints, error: Option<String>) -> Status {
         apo_outdated: apo_installed && outdated(),
         eq_apo_installed,
         eq_apo_outdated: eq_apo_installed && outdated(),
+        apo_health: (apo_installed || eq_apo_installed).then(apo_health).flatten(),
         output: out.map(|e| e.name),
         input: inp.map(|e| e.name),
         default_output: out_def.map(|e| e.name),
