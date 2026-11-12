@@ -19,3 +19,4 @@ Settings, so keep each line to one short sentence about what changed for the use
 - Leaving the macro page while recording stops the recording and keeps it, so side buttons work again; Add key is hidden while recording.
 - When kit's EQ is added to or removed from the headset (including by a driver update), the EQ moves to match right away, so it is never missing or applied twice.
 - A future preset update keeps playing your edited version of the active built-in preset.
+- Updating kit's EQ no longer switches Run in kit on.

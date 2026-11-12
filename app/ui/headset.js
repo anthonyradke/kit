@@ -334,7 +334,7 @@ function eqEngineSection(p) {
     status = `<div class="state-line warn">The Arctis Nova 5 isn't connected.</div>`;
   } else if (a.eqApoInstalled && a.eqApoOutdated) {
     status = `<div class="state-line warn"><span class="grow">This version of kit has a newer EQ. Windows asks for permission once to update it.</span>
-      <button class="btn" data-act="eq-install">${icons.shield}Update</button></div>`;
+      <button class="btn" data-act="eq-update">${icons.shield}Update</button></div>`;
   } else if (a.eqApoInstalled) {
     status = `<div class="state-line">${inKit ? `<span class="live-mark">Active on ${esc(a.output)}</span>` : `<span class="off-mark">Installed, switched off</span>`}
       <span class="grow"></span><button class="tbtn danger" data-act="eq-uninstall">Remove</button></div>`;
@@ -644,9 +644,10 @@ async function setApo(install) {
   }
 }
 
-// Installing kit's EQ also switches it on; removing it puts the EQ back on the headset.
-async function setEqApo(install) {
-  hcfg().headset.eqInKit = install;
+// Installing kit's EQ also switches it on; removing it puts the EQ back on the
+// headset. Updating an installed one leaves the switch as it is.
+async function setEqApo(install, update = false) {
+  if (!update) hcfg().headset.eqInKit = install;
   await headsetSaver.flush();
   eqInstalling = true;
   eqError = null;
@@ -658,7 +659,7 @@ async function setEqApo(install) {
     eqError = String(err);
     H = await invoke("headset_state");
     // Not installed after all: don't leave it to switch itself on later.
-    if (install && !H.audio.eqApoInstalled) {
+    if (install && !update && !H.audio.eqApoInstalled) {
       hcfg().headset.eqInKit = false;
       headsetSaver.save(0);
     }
@@ -783,6 +784,9 @@ Object.assign(handlers, {
   },
   "eq-uninstall"() {
     setEqApo(false);
+  "eq-update"() {
+    setEqApo(true, true);
+  },
   },
   preamp(el) {
     hcfg().headset.preamp = el.dataset.v;
