@@ -1,6 +1,7 @@
 //! The SteelSeries Arctis Nova 5: EQ (onboard or in kit's APO), mic noise suppression and the default-device keeper.
 
 pub mod audio;
+mod chatmix;
 pub mod config;
 mod device;
 pub mod elevate;
@@ -24,7 +25,13 @@ pub fn on_window_destroyed(app: &AppHandle) {
 /// Quitting: with surround on nothing would reach the headset without kit,
 /// so put the headset back as the Windows default.
 pub fn on_exit(app: &AppHandle) {
-    if app.state::<Shared>().core.lock().unwrap().headset.surround {
+    let shared = app.state::<Shared>();
+    // ChatMix: every app back to full volume.
+    let (tx, rx) = std::sync::mpsc::channel();
+    if shared.headset_tx.send(device::Cmd::Release(tx)).is_ok() {
+        let _ = rx.recv_timeout(std::time::Duration::from_millis(500));
+    }
+    if shared.core.lock().unwrap().headset.surround {
         audio::restore_headset();
     }
 }

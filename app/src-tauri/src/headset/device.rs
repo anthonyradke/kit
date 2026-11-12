@@ -20,6 +20,8 @@ pub enum Cmd {
     Apply { eq: arctis::Eq, settings: HeadsetSettings },
     /// Live EQ while a band is being dragged; not saved on the headset.
     PreviewEq(arctis::Eq),
+    /// kit is quitting: put back what ChatMix changed, then answer.
+    Release(std::sync::mpsc::Sender<()>),
 }
 
 #[derive(Clone, Debug, Default, PartialEq, Serialize)]
@@ -31,12 +33,16 @@ pub struct Status {
     pub connected: bool,
     pub battery: Option<u8>,
     pub charging: bool,
+    /// The ChatMix dial while the headset is on: game, then chat, 0-100.
+    pub chatmix: Option<[u8; 2]>,
     pub error: Option<String>,
 }
 
 const OPEN_RETRY: Duration = Duration::from_secs(2);
 /// Status polls are answered by the base station itself, so they're cheap.
 const POLL_EVERY: Duration = Duration::from_secs(2);
+/// With ChatMix on, often enough that turning the dial feels immediate.
+const POLL_CHATMIX: Duration = Duration::from_millis(250);
 
 pub fn spawn(app: AppHandle, rx: Receiver<Cmd>) {
     std::thread::Builder::new()
@@ -55,6 +61,7 @@ struct Worker {
     next_open: Instant,
     next_poll: Instant,
     status: Status,
+    mixer: super::chatmix::Mixer,
 }
 
 /// Last value known to be on the headset; `None` means unknown, write it.
@@ -80,10 +87,13 @@ impl Worker {
             next_open: now,
             next_poll: now,
             status: Status::default(),
+            mixer: super::chatmix::Mixer::default(),
         }
     }
 
     fn run(mut self) {
+        // ChatMix sets app volumes through Core Audio.
+        sysaudio::com_init();
         loop {
             let prev = self.status.clone();
             if self.dev.is_none() && Instant::now() >= self.next_open {
@@ -109,6 +119,10 @@ impl Worker {
             Cmd::Apply { eq, settings } => {
                 self.desired = Some((eq, settings));
                 self.apply();
+            }
+            Cmd::Release(done) => {
+                self.mixer.restore();
+                let _ = done.send(());
             }
             Cmd::PreviewEq(eq) => {
                 // Coalesce a burst of drag updates into the latest one.
@@ -147,12 +161,22 @@ impl Worker {
     }
 
     fn poll(&mut self) {
-        self.next_poll = Instant::now() + POLL_EVERY;
-        let Some(st) = self.with_dev(|h| h.status()) else { return };
+        let (chatmix, chat_apps, surround) = {
+            let shared = self.app.state::<Shared>();
+            let core = shared.core.lock().unwrap();
+            (core.chatmix.enabled, core.chatmix.chat_apps.clone(), core.headset.surround)
+        };
+        self.next_poll = Instant::now() + if chatmix && self.status.connected { POLL_CHATMIX } else { POLL_EVERY };
+        let Some(st) = self.with_dev(|h| h.status()) else {
+            self.mixer.restore();
+            return;
+        };
         let was_connected = self.status.connected;
         self.status.connected = st.connected;
         self.status.battery = st.connected.then_some(st.battery);
         self.status.charging = st.connected && st.charging;
+        self.status.chatmix = st.connected.then_some([st.chatmix.0.min(100), st.chatmix.1.min(100)]);
+        self.mixer.update(self.status.chatmix.filter(|_| chatmix), &chat_apps, surround);
         if st.connected && !was_connected {
             self.on_connect();
         }

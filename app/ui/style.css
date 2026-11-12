@@ -794,6 +794,17 @@ body.in-setup .rail { display: none; }
 .state-line { display: flex; align-items: center; gap: 10px; color: var(--ink-2); font-size: 13px; }
 .state-line .grow { flex: 1; }
 .kv-row { display: flex; align-items: center; gap: 12px; }
+.mix { display: flex; flex-direction: column; gap: 6px; }
+.mix-level { display: grid; grid-template-columns: 60px 1fr 48px; align-items: center; gap: 12px; }
+.mix-level .meter { height: 6px; border-radius: 3px; background: var(--rule-2); overflow: hidden; }
+.mix-level .meter i { display: block; height: 100%; background: var(--live); border-radius: 3px; transition: width .2s var(--ease); }
+.mix-level .rval { text-align: right; }
+.app-chips { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; }
+.app-chip { display: inline-flex; align-items: center; gap: 4px; padding: 3px 4px 3px 9px; border: 1px solid var(--rule-2); border-radius: 999px; font-size: 12px; color: var(--ink-2); }
+.chip-x { display: inline-grid; place-items: center; width: 18px; height: 18px; padding: 0; border: 0; border-radius: 50%; background: none; color: var(--ink-3); cursor: pointer; }
+.chip-x:hover { color: var(--ink); background: var(--rule-2); }
+.chip-x svg { width: 12px; height: 12px; fill: none; stroke: currentColor; stroke-width: 2; }
+.app-chips .field { width: 220px; }
 .kv-row > .cap { flex: none; width: 140px; }
 .state-line.warn { color: var(--warn); }
 .state-line.bad { color: var(--bad-text); }

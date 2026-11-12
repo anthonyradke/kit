@@ -266,6 +266,30 @@ pub fn sessions(id: &str) -> Result<Vec<Session>> {
     Ok(out)
 }
 
+/// Set each app's volume on the endpoint `id` (as the volume mixer shows
+/// it) to what `f` says, given the app's process id and its volume now;
+/// `None` leaves it alone.
+pub fn set_session_volumes(id: &str, mut f: impl FnMut(u32, f32) -> Option<f32>) -> Result<()> {
+    use windows::core::Interface;
+    use windows::Win32::Media::Audio::{IAudioSessionControl2, IAudioSessionManager2, ISimpleAudioVolume};
+    let e = enumerator()?;
+    let wide: Vec<u16> = id.encode_utf16().chain(Some(0)).collect();
+    unsafe {
+        let dev = e.GetDevice(windows::core::PCWSTR(wide.as_ptr()))?;
+        let mgr: IAudioSessionManager2 = dev.Activate(CLSCTX_ALL, None)?;
+        let list = mgr.GetSessionEnumerator()?;
+        for i in 0..list.GetCount()? {
+            let ctl = list.GetSession(i)?;
+            let ctl2: IAudioSessionControl2 = ctl.cast()?;
+            let vol: ISimpleAudioVolume = ctl.cast()?;
+            if let Some(level) = f(ctl2.GetProcessId().unwrap_or(0), vol.GetMasterVolume()?) {
+                vol.SetMasterVolume(level.clamp(0.0, 1.0), std::ptr::null())?;
+            }
+        }
+    }
+    Ok(())
+}
+
 /// Mute or unmute the endpoint `id`, as its speaker icon would.
 pub fn set_endpoint_mute(id: &str, mute: bool) -> Result<()> {
     let vol = volume_control(id)?;

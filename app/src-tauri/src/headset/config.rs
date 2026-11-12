@@ -21,6 +21,23 @@ pub struct Config {
     /// `SEED_VERSION` the built-in presets in this file were last upgraded to.
     #[serde(default)]
     pub seeds: u32,
+    pub chatmix: ChatMix,
+}
+
+/// The headset's ChatMix dial (see `chatmix.rs`).
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+#[serde(default, rename_all = "camelCase")]
+pub struct ChatMix {
+    /// kit sets app volumes from the dial.
+    pub enabled: bool,
+    /// Executable names of the apps on the dial's chat side.
+    pub chat_apps: Vec<String>,
+}
+
+impl Default for ChatMix {
+    fn default() -> Self {
+        ChatMix { enabled: false, chat_apps: super::chatmix::default_chat_apps() }
+    }
 }
 
 /// Settings stored on the headset. Defaults match what SteelSeries GG had set.
@@ -110,6 +127,7 @@ impl Default for Config {
             mic: MicSettings::default(),
             keep_default: true,
             seeds: SEED_VERSION,
+            chatmix: ChatMix::default(),
         }
     }
 }
@@ -479,6 +497,11 @@ impl Config {
         h.room = h.room.min(100);
         h.bass = if h.bass.is_finite() { (h.bass.clamp(arctis::GAIN_MIN, arctis::GAIN_MAX) * 2.0).round() / 2.0 } else { 0.0 };
         self.mic.strength = self.mic.strength.min(100);
+        let mut apps: Vec<String> = self.chatmix.chat_apps.iter().filter_map(|a| super::chatmix::normalize_app(a)).collect();
+        let mut seen = std::collections::HashSet::new();
+        apps.retain(|a| seen.insert(a.clone()));
+        apps.truncate(50);
+        self.chatmix.chat_apps = apps;
     }
 
     pub fn active_preset(&self) -> &Preset {

@@ -640,6 +640,8 @@ function headsetDevicePage() {
       ${a.error ? `<div class="state-line bad">${esc(a.error)}</div>` : ""}
     </div>
 
+    ${chatmixSection()}
+
     <h2 class="h2">Power and hearing</h2>
     <div class="row">
       <div><div class="rtitle">Turn off when idle</div><p class="hint">The headset switches itself off after this long without sound.</p></div>
@@ -651,6 +653,27 @@ function headsetDevicePage() {
     </div>
     <p class="hint">Keep SteelSeries GG closed or uninstalled: it changes the same headset settings.</p>
   </div></div>`;
+}
+
+// The ChatMix dial: kit sets each app's volume from it (see chatmix.rs).
+function chatmixSection() {
+  const c = hcfg().chatmix;
+  const dial = H.headset.chatmix;
+  const level = (label, v) => `<div class="mix-level"><span class="cap">${label}</span><span class="meter"><i style="width:${v}%"></i></span><span class="rval">${v}%</span></div>`;
+  const apps = c.chatApps
+    .map((a) => `<span class="app-chip">${esc(a)}<button class="chip-x" data-act="chat-app-del" data-v="${esc(a)}" aria-label="Remove ${esc(a)}">${icons.x}</button></span>`)
+    .join("");
+  return `<h2 class="h2">ChatMix</h2>
+    <div class="row col">
+      <div class="row-head">
+        <div><div class="rtitle">ChatMix dial</div>
+        <p class="hint">Turn the dial on the headset toward chat to lower games and everything else, toward game to lower the chat apps below. kit does it by setting each app's volume in Windows' volume mixer, and puts them all back to full when this is off or kit quits.</p></div>
+        <label class="switch"><input type="checkbox" data-field="chatmixEnabled" ${c.enabled ? "checked" : ""} aria-label="ChatMix dial" /><span></span></label>
+      </div>
+      ${dial ? `<div class="mix">${level("Game", dial[0])}${level("Chat", dial[1])}</div>` : `<p class="hint">The dial shows here while the headset is on.</p>`}
+      <div class="rtitle">Chat apps</div>
+      <div class="app-chips">${apps}<input class="field" data-field="chat-app-add" placeholder="Add an app, e.g. discord.exe" aria-label="Add a chat app" /></div>
+    </div>`;
 }
 
 // ---------- actions ----------
@@ -741,6 +764,13 @@ function bandChanged(delay = 250) {
   headsetSaver.save(delay);
   render();
 }
+
+handlers["chat-app-del"] = (el) => {
+  const c = hcfg().chatmix;
+  c.chatApps = c.chatApps.filter((a) => a !== el.dataset.v);
+  headsetSaver.save(0);
+  render();
+};
 
 Object.assign(handlers, {
   preset(el) {
@@ -876,6 +906,20 @@ inputFields.bass = (el) => {
 };
 
 Object.assign(changeFields, {
+  chatmixEnabled(el) {
+    hcfg().chatmix.enabled = el.checked;
+    headsetSaver.save(0);
+    render();
+  },
+  "chat-app-add"(el) {
+    let name = el.value.trim().split(/[\\/]/).pop().toLowerCase();
+    el.value = "";
+    if (!name) return;
+    if (!name.endsWith(".exe")) name += ".exe";
+    if (!hcfg().chatmix.chatApps.includes(name)) hcfg().chatmix.chatApps.push(name);
+    headsetSaver.save(0);
+    render();
+  },
   bass(el) {
     hcfg().headset.bass = Number(el.value);
     headsetSaver.save(0);
