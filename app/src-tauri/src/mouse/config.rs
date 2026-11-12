@@ -191,7 +191,7 @@ impl Config {
             self.profiles.push(Profile::default());
         }
         for p in &mut self.profiles {
-            if p.id.is_empty() {
+            if !crate::store::valid_id(&p.id) {
                 p.id = new_id();
             }
             p.dpi_stages.iter_mut().for_each(|d| *d = clamp_dpi(*d));
@@ -213,7 +213,7 @@ impl Config {
             }
         }
         for m in &mut self.macros {
-            if m.id.is_empty() {
+            if !crate::store::valid_id(&m.id) {
                 m.id = new_id();
             }
             m.repeat = m.repeat.clamp(1, 1000);

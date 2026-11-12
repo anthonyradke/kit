@@ -334,7 +334,7 @@ function keyProfileStrip() {
     if (p.id === keyProfile().id) cls.push("sel");
     if (p.id === activeKeyProfile().id) cls.push(kst().connected ? "live" : "stored");
     const title = p.id === activeKeyProfile().id ? ' title="Active profile"' : "";
-    return `<button class="${cls.join(" ")}" data-act="kprofile-open" data-id="${p.id}"${title}><span class="pdot"></span>${esc(p.name || "Untitled")}</button>`;
+    return `<button class="${cls.join(" ")}" data-act="kprofile-open" data-id="${esc(p.id)}"${title}><span class="pdot"></span>${esc(p.name || "Untitled")}</button>`;
   });
   return `<nav class="strip" aria-label="Keyboard profiles">${tabs.join("")}<button class="tbtn" data-act="kprofile-new">${icons.plus}New profile</button></nav>`;
 }
@@ -437,7 +437,7 @@ function nkKeyPanel(k) {
 // Keys that switch profiles, like a mouse side button.
 function profilePick(code) {
   const held = kcfg().switchKeys[code - F13];
-  const choice = (v, label) => `<button class="kopt wide ${held === v ? "on" : ""}" data-act="kc-switch" data-v="${v}">${esc(label)}</button>`;
+  const choice = (v, label) => `<button class="kopt wide ${held === v ? "on" : ""}" data-act="kc-switch" data-v="${esc(v)}">${esc(label)}</button>`;
   return `<div class="kopts">${choice(NEXT_PROFILE, "Next profile")}${kcfg().profiles.map((p) => choice(p.id, `Switch to ${p.name || "Untitled"}`)).join("")}</div>
     <p class="hint">Works while kit runs. Uses one of 12 spare keys (F13-F24), shared with kit-run macros. A profile only has the switch keys you put on it, so add one to every profile you switch away from.</p>`;
 }
@@ -450,7 +450,7 @@ function macroPick(code) {
     ["kit", "Run through kit", "Clicks, hold-to-repeat and toggle work. Needs kit running on this PC. Uses one of 12 spare keys (F13-F24)."],
   ];
   const list = macros.length
-    ? `<select data-field="kc-macro" aria-label="Macro"><option value="">Choose a macro…</option>${macros.map((m) => `<option value="${m.id}">${esc(m.name)}</option>`).join("")}</select>`
+    ? `<select data-field="kc-macro" aria-label="Macro"><option value="">Choose a macro…</option>${macros.map((m) => `<option value="${esc(m.id)}">${esc(m.name)}</option>`).join("")}</select>`
     : `<span class="muted">No macros yet. <button class="link" data-act="keyboard-tab" data-tab="macros">Record one</button></span>`;
   const onboard = s.macros
     .map((steps, i) => {
@@ -521,7 +521,7 @@ function tklKeyPanel(k, b) {
     extra = `<div><button class="capture ${listening ? "listening" : ""}" data-act="kb-capture">${listening ? "Press a key combination…" : a.keys.length ? keysHtml(a.keys) : "Click to set keys"}</button></div>`;
   } else if (a.type === "macro") {
     extra = mcfg().macros.length
-      ? `<select data-field="kb-bind-macro" aria-label="Macro">${a.id ? "" : `<option value="" selected>Choose a macro…</option>`}${mcfg().macros.map((m) => `<option value="${m.id}" ${a.id === m.id ? "selected" : ""}>${esc(m.name)}</option>`).join("")}</select>`
+      ? `<select data-field="kb-bind-macro" aria-label="Macro">${a.id ? "" : `<option value="" selected>Choose a macro…</option>`}${mcfg().macros.map((m) => `<option value="${esc(m.id)}" ${a.id === m.id ? "selected" : ""}>${esc(m.name)}</option>`).join("")}</select>`
       : `<span class="muted">No macros yet. <button class="link" data-act="keyboard-tab" data-tab="macros">Record one</button></span>`;
   } else if (a.type === "disabled") {
     extra = `<span class="muted">The key does nothing while kit runs.</span>`;

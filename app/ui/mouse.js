@@ -156,7 +156,7 @@ function profileStrip() {
     if (p.id === mv.profileId) cls.push("sel");
     if (p.id === mcfg().active) cls.push(M.device.connected ? "live" : "stored");
     const title = p.id === mcfg().active ? ' title="Active profile"' : "";
-    return `<button class="${cls.join(" ")}" data-act="profile-open" data-id="${p.id}"${title}><span class="pdot"></span>${esc(p.name || "Untitled")}</button>`;
+    return `<button class="${cls.join(" ")}" data-act="profile-open" data-id="${esc(p.id)}"${title}><span class="pdot"></span>${esc(p.name || "Untitled")}</button>`;
   });
   return `<nav class="strip" aria-label="Profiles">${tabs.join("")}<button class="tbtn" data-act="profile-new">${icons.plus}New profile</button></nav>`;
 }
@@ -269,7 +269,7 @@ function assignment(p, side) {
       if (!mcfg().macros.length) {
         extra = `<span class="muted">No macros yet. <button class="link" data-act="mouse-tab" data-tab="macros">Create one</button></span>`;
       } else {
-        const opts = mcfg().macros.map((m) => `<option value="${m.id}" ${a.id === m.id ? "selected" : ""}>${esc(m.name)}</option>`);
+        const opts = mcfg().macros.map((m) => `<option value="${esc(m.id)}" ${a.id === m.id ? "selected" : ""}>${esc(m.name)}</option>`);
         const missing = !mcfg().macros.some((m) => m.id === a.id) ? `<option value="" selected>Choose a macro…</option>` : "";
         extra = `<select data-field="bind-macro" data-side="${side}" aria-label="Macro">${missing}${opts.join("")}</select>`;
       }
@@ -279,7 +279,7 @@ function assignment(p, side) {
       extra = `<div class="inline"><input class="field num" type="number" min="100" max="25600" step="50" value="${a.dpi}" data-field="bind-dpi" data-side="${side}" aria-label="DPI while held" /> DPI while held</div>`;
       break;
     case "profile": {
-      const opts = mcfg().profiles.map((q) => `<option value="${q.id}" ${a.id === q.id ? "selected" : ""}>${esc(q.name)}</option>`);
+      const opts = mcfg().profiles.map((q) => `<option value="${esc(q.id)}" ${a.id === q.id ? "selected" : ""}>${esc(q.name)}</option>`);
       extra = `<select data-field="bind-profile" data-side="${side}" aria-label="Profile">${opts.join("")}</select>`;
       break;
     }
@@ -305,7 +305,7 @@ function macrosPage() {
   if (!mv.macroId && macros.length) mv.macroId = macros[0].id;
   const list = macros
     .map(
-      (m) => `<button class="mrow ${m.id === mv.macroId ? "sel" : ""}" data-act="macro-open" data-id="${m.id}">
+      (m) => `<button class="mrow ${m.id === mv.macroId ? "sel" : ""}" data-act="macro-open" data-id="${esc(m.id)}">
         <span class="mname">${esc(m.name || "Untitled")}</span>
         <span class="mmeta">${m.steps.filter((s) => s.type !== "delay").length} actions · ${modeLabel(m.mode)}</span>
       </button>`,

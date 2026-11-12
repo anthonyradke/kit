@@ -112,9 +112,25 @@ pub fn save<T: Serialize + ?Sized>(path: &Path, value: &T) -> std::io::Result<()
     std::fs::rename(tmp, path)
 }
 
+/// Whether `id` is safe to use as a profile, macro or preset id: it ends up
+/// in the window's HTML and in file names.
+pub fn valid_id(id: &str) -> bool {
+    !id.is_empty() && id.len() <= 64 && id.bytes().all(|b| b.is_ascii_alphanumeric() || b == b'-' || b == b'_')
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn ids_from_a_file_are_checked() {
+        for id in ["18c9f0a1b2c3", "seed-main", "a_b"] {
+            assert!(valid_id(id), "{id}");
+        }
+        for id in ["", "x\"><img src=n onerror=alert(1)>", "a b", "é", &"a".repeat(65)] {
+            assert!(!valid_id(id), "{id}");
+        }
+    }
 
     #[test]
     fn notepad_utf16_reads() {

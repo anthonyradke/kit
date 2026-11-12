@@ -448,7 +448,7 @@ impl Config {
             self.presets = seed_presets();
         }
         for p in &mut self.presets {
-            if p.id.is_empty() {
+            if !crate::store::valid_id(&p.id) {
                 p.id = new_id();
             }
             p.bands.resize(arctis::BANDS, Band::default());

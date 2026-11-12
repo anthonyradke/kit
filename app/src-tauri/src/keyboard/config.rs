@@ -218,7 +218,7 @@ impl Config {
             self.presets = fresh.presets;
         }
         for p in &mut self.presets {
-            if p.id.is_empty() {
+            if !crate::store::valid_id(&p.id) {
                 p.id = new_id();
             }
             p.speed = p.speed.min(100);
@@ -243,7 +243,7 @@ impl Config {
             self.profiles.push(KeyProfile::default());
         }
         for p in &mut self.profiles {
-            if p.id.is_empty() {
+            if !crate::store::valid_id(&p.id) {
                 p.id = new_id();
             }
             if p.hotkey.as_deref().is_some_and(str::is_empty) {
