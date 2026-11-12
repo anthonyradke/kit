@@ -238,7 +238,8 @@ mod tests {
 
         // Every APO interface is reachable through the outer object and works.
         let apo: IAudioProcessingObject = outer_unknown.cast().unwrap();
-        assert_eq!(unsafe { apo.GetLatency() }.unwrap(), crate::LATENCY_HNS);
+        // No stream is locked yet, so there's no denoiser delay to report.
+        assert_eq!(unsafe { apo.GetLatency() }.unwrap(), 0);
         let rt: IAudioProcessingObjectRT = apo.cast().unwrap();
         assert_eq!(unsafe { rt.CalcInputFrames(480) }, 480);
         let _config: IAudioProcessingObjectConfiguration = rt.cast().unwrap();
