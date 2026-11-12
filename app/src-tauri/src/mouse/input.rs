@@ -157,6 +157,11 @@ pub fn stop_recording() -> Vec<Step> {
 /// once all keys are released. Keys are swallowed while capturing.
 pub fn capture_combo() -> std::sync::mpsc::Receiver<Vec<KeyRef>> {
     let (tx, rx) = std::sync::mpsc::channel();
+    // A recording uses the same buffer: capturing now would empty it.
+    if MODE.load(Ordering::SeqCst) == MODE_MACRO {
+        let _ = tx.send(vec![]);
+        return rx;
+    }
     *COMBO_DONE.lock().unwrap() = Some(tx);
     {
         let mut rec = RECORD.lock().unwrap();

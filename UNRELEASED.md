@@ -16,3 +16,4 @@ Settings, so keep each line to one short sentence about what changed for the use
 - An update check or download that stalls gives up instead of leaving Settings on "Checking…".
 - A looping macro stops when its button or key is given another action.
 - Importing settings with Add keeps a profile's macro binding when that macro is already here under another name.
+- Leaving the macro page while recording stops the recording and keeps it, so side buttons work again; Add key is hidden while recording.

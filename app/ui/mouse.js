@@ -372,7 +372,7 @@ function macroEditor(m) {
       <span class="sec-title">Steps<small>${actions} actions${m.steps.length > actions ? `, ${m.steps.length - actions} delays` : ""}</small></span>
       <div class="tools">
         ${recording ? "" : `<button class="tbtn rec" data-act="rec-start"><span class="rdot"></span>${m.steps.length ? "Re-record" : "Record"}</button>`}
-        <button class="tbtn" data-act="step-add-key">${icons.key}${addKeyListening ? "Press a key…" : "Add key"}</button>
+        ${recording ? "" : `<button class="tbtn" data-act="step-add-key">${icons.key}${addKeyListening ? "Press a key…" : "Add key"}</button>`}
         <button class="tbtn" data-act="step-add-delay">${icons.clock}Add delay</button>
         <span class="sep"></span>
         <span class="inline">Every delay <input class="field num" type="number" min="0" value="50" id="all-delays" aria-label="Delay in milliseconds" /> ms</span>
@@ -799,9 +799,12 @@ function captureHotkey(e) {
   return true;
 }
 
-// Leaving the mouse pages ends a shortcut capture.
+// Leaving the mouse pages ends a shortcut or key capture, and a recording
+// (keeping what it has): side buttons and bound keys stay off while one runs.
 function leaveMouse() {
   setHotkeyCapture(null);
+  if (keyCapture) invoke("cancel_capture");
+  if (recording) stopRecording();
 }
 
 function onMouseState(payload) {
