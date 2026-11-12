@@ -409,10 +409,16 @@ impl Config {
         let untouched = |p: &Preset| past_seed_bands(&p.id).contains(&p.bands);
         let mut kept = Vec::new();
         let active = self.active.clone();
+        let mut active_moved = None;
         self.presets.retain_mut(|p| {
             if let Some(seed) = seeds.iter().find(|s| s.id == p.id) {
                 if p.bands != seed.bands && !untouched(p) {
-                    kept.push(Preset { id: new_id() + &p.id, name: format!("{} (yours)", p.name), bands: p.bands.clone() });
+                    let copy = Preset { id: new_id() + &p.id, name: format!("{} (yours)", p.name), bands: p.bands.clone() };
+                    // The headset keeps sounding the way the user made it.
+                    if p.id == active {
+                        active_moved = Some(copy.id.clone());
+                    }
+                    kept.push(copy);
                 }
                 p.bands = seed.bands.clone();
                 if PAST_SEED_NAMES.contains(&(p.id.as_str(), p.name.as_str())) {
@@ -424,6 +430,9 @@ impl Config {
             }
         });
         self.presets.extend(kept);
+        if let Some(id) = active_moved {
+            self.active = id;
+        }
         for (i, seed) in seeds.into_iter().enumerate() {
             if seed_added_in(&seed.id) > self.seeds && !self.presets.iter().any(|p| p.id == seed.id) {
                 self.presets.insert(i.min(self.presets.len()), seed);
@@ -662,6 +671,17 @@ mod tests {
         assert_eq!(c.presets[5].bands, edited.bands);
         assert_eq!(c.presets.len(), 6);
         assert!(!c.upgrade_presets());
+    }
+
+    #[test]
+    fn an_edited_active_preset_keeps_playing_after_an_upgrade() {
+        let mut edited = old("main", 0);
+        edited.bands[0].gain = 2.0;
+        let mut c = Config { presets: vec![old("flat", 0), edited.clone()], active: "main".into(), seeds: 0, ..Config::default() };
+        c.normalize();
+        assert!(c.upgrade_presets());
+        assert_eq!(c.active_preset().bands, edited.bands);
+        assert_eq!(c.active_preset().name, "main (yours)");
     }
 
     #[test]
