@@ -97,8 +97,12 @@ impl Board {
                 if board.command(&[cmd::GET_VALUE, channel, id]).is_ok() {
                     board.lighting = Lighting::RgbMatrix;
                 }
-                if let Ok(r) = board.command(&[cmd::GET_VALUE, KIT_CHANNEL, KIT_INFO]) {
-                    board.kit = Some(KitFirmware { version: r[3], effects: r[4], first_effect: r[5] });
+                // Other firmware can echo an unknown value back unchanged
+                // (zeros); kit's firmware is version 1 or later with effects.
+                if let Ok(r) = board.command_echo(&[cmd::GET_VALUE, KIT_CHANNEL, KIT_INFO], 3) {
+                    if r[3] >= 1 && r[4] > 0 {
+                        board.kit = Some(KitFirmware { version: r[3], effects: r[4], first_effect: r[5] });
+                    }
                 }
             }
             return Ok(board);
@@ -108,6 +112,17 @@ impl Board {
 
     /// Send one report and wait for the keyboard to echo its command byte.
     fn command(&mut self, data: &[u8]) -> Result<[u8; LEN]> {
+        self.command_echo(data, 1)
+    }
+
+    /// Send one report and wait for the reply that echoes its first `echo`
+    /// bytes: the command, and for buffer and lighting requests the offset or
+    /// channel and id, so a late reply to an earlier request (after a
+    /// timeout, or one VIA sent) isn't taken for this one's.
+    fn command_echo(&mut self, data: &[u8], echo: usize) -> Result<[u8; LEN]> {
+        let echo = echo.clamp(1, data.len());
+        let mut stale = [0u8; LEN];
+        while self.dev.read_timeout(&mut stale, 0)? > 0 {}
         let mut buf = [0u8; LEN + 1];
         buf[1..1 + data.len().min(LEN)].copy_from_slice(&data[..data.len().min(LEN)]);
         self.dev.write(&buf)?;
@@ -118,10 +133,10 @@ impl Board {
             if n == 0 {
                 continue;
             }
-            if resp[0] == cmd::UNHANDLED {
+            if resp[0] == cmd::UNHANDLED && resp[1..echo] == data[1..echo] {
                 return Err(Error::Unsupported);
             }
-            if resp[0] == data[0] {
+            if resp[..echo] == data[..echo] {
                 return Ok(resp);
             }
         }
@@ -131,24 +146,24 @@ impl Board {
     /// kit's firmware (version 2 on): which PCB's column pins have seen a key
     /// press since it started (bit 0 v1, bit 1 v1.4). 0 until a key in 7-9 / U-O / J-L / N-, is pressed.
     pub fn kit_pcb(&mut self) -> Result<u8> {
-        Ok(self.command(&[cmd::GET_VALUE, KIT_CHANNEL, KIT_INFO])?[6])
+        Ok(self.command_echo(&[cmd::GET_VALUE, KIT_CHANNEL, KIT_INFO], 3)?[6])
     }
 
     /// kit's firmware (version 4 on): its effects' second color (hue,
     /// saturation) and background level.
     pub fn kit_colors(&mut self) -> Result<[u8; 3]> {
-        let r = self.command(&[cmd::GET_VALUE, KIT_CHANNEL, KIT_COLORS])?;
+        let r = self.command_echo(&[cmd::GET_VALUE, KIT_CHANNEL, KIT_COLORS], 3)?;
         Ok([r[3], r[4], r[5]])
     }
 
     pub fn set_kit_colors(&mut self, v: [u8; 3]) -> Result<()> {
-        self.command(&[cmd::SET_VALUE, KIT_CHANNEL, KIT_COLORS, v[0], v[1], v[2]])?;
+        self.command_echo(&[cmd::SET_VALUE, KIT_CHANNEL, KIT_COLORS, v[0], v[1], v[2]], 3)?;
         Ok(())
     }
 
     /// Store the kit colors in the board's EEPROM.
     pub fn save_kit_colors(&mut self) -> Result<()> {
-        self.command(&[cmd::SAVE, KIT_CHANNEL, KIT_COLORS])?;
+        self.command_echo(&[cmd::SAVE, KIT_CHANNEL, KIT_COLORS], 3)?;
         Ok(())
     }
 
@@ -165,7 +180,7 @@ impl Board {
 
     pub fn set_keycode(&mut self, layer: u8, row: u8, col: u8, code: u16) -> Result<()> {
         let [hi, lo] = code.to_be_bytes();
-        self.command(&[cmd::SET_KEYCODE, layer, row, col, hi, lo])?;
+        self.command_echo(&[cmd::SET_KEYCODE, layer, row, col, hi, lo], 4)?;
         Ok(())
     }
 
@@ -180,14 +195,27 @@ impl Board {
     }
 
     /// Write the whole macro buffer (it lives in EEPROM, so only on change).
+    /// Like VIA, the last byte is set first and cleared last: QMK plays no
+    /// macro while it isn't 0, so a write cut off halfway leaves the macros
+    /// silent instead of playing old and new halves mixed together.
     pub fn set_macro_buffer(&mut self, data: &[u8]) -> Result<()> {
+        let Some(last) = data.len().checked_sub(1) else { return Ok(()) };
+        let write = |board: &mut Self, at: usize, bytes: &[u8]| {
+            let [hi, lo] = (at as u16).to_be_bytes();
+            let mut req = vec![cmd::MACRO_SET, hi, lo, bytes.len() as u8];
+            req.extend_from_slice(bytes);
+            board.command_echo(&req, 3).map(|_| ())
+        };
+        write(self, last, &[0xFF])?;
         for (i, chunk) in data.chunks(CHUNK).enumerate() {
-            let [hi, lo] = ((i * CHUNK) as u16).to_be_bytes();
-            let mut req = vec![cmd::MACRO_SET, hi, lo, chunk.len() as u8];
-            req.extend_from_slice(chunk);
-            self.command(&req)?;
+            let at = i * CHUNK;
+            let mut chunk = chunk.to_vec();
+            if at + chunk.len() > last {
+                chunk[last - at] = 0xFF;
+            }
+            write(self, at, &chunk)?;
         }
-        Ok(())
+        write(self, last, &data[last..])
     }
 
     fn read_buffer(&mut self, command: u8, total: usize) -> Result<Vec<u8>> {
@@ -195,7 +223,7 @@ impl Board {
         while out.len() < total {
             let size = (total - out.len()).min(CHUNK);
             let [hi, lo] = (out.len() as u16).to_be_bytes();
-            let r = self.command(&[command, hi, lo, size as u8])?;
+            let r = self.command_echo(&[command, hi, lo, size as u8], 3)?;
             out.extend_from_slice(&r[4..4 + size]);
         }
         Ok(out)
@@ -233,15 +261,16 @@ impl Board {
 
     pub fn get_value(&mut self, value: Value) -> Result<[u8; 2]> {
         let req = self.value_header(cmd::GET_VALUE, value)?;
-        let r = self.command(&req)?;
+        let r = self.command_echo(&req, req.len())?;
         let at = req.len();
         Ok([r[at], r[at + 1]])
     }
 
     pub fn set_value(&mut self, value: Value, data: &[u8]) -> Result<()> {
         let mut req = self.value_header(cmd::SET_VALUE, value)?;
+        let header = req.len();
         req.extend_from_slice(data);
-        self.command(&req)?;
+        self.command_echo(&req, header)?;
         Ok(())
     }
 
