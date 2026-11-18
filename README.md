@@ -60,6 +60,8 @@ Headset
 - The headset is restored as the default playback and recording device whenever it reconnects.
 
 App
+- The headset's and mouse's battery on the taskbar next to the clock (🎧 53% 🖱 93%), red at 15% or less, with a
+  bolt while charging.
 - The tray icon warns when a device that isn't charging drops to 15% battery.
 - All settings export to and import from one JSON file. kit saves the previous settings before an import.
 - A log file, and a diagnostics file from Settings for reporting a problem.
@@ -141,6 +143,8 @@ hardware probe tools and the release process are described in [docs/development.
 - G HUB, GG and VIA can't run at the same time as kit.
 - Macros that click, repeat or toggle, kit's own lighting effects and PRO X TKL key bindings need kit running.
 - Per-key NK65 color needs RGB-matrix firmware (PCB rev B, or kit's firmware).
+- The taskbar battery sits inside Windows' own taskbar, which has no API for it, so a Windows update could move or
+  hide it. It shows on the main taskbar only, not on vertical ones.
 
 ## Credits
 

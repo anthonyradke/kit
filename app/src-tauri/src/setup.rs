@@ -18,6 +18,8 @@ pub struct AppConfig {
     pub mouse: Option<Product>,
     pub keyboard: Option<KeyboardProduct>,
     pub headset: Option<Product>,
+    /// No battery levels on the taskbar (see `taskbar.rs`).
+    pub hide_taskbar_battery: bool,
 }
 
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
@@ -63,6 +65,7 @@ pub fn init(app: &AppHandle) -> tauri::Result<()> {
             mouse: dir.join("mouse.json").exists().then(Product::default),
             headset: dir.join("headset.json").exists().then(Product::default),
             keyboard: None,
+            hide_taskbar_battery: false,
         }
     };
     app.manage(Shared { config: Mutex::new(normalized(config)), path });

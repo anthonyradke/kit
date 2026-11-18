@@ -78,6 +78,18 @@ endpoints under new ids), replaces a missing or older DLL, puts the effects back
 Windows audio. Removing an effect takes it off every endpoint that lists it, connected or not, and kit's
 uninstaller removes both (`kit.exe --remove-audio-effects`, run from `app/src-tauri/windows/hooks.nsh`).
 
+## Taskbar battery
+
+Source: `src/taskbar.rs`.
+
+The headset's and mouse's battery next to the notification area, from the same readings as the tray tooltip. Windows
+has no API for this, so kit makes a small window of its own a child of the taskbar (`Shell_TrayWnd`), right-aligned
+against `TrayNotifyWnd`, and draws it with per-pixel alpha through `UpdateLayeredWindow`. Each run of text is drawn
+white on black with GDI's grayscale antialiasing and laid on in its color with that coverage as alpha. Glyphs come
+from Segoe Fluent Icons. Layered child windows need the app to declare Windows 8 or later, which
+`kit.manifest.xml` does. The child window ties its thread's input to explorer's, so that thread only draws; every two
+seconds it follows the notification area and recreates the window after explorer restarts.
+
 ## Other modules
 
 - `crates/sysaudio` lists audio endpoints, sets default devices and speaker formats, records and plays

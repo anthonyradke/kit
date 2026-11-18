@@ -10,11 +10,11 @@ use tauri::menu::{CheckMenuItem, Menu, MenuItem, PredefinedMenuItem};
 use tauri::tray::{MouseButton, MouseButtonState, TrayIconBuilder, TrayIconEvent};
 use tauri::{AppHandle, Manager};
 
-use crate::{badge, headset, keyboard, mouse, setup, update};
+use crate::{badge, headset, keyboard, mouse, setup, taskbar, update};
 
 const TRAY_ID: &str = "main";
 /// The same level the window turns a battery red at.
-const LOW_BATTERY: u8 = 15;
+const LOW_BATTERY: u8 = taskbar::LOW;
 /// A mark stays until here, so a reading that wobbles around 15% doesn't flicker the icon.
 const LOW_BATTERY_CLEARS: u8 = 20;
 const PROFILE_PREFIX: &str = "profile:";
@@ -226,6 +226,18 @@ pub fn refresh_status(app: &AppHandle) {
         }
     }
     let _ = tray.set_tooltip(Some(text));
+
+    // The same readings on the taskbar.
+    let mut readings = vec![];
+    if all || devices.headset.is_some() {
+        let away = !headset.connected;
+        readings.push(taskbar::Reading { kind: taskbar::Kind::Headset, battery: headset.battery, charging: headset.charging, away });
+    }
+    if all || devices.mouse.is_some() {
+        let away = !mouse.connected;
+        readings.push(taskbar::Reading { kind: taskbar::Kind::Mouse, battery: mouse.battery, charging: mouse.charging, away });
+    }
+    taskbar::update(app, !devices.hide_taskbar_battery, &readings);
 
     let mark = !low.is_empty();
     if MARKED.swap(mark, Ordering::Relaxed) != mark {

@@ -351,6 +351,7 @@ async function finishSetup() {
     mouse: d.mouse ? { color: d.mouseColor } : null,
     keyboard: d.keyboard ? { model: d.keyboardModel, color: "white" } : null,
     headset: d.headset ? { color: d.headsetColor } : null,
+    hideTaskbarBattery: !!A.hideTaskbarBattery,
   };
   try {
     A = await invoke("app_save", { config });
@@ -377,6 +378,10 @@ function settingsPage() {
     <div class="row">
       <div><div class="rtitle">Launch at startup</div><p class="hint">Start kit in the tray when you sign in to Windows.</p></div>
       <label class="switch"><input type="checkbox" data-field="autostart" ${autostart ? "checked" : ""} aria-label="Launch at startup" /><span></span></label>
+    </div>
+    <div class="row">
+      <div><div class="rtitle">Battery on the taskbar</div><p class="hint">The headset's and mouse's battery next to the taskbar's icons, red at 15% or less. Click it to open kit.</p></div>
+      <label class="switch"><input type="checkbox" data-field="taskbar-battery" ${A.hideTaskbarBattery ? "" : "checked"} aria-label="Battery on the taskbar" /><span></span></label>
     </div>
 
     <h2 class="h2">Theme</h2>
@@ -721,6 +726,14 @@ function toggleDevice(dev, on) {
 }
 
 Object.assign(changeFields, {
+  async "taskbar-battery"(el) {
+    try {
+      A = await invoke("app_save", { config: { ...A, hideTaskbarBattery: !el.checked } });
+    } catch (err) {
+      toast(`Couldn't save: ${err}`);
+    }
+    render();
+  },
   async autostart(el) {
     try {
       autostart = await invoke("set_autostart", { enabled: el.checked });

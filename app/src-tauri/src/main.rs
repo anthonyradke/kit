@@ -10,6 +10,7 @@ mod mouse;
 mod session;
 mod setup;
 mod store;
+mod taskbar;
 mod tray;
 mod update;
 
