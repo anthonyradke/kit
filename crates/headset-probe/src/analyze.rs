@@ -140,7 +140,7 @@ const IR_PRE: usize = 512;
 
 /// Deconvolve `y` by `x` (circular, long enough that nothing wraps onto the
 /// response's start).
-fn raw_ir(x: &[f64], y: &[f64]) -> Vec<f64> {
+pub(crate) fn raw_ir(x: &[f64], y: &[f64]) -> Vec<f64> {
     let n = (x.len().max(y.len()) + RATE / 2).next_power_of_two() * 2;
     let (fx, fy) = (rfft(x, n), rfft(y, n));
     let floor = fx.iter().map(|c| c.norm_sqr()).fold(0.0, f64::max) * 1e-9;

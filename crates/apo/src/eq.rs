@@ -380,7 +380,7 @@ mod tests {
         let d: *const APO_CONNECTION_DESCRIPTOR = &desc;
         unsafe { config.LockForProcess(&[d], &[d]) }.unwrap();
         // The limiter's lookahead, reported to the engine.
-        assert_eq!(unsafe { apo.GetLatency() }.unwrap(), 47 * 10_000_000 / 48000);
+        assert_eq!(unsafe { apo.GetLatency() }.unwrap(), 239 * 10_000_000 / 48000);
 
         let rt: IAudioProcessingObjectRT = apo.cast().unwrap();
         let tone = |f: f64, n: usize| -> Vec<f32> {

@@ -4,8 +4,17 @@
 //! change them, so whenever the headset connects the worker reads them back
 //! and rewrites whatever differs from ours. Unchanged settings aren't
 //! rewritten: every saved write goes to the headset's flash.
+//!
+//! The status (on or off, battery, charging) is asked for
+//! once when the base station is found and when the headset comes on. After
+//! that the worker only listens: the base station pushes every change on its
+//! event interface, which a second thread reads. Asking for the status every
+//! few seconds, as kit used to, is what GG doesn't do, and another Nova 5
+//! tool measured crackles in the audio after each such request.
 
+use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::mpsc::{Receiver, RecvTimeoutError};
+use std::sync::Arc;
 use std::time::{Duration, Instant};
 
 use arctis::{Error, Headset};
@@ -17,11 +26,12 @@ use super::state::Shared;
 
 pub enum Cmd {
     /// Desired settings changed (also sent once at startup).
-    Apply { eq: arctis::Eq, settings: HeadsetSettings },
-    /// Live EQ while a band is being dragged; not saved on the headset.
-    PreviewEq(arctis::Eq),
-    /// kit is quitting: put back what ChatMix changed, then answer.
-    Release(std::sync::mpsc::Sender<()>),
+    Apply(HeadsetSettings),
+    /// The base station pushed a change; from the event thread of the given
+    /// connection.
+    Event(u64, arctis::Event),
+    /// The event thread of the given connection lost the base station.
+    EventsLost(u64),
 }
 
 #[derive(Clone, Debug, Default, PartialEq, Serialize)]
@@ -33,16 +43,17 @@ pub struct Status {
     pub connected: bool,
     pub battery: Option<u8>,
     pub charging: bool,
-    /// The ChatMix dial while the headset is on: game, then chat, 0-100.
-    pub chatmix: Option<[u8; 2]>,
     pub error: Option<String>,
 }
 
 const OPEN_RETRY: Duration = Duration::from_secs(2);
-/// Status polls are answered by the base station itself, so they're cheap.
-const POLL_EVERY: Duration = Duration::from_secs(2);
-/// With ChatMix on, often enough that turning the dial feels immediate.
-const POLL_CHATMIX: Duration = Duration::from_millis(250);
+/// Only when the event interface can't be opened: ask for the status this
+/// often instead.
+const FALLBACK_POLL: Duration = Duration::from_secs(30);
+/// How long the event thread waits per read, so it notices a new connection.
+const EVENT_WAIT: Duration = Duration::from_secs(2);
+/// Nothing scheduled: wait for a command this long at most.
+const IDLE: Duration = Duration::from_secs(3600);
 
 pub fn spawn(app: AppHandle, rx: Receiver<Cmd>) {
     std::thread::Builder::new()
@@ -55,13 +66,17 @@ struct Worker {
     app: AppHandle,
     rx: Receiver<Cmd>,
     dev: Option<Headset>,
-    desired: Option<(arctis::Eq, HeadsetSettings)>,
+    desired: Option<HeadsetSettings>,
     /// What we last wrote (or verified) for each setting.
     written: Written,
     next_open: Instant,
-    next_poll: Instant,
+    /// When to ask for the status again; `None` while events arrive.
+    next_poll: Option<Instant>,
+    /// Counts connections to the base station; an event thread runs while
+    /// its connection is the current one.
+    connection: Arc<AtomicU64>,
     status: Status,
-    mixer: super::chatmix::Mixer,
+    published: Status,
 }
 
 /// Last value known to be on the headset; `None` means unknown, write it.
@@ -77,36 +92,35 @@ struct Written {
 
 impl Worker {
     fn new(app: AppHandle, rx: Receiver<Cmd>) -> Self {
-        let now = Instant::now();
         Worker {
             app,
             rx,
             dev: None,
             desired: None,
             written: Written::default(),
-            next_open: now,
-            next_poll: now,
+            next_open: Instant::now(),
+            next_poll: None,
+            connection: Arc::new(AtomicU64::new(0)),
             status: Status::default(),
-            mixer: super::chatmix::Mixer::default(),
+            published: Status::default(),
         }
     }
 
     fn run(mut self) {
-        // ChatMix sets app volumes through Core Audio.
-        sysaudio::com_init();
         loop {
-            let prev = self.status.clone();
-            if self.dev.is_none() && Instant::now() >= self.next_open {
+            let now = Instant::now();
+            if self.dev.is_none() && now >= self.next_open {
                 self.open();
             }
-            if self.dev.is_some() && Instant::now() >= self.next_poll {
-                self.poll();
+            if self.dev.is_some() && self.next_poll.is_some_and(|t| now >= t) {
+                self.query_status();
             }
-            if self.status != prev {
+            if self.status != self.published {
                 self.publish();
             }
-            let next = if self.dev.is_some() { self.next_poll } else { self.next_open };
-            match self.rx.recv_timeout(next.saturating_duration_since(Instant::now())) {
+            let wake = if self.dev.is_none() { Some(self.next_open) } else { self.next_poll };
+            let timeout = wake.map_or(IDLE, |t| t.saturating_duration_since(Instant::now()));
+            match self.rx.recv_timeout(timeout) {
                 Ok(cmd) => self.handle(cmd),
                 Err(RecvTimeoutError::Timeout) => {}
                 Err(RecvTimeoutError::Disconnected) => return,
@@ -116,32 +130,16 @@ impl Worker {
 
     fn handle(&mut self, cmd: Cmd) {
         match cmd {
-            Cmd::Apply { eq, settings } => {
-                self.desired = Some((eq, settings));
+            Cmd::Apply(settings) => {
+                self.desired = Some(settings);
                 self.apply();
             }
-            Cmd::Release(done) => {
-                self.mixer.restore();
-                let _ = done.send(());
+            Cmd::Event(connection, event) if connection == self.connection.load(Ordering::Relaxed) => self.on_event(event),
+            Cmd::EventsLost(connection) if connection == self.connection.load(Ordering::Relaxed) => {
+                self.lost("the base station stopped answering".into());
             }
-            Cmd::PreviewEq(eq) => {
-                // Coalesce a burst of drag updates into the latest one.
-                let mut eq = eq;
-                while let Ok(next) = self.rx.try_recv() {
-                    match next {
-                        Cmd::PreviewEq(e) => eq = e,
-                        other => {
-                            self.handle(other);
-                            return;
-                        }
-                    }
-                }
-                // Not saved: unless it's what the headset already has, make
-                // sure the next Apply writes (and saves) the EQ again.
-                if self.with_dev(|h| h.set_eq(&eq, false)).is_some() && self.written.eq != Some(arctis::encode_eq(&eq)) {
-                    self.written.eq = None;
-                }
-            }
+            // From the event thread of an earlier connection.
+            Cmd::Event(..) | Cmd::EventsLost(_) => {}
         }
     }
 
@@ -151,7 +149,21 @@ impl Worker {
                 self.dev = Some(h);
                 self.status.present = true;
                 self.status.error = None;
-                self.next_poll = Instant::now();
+                let connection = self.connection.fetch_add(1, Ordering::Relaxed) + 1;
+                let listening = match arctis::Events::open() {
+                    Ok(events) => {
+                        self.spawn_events(events, connection);
+                        true
+                    }
+                    Err(e) => {
+                        log::warn!("headset: no event interface ({e}); asking for the status every {} s", FALLBACK_POLL.as_secs());
+                        false
+                    }
+                };
+                self.next_poll = (!listening).then(Instant::now);
+                if listening {
+                    self.query_status();
+                }
             }
             Err(e) => {
                 self.status = Status { error: Some(e.to_string()), ..Status::default() };
@@ -160,24 +172,65 @@ impl Worker {
         }
     }
 
-    fn poll(&mut self) {
-        let (chatmix, chat_apps, surround) = {
-            let shared = self.app.state::<Shared>();
-            let core = shared.core.lock().unwrap();
-            (core.chatmix.enabled, core.chatmix.chat_apps.clone(), core.headset.surround)
-        };
-        self.next_poll = Instant::now() + if chatmix && self.status.connected { POLL_CHATMIX } else { POLL_EVERY };
-        let Some(st) = self.with_dev(|h| h.status()) else {
-            self.mixer.restore();
-            return;
-        };
-        let was_connected = self.status.connected;
-        self.status.connected = st.connected;
-        self.status.battery = st.connected.then_some(st.battery);
-        self.status.charging = st.connected && st.charging;
-        self.status.chatmix = st.connected.then_some([st.chatmix.0.min(100), st.chatmix.1.min(100)]);
-        self.mixer.update(self.status.chatmix.filter(|_| chatmix), &chat_apps, surround);
-        if st.connected && !was_connected {
+    /// Read the base station's pushed events on a thread of their own and
+    /// hand them to the worker, until another connection replaces this one.
+    fn spawn_events(&self, events: arctis::Events, connection: u64) {
+        let tx = self.app.state::<Shared>().headset_tx.clone();
+        let current = self.connection.clone();
+        let spawned = std::thread::Builder::new().name("headset-events".into()).spawn(move || {
+            while current.load(Ordering::Relaxed) == connection {
+                match events.next(EVENT_WAIT) {
+                    Ok(Some(event)) => {
+                        if tx.send(Cmd::Event(connection, event)).is_err() {
+                            return;
+                        }
+                    }
+                    Ok(None) => {}
+                    Err(_) => {
+                        let _ = tx.send(Cmd::EventsLost(connection));
+                        return;
+                    }
+                }
+            }
+        });
+        if let Err(e) = spawned {
+            log::error!("headset: can't start the event thread: {e}");
+        }
+    }
+
+    /// Ask the base station for the status once.
+    fn query_status(&mut self) {
+        if self.next_poll.is_some() {
+            self.next_poll = Some(Instant::now() + FALLBACK_POLL);
+        }
+        let Some(st) = self.with_dev(|h| h.status()) else { return };
+        if st.connected {
+            self.status.battery = Some(st.battery);
+            self.status.charging = st.charging;
+        }
+        self.set_connected(st.connected);
+    }
+
+    fn on_event(&mut self, event: arctis::Event) {
+        match event {
+            // The status reply fills in battery, charging and the dial,
+            // which the pushes only send when they change.
+            arctis::Event::Connected(true) if !self.status.connected => self.query_status(),
+            arctis::Event::Connected(on) => self.set_connected(on),
+            _ if !self.status.connected => {}
+            arctis::Event::Battery(percent) => self.status.battery = Some(percent),
+            arctis::Event::Charging(charging) => self.status.charging = charging,
+        }
+    }
+
+    fn set_connected(&mut self, connected: bool) {
+        let was = self.status.connected;
+        self.status.connected = connected;
+        if !connected {
+            self.status.battery = None;
+            self.status.charging = false;
+        }
+        if connected && !was {
             self.on_connect();
         }
     }
@@ -195,7 +248,9 @@ impl Worker {
     }
 
     fn apply(&mut self) {
-        let Some((eq, s)) = self.desired.clone() else { return };
+        let Some(s) = self.desired.clone() else { return };
+        // The EQ runs in kit's APO; the headset's own stays flat.
+        let eq = [None; arctis::BANDS];
         let encoded = arctis::encode_eq(&eq);
         if self.written.eq != Some(encoded) && self.with_dev(|h| h.set_eq(&eq, true)).is_some() {
             self.written.eq = Some(encoded);
@@ -220,6 +275,17 @@ impl Worker {
         }
     }
 
+    /// The base station is gone (unplugged): stop its event thread, give
+    /// every app its volume back and look for it again shortly.
+    fn lost(&mut self, error: String) {
+        self.dev = None;
+        self.connection.fetch_add(1, Ordering::Relaxed);
+        self.written = Written::default();
+        self.next_poll = None;
+        self.status = Status { error: Some(error), ..Status::default() };
+        self.next_open = Instant::now() + OPEN_RETRY;
+    }
+
     /// Run a request; a HID error means the base station was unplugged.
     fn with_dev<T>(&mut self, f: impl FnOnce(&Headset) -> arctis::Result<T>) -> Option<T> {
         let h = self.dev.as_ref()?;
@@ -229,10 +295,7 @@ impl Worker {
                 Some(v)
             }
             Err(Error::Hid(e)) => {
-                self.dev = None;
-                self.written = Written::default();
-                self.status = Status { error: Some(e.to_string()), ..Status::default() };
-                self.next_open = Instant::now() + OPEN_RETRY;
+                self.lost(e.to_string());
                 None
             }
             Err(e) => {
@@ -242,7 +305,8 @@ impl Worker {
         }
     }
 
-    fn publish(&self) {
+    fn publish(&mut self) {
+        self.published = self.status.clone();
         let shared = self.app.state::<Shared>();
         *shared.headset.lock().unwrap() = self.status.clone();
         let _ = self.app.emit("headset", &self.status);

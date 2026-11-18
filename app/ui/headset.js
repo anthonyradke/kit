@@ -8,7 +8,13 @@ const F_MIN = 20;
 const F_MAX = 20000;
 const DB_RANGE = 12; // graph shows ±12 dB
 const SAMPLE_RATE = 48000;
-const BASS_FREQ = 60; // corner of the bass slider's low shelf
+// Sonar's tone sliders, as measured on its output: one peak each, with the
+// slider's value as the gain. Mirrors `TONE_FILTERS` in config.rs.
+const TONE = [
+  ["bass", "Bass", 80, 0.707],
+  ["voice", "Voice", 2000, 0.5],
+  ["treble", "Treble", 8000, 0.707],
+];
 const FILTERS = [
   ["peaking", "Peak", "PK"],
   ["lowShelf", "Low shelf", "LS"],
@@ -30,9 +36,9 @@ let installing = false;
 let apoError = null;
 let eqInstalling = false;
 let eqError = null; // the same for kit's EQ, on the Sound page
-// The rate the graph's filters are computed at: the headset's, or twice it
-// for kit's EQ, which matches filters designed at 96 kHz the way Sonar runs them.
-let eqRate = SAMPLE_RATE;
+// The rate the graph's filters are computed at: kit's EQ matches filters
+// designed at 96 kHz, the way Sonar runs them.
+const eqRate = 2 * SAMPLE_RATE;
 let drag = null; // { i, rect } while a graph node is dragged
 let graphSize = { w: 0, h: 0 };
 // The Mic page's test, pushed by mic_test.rs: { mode, position, live, sample, error }.
@@ -42,24 +48,21 @@ let micWanted = "idle"; // what was last asked for; the mic test may not have st
 const hcfg = () => H.config;
 const preset = () => hcfg().presets.find((p) => p.id === hcfg().active) || hcfg().presets[0];
 const band = () => preset().bands[hv.band];
+const toneOf = (p) => p.tone || { bass: 0, voice: 0, treble: 0 };
+const TONE_MAX = 12; // Sonar's slider range; TONE_MAX in config.rs
 const num = (v, fallback) => (Number.isFinite(Number(v)) && String(v).trim() !== "" ? Number(v) : fallback);
 const roundGain = (g) => Math.round(clamp(g, -GAIN_MAX, GAIN_MAX) * 2) / 2;
 const roundQ = (q) => Math.round(clamp(q, Q_MIN, Q_MAX) * 1000) / 1000;
 const roundFreq = (f) => Math.round(clamp(f, F_MIN, F_MAX));
 const hasGain = (b) => b.filter === "peaking" || b.filter === "lowShelf" || b.filter === "highShelf";
-// The EQ runs in kit's APO (chosen and installed) rather than on the headset,
-// as the backend last applied it.
-const eqInKit = () => H.eqInKit ?? (hcfg().headset.eqInKit && H.audio.eqApoInstalled);
-
 const headsetSaver = makeSaver("headset_save", hcfg, (st) => {
   H.headset = st.headset;
   H.audio = st.audio;
-  H.surround = st.surround;
 });
 
-// Live EQ on the headset while dragging (not saved to its memory until the drag ends).
+// Live EQ in kit's EQ while dragging (saved when the drag ends).
 let previewTimer = null;
-// A preview still waiting would land after the drag's save and undo it on the headset.
+// A preview still waiting would land after the drag's save and undo it.
 function cancelPreview() {
   clearTimeout(previewTimer);
   previewTimer = null;
@@ -68,7 +71,7 @@ function preview() {
   if (previewTimer) return;
   previewTimer = setTimeout(() => {
     previewTimer = null;
-    invoke("preview_eq", { bands: preset().bands, bass: hcfg().headset.bass });
+    invoke("preview_eq", { bands: preset().bands, tone: toneOf(preset()) });
   }, 40);
 }
 
@@ -76,7 +79,7 @@ function fmtFreq(f) {
   if (f >= 1000) return `${+(f / 1000).toFixed(f >= 10000 ? 1 : 2)}k`;
   return `${Math.round(f)}`;
 }
-const fmtBass = (g) => (g ? `${fmtGain(g)}<small> dB</small>` : "Off");
+const fmtTone = (g) => (g ? `${fmtGain(g)}<small> dB</small>` : "0");
 const fmtGain = (g) => `${g > 0 ? "+" : g < 0 ? "−" : ""}${Math.abs(g).toFixed(1)}`;
 const filterInfo = (f) => FILTERS.find((x) => x[0] === f) || FILTERS[0];
 
@@ -104,7 +107,6 @@ function defaultCell(key, span = 1) {
   const a = H.audio;
   if (sonarHolds()) return cell(key, "Windows default", "Sonar", { span, cls: "text warn" });
   if (!a.output) return cell(key, "Windows default", "Not connected", { span, cls: "text dim" });
-  if (a.cable && a.headsetIsDefault) return cell(key, "Windows default", "Surround", { span, cls: "text" });
   return cell(key, "Windows default", a.headsetIsDefault ? "This headset" : esc(a.defaultOutput || "None"), { span, cls: `text ${a.headsetIsDefault ? "" : "warn"}` });
 }
 
@@ -155,26 +157,22 @@ function bandDb(c, f) {
   return 10 * Math.log10((nr * nr + ni * ni) / (dr * dr + di * di));
 }
 
-// The bands the headset gets once the bass slider is applied. Mirrors
-// `Preset::with_bass` in config.rs: a low shelf in the first band that is off
-// or at 0 dB, else added to the preset's own low shelf, else nothing.
-function withBass(bands, bass) {
-  if (!bass) return bands;
-  const out = bands.map((b) => ({ ...b }));
-  const idle = out.find((b) => !b.enabled || (b.gain === 0 && hasGain(b)));
-  if (idle) {
-    Object.assign(idle, { enabled: true, filter: "lowShelf", freq: BASS_FREQ, gain: bass, q: 0.707 });
-    return out;
-  }
-  const shelf = out.find((b) => b.filter === "lowShelf");
-  if (shelf) shelf.gain = clamp(shelf.gain + bass, -GAIN_MAX, GAIN_MAX);
-  return out;
+// The tone sliders that aren't at 0, as bands.
+function toneBands(p) {
+  const t = toneOf(p);
+  return TONE.filter(([k]) => t[k]).map(([k, , freq, q]) => ({ enabled: true, filter: "peaking", freq, gain: t[k], q }));
 }
 
-// The biggest boost of the bands the EQ plays, in dB (0 if they only cut):
-// what kit's Auto preamp takes off. Mirrors `Preset::to_curve`.
+// The filters kit's EQ plays: the bands that are on, then the tone sliders.
+// Mirrors `Preset::to_curve`.
+function heardBands(p) {
+  return [...p.bands.filter((b) => b.enabled), ...toneBands(p)];
+}
+
+// The biggest boost of what kit's EQ plays, in dB (0 if it only cuts): what
+// kit's Auto preamp takes off. Mirrors `Preset::to_curve`.
 function maxBoost(p) {
-  const heard = withBass(p.bands, hcfg().headset.bass).filter((b) => b.enabled).map(coeffs);
+  const heard = heardBands(p).map(coeffs);
   let max = 0;
   for (let k = 0; k <= 400; k++) {
     const f = 20 * Math.pow(1000, k / 400);
@@ -183,16 +181,13 @@ function maxBoost(p) {
   return max;
 }
 
-// False when the preset uses every band and has no low shelf to add bass to.
-const bassFits = (p) => p.bands.some((b) => !b.enabled || (b.gain === 0 && hasGain(b)) || b.filter === "lowShelf");
-
 // ---------- sound page ----------
 
 function presetStrip() {
   const tabs = hcfg().presets
     .map((p) => {
       const on = p.id === hcfg().active;
-      return `<button class="stab ${on ? `sel ${H.headset.connected ? "live" : "stored"}` : ""}" data-act="preset" data-id="${esc(p.id)}" ${on ? 'title="Stored on the headset"' : ""}><span class="pdot"></span>${esc(p.name)}</button>`;
+      return `<button class="stab ${on ? `sel ${H.audio.eqApoInstalled ? "live" : "stored"}` : ""}" data-act="preset" data-id="${esc(p.id)}" ${on ? `title="${H.audio.eqApoInstalled ? "Playing in kit's EQ" : "Plays once kit's EQ is installed"}"` : ""}><span class="pdot"></span>${esc(p.name)}</button>`;
     })
     .join("");
   return `<nav class="strip" aria-label="EQ presets">${tabs}<button class="tbtn" data-act="preset-new">${icons.plus}New preset</button></nav>`;
@@ -203,13 +198,12 @@ const GRAPH = { L: 38, R: 14, T: 12, B: 26 };
 function graphSvg(p) {
   const { w: W, h: Ht } = graphSize;
   if (!W || !Ht) return "";
-  eqRate = eqInKit() ? 2 * SAMPLE_RATE : SAMPLE_RATE;
   const { L, R, T, B } = GRAPH;
   const lf0 = Math.log10(F_MIN), lf1 = Math.log10(F_MAX);
   const x = (f) => L + ((Math.log10(f) - lf0) / (lf1 - lf0)) * (W - L - R);
   const y = (db) => T + ((DB_RANGE - clamp(db, -DB_RANGE - 1, DB_RANGE + 1)) / (2 * DB_RANGE)) * (Ht - T - B);
   const active = p.bands.map((b, i) => ({ b, i })).filter((e) => e.b.enabled);
-  const heard = withBass(p.bands, hcfg().headset.bass).filter((b) => b.enabled).map(coeffs);
+  const heard = heardBands(p).map(coeffs);
   const N = 220;
   const freqs = Array.from({ length: N + 1 }, (_, k) => Math.pow(10, lf0 + ((lf1 - lf0) * k) / N));
   const total = (f) => heard.reduce((s, c) => s + bandDb(c, f), 0);
@@ -274,7 +268,11 @@ function soundPage() {
   const deleting = confirmDelete === p.id;
   const lastPreset = hcfg().presets.length < 2;
   const used = p.bands.filter((x) => x.enabled).length;
-  const bass = hcfg().headset.bass;
+  const tone = toneOf(p);
+  const toneRows = TONE.map(([k, label, freq]) => `<div class="tone-row">
+            <div class="sec-head"><span class="sec-title">${label}<small>${fmtFreq(freq)} Hz</small></span><span class="rval" id="v-tone-${k}">${fmtTone(tone[k])}</span></div>
+            ${slider(`tone-${k}`, tone[k], TONE_MAX, false, label, -TONE_MAX, 0.1)}
+          </div>`).join("");
   const filterOpts = FILTERS.map(([id, label]) => `<button class="choice ${b.filter === id ? "on" : ""}" data-act="filter" data-filter="${id}" role="radio" aria-checked="${b.filter === id}">${label}</button>`).join("");
   return `<div class="page devpage" data-key="headset-sound">
     ${presetStrip()}
@@ -284,7 +282,7 @@ function soundPage() {
         <div class="canvas-head">
           <input class="pname" data-field="preset-name" value="${esc(p.name)}" spellcheck="false" maxlength="40" aria-label="Preset name" />
           <div class="pactions">
-            ${eqInKit() ? `<span class="live-mark" title="kit's EQ runs on the headset's output inside Windows">In kit</span>` : h.connected ? `<span class="live-mark" title="The EQ runs on the headset itself">On headset</span>` : `<span class="off-mark" title="The headset uses it as soon as it turns on">Saved on headset</span>`}
+            ${H.audio.eqApoInstalled ? `<span class="live-mark" title="kit's EQ runs on the headset's output inside Windows">In kit</span>` : `<span class="off-mark" title="Install kit's EQ below">Not playing</span>`}
             <button class="tbtn" data-act="preset-duplicate">${icons.copy}Duplicate</button>
             <button class="tbtn ${deleting ? "confirm" : "danger"}" data-act="preset-delete" ${lastPreset ? "disabled" : ""}>${icons.trash}${deleting ? "Confirm delete" : "Delete"}</button>
           </div>
@@ -310,28 +308,23 @@ function soundPage() {
           <p class="hint">Drag a point on the curve to move it. Scroll over the graph to widen or narrow the selected band. Double-click empty space to turn on a free band there.</p>
         </section>
         <section class="sec">
-          <div class="sec-head"><span class="sec-title">Bass<small>all presets</small></span><span class="rval" id="v-bass">${fmtBass(bass)}</span></div>
-          ${slider("bass", bass, GAIN_MAX, false, "Bass", -GAIN_MAX, 0.5)}
-          <div class="scale"><span>Less</span><span>More</span></div>
-          <p class="hint">${bassFits(p) ? `A low shelf below ${BASS_FREQ} Hz added on top of the preset.` : "This preset uses all 10 bands and has no low shelf, so the bass slider can't apply. Turn a band off to make room."}</p>
+          ${toneRows}
+          <p class="hint">Sonar's Bass, Voice and Treble sliders, as measured: a peak at 80 Hz, 2 kHz and 8 kHz on top of this preset's bands.</p>
         </section>
         ${eqEngineSection(p)}
         <section class="sec">
           <button class="tbtn" data-act="band-reset">${icons.reset}Flatten band ${hv.band + 1}</button>
-          <p class="hint">${eqInKit()
-            ? "kit's EQ runs inside Windows on the headset's output, after every app is mixed, so it applies to everything you hear, even when kit isn't running. The headset's own EQ is kept flat."
-            : "The EQ runs on the headset itself (10 bands, ±10 dB), so it applies to everything you hear, even when kit isn't running."}</p>
+          <p class="hint">kit's EQ runs inside Windows on the headset's output, after every app is mixed, so it applies to everything you hear, even when kit isn't running. The headset's own EQ is kept flat.</p>
         </section>
       </aside>
     </div>
   </div>`;
 }
 
-// Where the EQ runs: on the headset, or in kit's APO the way Sonar ran it.
+// kit's EQ on the headset's output: installed or not, and its preamp.
 function eqEngineSection(p) {
   const h = hcfg().headset;
   const a = H.audio;
-  const inKit = eqInKit();
   let status;
   if (eqInstalling) {
     status = `<div class="state-line"><span class="off-mark">Installing… approve the Windows prompt.</span></div>`;
@@ -341,29 +334,25 @@ function eqEngineSection(p) {
     status = `<div class="state-line warn"><span class="grow">This version of kit has a newer EQ. Windows asks for permission once to update it.</span>
       <button class="btn" data-act="eq-update">${icons.shield}Update</button></div>`;
   } else if (a.eqApoInstalled) {
-    status = `<div class="state-line">${inKit ? `<span class="live-mark">Active on ${esc(a.output)}</span>` : `<span class="off-mark">Installed, switched off</span>`}
+    status = `<div class="state-line"><span class="live-mark">Active on ${esc(a.output)}</span>
       <span class="grow"></span><button class="tbtn danger" data-act="eq-uninstall">Remove</button></div>`;
   } else {
-    status = `<div class="state-line warn"><span class="grow">Not installed yet. Windows asks for permission once.</span>
+    status = `<div class="state-line warn"><span class="grow">Not installed, so no EQ plays. Windows asks for permission once.</span>
       <button class="btn" data-act="eq-install">${icons.shield}Install</button></div>`;
   }
   if (eqError && !eqInstalling) status += `<div class="state-line bad">${esc(eqError)}</div>`;
   if (a.eqApoInstalled && !eqInstalling) status += eqHealthLine();
-  eqRate = 2 * SAMPLE_RATE;
   const boost = maxBoost(p);
-  eqRate = inKit ? 2 * SAMPLE_RATE : SAMPLE_RATE;
-  const preamp = inKit
+  const preamp = a.eqApoInstalled
     ? `<div class="row"><div class="rtitle">Preamp</div>
         <div class="seg"><button class="${h.preamp === "auto" ? "on" : ""}" data-act="preamp" data-v="auto">Auto ${boost > 0.05 ? `−${boost.toFixed(1)} dB` : "0 dB"}</button><button class="${h.preamp === "off" ? "on" : ""}" data-act="preamp" data-v="off">Off, like Sonar</button></div></div>
       <p class="hint">${h.preamp === "auto"
-        ? "Turned down by the curve's biggest boost so loud music never reaches the limiter. Turn the volume up to make up for it."
-        : "As loud as Sonar was. Boosts can push loud music past full scale; kit's limiter turns those peaks down instead of letting them clip."}</p>`
+        ? "Turned down by the curve's biggest boost, so nothing is ever limited: the cleanest sound. Turn the volume up to make up for it."
+        : "As loud as Sonar. Boosts push loud music past full scale, and a limiter holds it just under, as Windows' own limiter did for Sonar: loud, bass-heavy music plays a few dB lower and denser."}</p>`
     : "";
   return `<section class="sec">
-    <div class="sec-head"><span class="sec-title">Run in kit<small>as Sonar did</small></span>
-      <label class="switch" ${a.eqApoInstalled ? "" : 'title="Install kit\'s EQ first"'}><input type="checkbox" data-field="eqInKit" ${inKit ? "checked" : ""} ${a.eqApoInstalled ? "" : "disabled"} aria-label="Run the EQ in kit" /><span></span></label>
-    </div>
-    <p class="hint">Runs the EQ in Windows on the headset's output in floating point, with Sonar's exact filter shapes (as computed at 96 kHz), a preamp and a limiter, instead of on the headset. Quit Sonar first, or its EQ adds to this one.</p>
+    <div class="sec-head"><span class="sec-title">kit's EQ<small>as Sonar ran it</small></span></div>
+    <p class="hint">Runs in Windows on the headset's output in floating point, with Sonar's exact filter shapes (as computed at 96 kHz). Quit Sonar first, or its EQ adds to this one.</p>
     ${status}
     ${preamp}
   </section>`;
@@ -401,58 +390,6 @@ function graphToValues(clientX, clientY, rect) {
 }
 
 // ---------- mic page ----------
-
-// ---------- surround page ----------
-
-function surroundStatus() {
-  const s = H.surround || {};
-  const on = hcfg().headset.surround;
-  if (!s.cable) {
-    return `<div class="state-line warn"><span class="grow">Surround needs VB-CABLE, a free virtual sound device from VB-Audio. Download it, run VBCABLE_Setup_x64 as administrator, restart Windows, then turn surround on here.</span>
-      <button class="btn" data-act="get-vbcable">Get VB-CABLE</button></div>`;
-  }
-  if (!on) return `<div class="state-line"><span class="off-mark">Off. Apps play straight to the headset.</span></div>`;
-  if (!s.running) return `<div class="state-line warn">${esc(s.error || "Starting…")}</div>`;
-  const playing = s.playing ? `Apps are sending <b>${esc(s.playing)}</b>${s.playing === "Stereo" ? ", set the game to 7.1 or surround speakers for sound from behind" : ""}` : "Nothing playing";
-  return `<div class="state-line"><span class="live-mark">On</span><span class="grow">${playing}</span><span class="muted">${s.latencyMs} ms</span></div>
-    ${s.error ? `<div class="state-line bad">${esc(s.error)}</div>` : ""}`;
-}
-
-function surroundPage() {
-  const h = hcfg().headset;
-  const s = H.surround || {};
-  const canTest = h.surround && s.running;
-  return `<div class="page fpage" data-key="headset-surround"><div class="fpage-inner">
-    ${sonarNotice()}
-    <h1 class="h1">Surround</h1>
-
-    <div class="row col">
-      <div class="row-head">
-        <div><div class="rtitle">Virtual 7.1 surround</div>
-        <p class="hint">Games play to a virtual 7.1 speaker setup. kit places each speaker around you, using measurements of a dummy head in a listening room, and plays the result on the headset, with your EQ on top. Calls and the mic stay on the headset directly.</p></div>
-        <label class="switch" ${s.cable ? "" : 'title="Install VB-CABLE first"'}><input type="checkbox" data-field="surround" ${h.surround ? "checked" : ""} ${s.cable || h.surround ? "" : "disabled"} aria-label="Virtual surround" /><span></span></label>
-      </div>
-      ${surroundStatus()}
-    </div>
-
-    <div class="row col">
-      <div class="row-head"><div class="rtitle">Room</div><span class="rval" id="v-room">${h.room}</span></div>
-      ${slider("room", h.room, 100, !h.surround, "Room")}
-      <div class="scale"><span>Head only</span><span>As measured</span><span>Big</span></div>
-      <p class="hint">How much of the room you hear. Less is sharper and drier but can sound inside your head; more sounds further away and fuller. 50 is the room as measured.</p>
-    </div>
-
-    <div class="row">
-      <div><div class="rtitle">Speaker test</div>
-      <p class="hint">${s.testing ? `Playing: <b>${esc(s.testing)}</b>` : "Noise from each speaker in turn, clockwise from front left."}</p></div>
-      <button class="btn quiet" data-act="surround-test" ${canTest && !s.testing ? "" : "disabled"}>${icons.play}Test</button>
-    </div>
-
-    <h2 class="h2">For the best result</h2>
-    <p class="hint">Set games to 7.1, surround or home theater speakers, not headphones. Turn off Windows Sonic, Dolby Atmos for Headphones and a game's own HRTF or 3D headphone mode while this is on, or the sound is placed twice.</p>
-    <p class="hint">kit has to run for sound to reach the headset while surround is on. Quitting kit switches Windows back to the headset.</p>
-  </div></div>`;
-}
 
 const onMicPage = () => view.page === "headset" && view.headset === "mic";
 const fmtSecs = (s) => `0:${String(Math.round(s)).padStart(2, "0")}`;
@@ -631,7 +568,7 @@ function headsetDevicePage() {
     <div class="row col">
       <div class="row-head">
         <div><div class="rtitle">Keep the headset as the default device</div>
-        <p class="hint">Whenever the Nova 5 connects, make it the Windows default output and mic, including for calls. Picking another device yourself still works. With surround on, apps play to VB-CABLE and kit passes them on to the headset; calls stay on the headset.</p></div>
+        <p class="hint">Whenever the Nova 5 connects, make it the Windows default output and mic, including for calls. Picking another device yourself still works.</p></div>
         <label class="switch"><input type="checkbox" data-field="keepDefault" ${c.keepDefault ? "checked" : ""} aria-label="Keep the headset as the default device" /><span></span></label>
       </div>
       ${line("Output", a.output, a.defaultOutput)}
@@ -640,40 +577,17 @@ function headsetDevicePage() {
       ${a.error ? `<div class="state-line bad">${esc(a.error)}</div>` : ""}
     </div>
 
-    ${chatmixSection()}
-
     <h2 class="h2">Power and hearing</h2>
     <div class="row">
       <div><div class="rtitle">Turn off when idle</div><p class="hint">The headset switches itself off after this long without sound.</p></div>
       <div class="seg">${AUTO_OFF.map(([v, l]) => `<button class="${c.headset.autoOff === v ? "on" : ""}" data-act="auto-off" data-v="${v}">${l}</button>`).join("")}</div>
     </div>
     <div class="row">
-      <div><div class="rtitle">Volume limiter</div><p class="hint">Caps the headset's maximum loudness at the EU hearing-safety level (about 85 dB). Turn it off if the headset isn't loud enough at full volume.</p></div>
+      <div><div class="rtitle">Volume limiter</div><p class="hint">Caps the headset's maximum loudness for hearing safety, as SteelSeries ships it. SteelSeries doesn't say by how much. Turn it off if the headset isn't loud enough at full volume.</p></div>
       <label class="switch"><input type="checkbox" data-field="volumeLimiter" ${c.headset.volumeLimiter ? "checked" : ""} aria-label="Volume limiter" /><span></span></label>
     </div>
     <p class="hint">Keep SteelSeries GG closed or uninstalled: it changes the same headset settings.</p>
   </div></div>`;
-}
-
-// The ChatMix dial: kit sets each app's volume from it (see chatmix.rs).
-function chatmixSection() {
-  const c = hcfg().chatmix;
-  const dial = H.headset.chatmix;
-  const level = (label, v) => `<div class="mix-level"><span class="cap">${label}</span><span class="meter"><i style="width:${v}%"></i></span><span class="rval">${v}%</span></div>`;
-  const apps = c.chatApps
-    .map((a) => `<span class="app-chip">${esc(a)}<button class="chip-x" data-act="chat-app-del" data-v="${esc(a)}" aria-label="Remove ${esc(a)}">${icons.x}</button></span>`)
-    .join("");
-  return `<h2 class="h2">ChatMix</h2>
-    <div class="row col">
-      <div class="row-head">
-        <div><div class="rtitle">ChatMix dial</div>
-        <p class="hint">Turn the dial on the headset toward chat to lower games and everything else, toward game to lower the chat apps below. kit does it by setting each app's volume in Windows' volume mixer, and puts them all back to full when this is off or kit quits.</p></div>
-        <label class="switch"><input type="checkbox" data-field="chatmixEnabled" ${c.enabled ? "checked" : ""} aria-label="ChatMix dial" /><span></span></label>
-      </div>
-      ${dial ? `<div class="mix">${level("Game", dial[0])}${level("Chat", dial[1])}</div>` : `<p class="hint">The dial shows here while the headset is on.</p>`}
-      <div class="rtitle">Chat apps</div>
-      <div class="app-chips">${apps}<input class="field" data-field="chat-app-add" placeholder="Add an app, e.g. discord.exe" aria-label="Add a chat app" /></div>
-    </div>`;
 }
 
 // ---------- actions ----------
@@ -702,25 +616,18 @@ async function setApo(install) {
   }
 }
 
-// Installing kit's EQ also switches it on; removing it puts the EQ back on the
-// headset. Updating an installed one leaves the switch as it is.
-async function setEqApo(install, update = false) {
-  if (!update) hcfg().headset.eqInKit = install;
+// Install, update or remove kit's EQ on the headset output.
+async function setEqApo(install) {
   await headsetSaver.flush();
   eqInstalling = true;
   eqError = null;
   render();
   try {
     H = await invoke("set_eq_apo_installed", { install });
-    toast(install ? "kit's EQ installed" : "kit's EQ removed; the EQ is back on the headset");
+    toast(install ? "kit's EQ installed" : "kit's EQ removed; no EQ plays until it's installed again");
   } catch (err) {
     eqError = String(err);
     H = await invoke("headset_state");
-    // Not installed after all: don't leave it to switch itself on later.
-    if (install && !update && !H.audio.eqApoInstalled) {
-      hcfg().headset.eqInKit = false;
-      headsetSaver.save(0);
-    }
   } finally {
     eqInstalling = false;
     render();
@@ -765,13 +672,6 @@ function bandChanged(delay = 250) {
   render();
 }
 
-handlers["chat-app-del"] = (el) => {
-  const c = hcfg().chatmix;
-  c.chatApps = c.chatApps.filter((a) => a !== el.dataset.v);
-  headsetSaver.save(0);
-  render();
-};
-
 Object.assign(handlers, {
   preset(el) {
     if (el.dataset.id !== hcfg().active) activatePreset(el.dataset.id);
@@ -781,6 +681,7 @@ Object.assign(handlers, {
       id: newId(),
       name: `Preset ${hcfg().presets.length + 1}`,
       bands: [32, 64, 125, 250, 500, 1000, 2000, 4000, 8000, 16000].map((freq) => ({ enabled: true, filter: "peaking", freq, gain: 0, q: 1.414 })),
+      tone: { bass: 0, voice: 0, treble: 0 },
     };
     hcfg().presets.push(p);
     headsetSaver.save(0);
@@ -831,12 +732,6 @@ Object.assign(handlers, {
     headsetSaver.save(0);
     render();
   },
-  "surround-test"() {
-    invoke("surround_test");
-  },
-  "get-vbcable"() {
-    invoke("open_vbcable_page");
-  },
   "use-headset"() {
     invoke("use_headset");
     toast("Switching Windows to the headset…");
@@ -845,7 +740,7 @@ Object.assign(handlers, {
     setApo(true);
   },
   "eq-update"() {
-    setEqApo(true, true);
+    setEqApo(true);
   },
   "eq-install"() {
     setEqApo(true);
@@ -887,44 +782,28 @@ for (const f of ["strength", "micVolume", "sidetone"]) {
   };
 }
 
-inputFields.room = (el) => {
-  const v = Number(el.value);
-  el.style.setProperty("--p", `${v}%`);
-  hcfg().headset.room = v;
-  $("#v-room").textContent = `${v}`;
-  headsetSaver.save(150);
-};
-
-// The bass slider redraws only the graph, so the slider keeps the pointer.
-inputFields.bass = (el) => {
-  const v = Number(el.value);
-  el.style.setProperty("--p", `${((v + GAIN_MAX) / (2 * GAIN_MAX)) * 100}%`);
-  hcfg().headset.bass = v;
-  $("#v-bass").innerHTML = fmtBass(v);
-  $("#eq-wrap").innerHTML = graphSvg(preset());
-  preview();
-};
+// The tone sliders redraw only the graph while dragged, so the slider keeps the
+// pointer; letting go saves the preset.
+for (const [k] of TONE) {
+  inputFields[`tone-${k}`] = (el) => {
+    const v = Number(el.value);
+    el.style.setProperty("--p", `${((v + TONE_MAX) / (2 * TONE_MAX)) * 100}%`);
+    const p = preset();
+    p.tone = { ...toneOf(p), [k]: v };
+    $(`#v-tone-${k}`).innerHTML = fmtTone(v);
+    $("#eq-wrap").innerHTML = graphSvg(p);
+    preview();
+  };
+  changeFields[`tone-${k}`] = (el) => {
+    const p = preset();
+    p.tone = { ...toneOf(p), [k]: Number(el.value) };
+    cancelPreview();
+    headsetSaver.save(0);
+    render();
+  };
+}
 
 Object.assign(changeFields, {
-  chatmixEnabled(el) {
-    hcfg().chatmix.enabled = el.checked;
-    headsetSaver.save(0);
-    render();
-  },
-  "chat-app-add"(el) {
-    let name = el.value.trim().split(/[\\/]/).pop().toLowerCase();
-    el.value = "";
-    if (!name) return;
-    if (!name.endsWith(".exe")) name += ".exe";
-    if (!hcfg().chatmix.chatApps.includes(name)) hcfg().chatmix.chatApps.push(name);
-    headsetSaver.save(0);
-    render();
-  },
-  bass(el) {
-    hcfg().headset.bass = Number(el.value);
-    headsetSaver.save(0);
-    render();
-  },
   "band-enabled"(el) {
     band().enabled = el.checked;
     bandChanged(0);
@@ -949,11 +828,6 @@ Object.assign(changeFields, {
   "mic-listen"(el) {
     setMicTest(el.checked ? "listening" : "idle");
   },
-  surround(el) {
-    hcfg().headset.surround = el.checked;
-    headsetSaver.save(0);
-    render();
-  },
   keepDefault(el) {
     hcfg().keepDefault = el.checked;
     headsetSaver.save(0);
@@ -961,11 +835,6 @@ Object.assign(changeFields, {
   },
   volumeLimiter(el) {
     hcfg().headset.volumeLimiter = el.checked;
-    headsetSaver.save(0);
-    render();
-  },
-  eqInKit(el) {
-    hcfg().headset.eqInKit = el.checked;
     headsetSaver.save(0);
     render();
   },
@@ -1044,9 +913,8 @@ document.addEventListener("dblclick", (e) => {
 function onHeadsetState(payload) {
   if (headsetSaver.unsaved() || drag) {
     // Keep edits the backend doesn't have yet; take only what the tray changes
-    // (preset, noise suppression, surround), or the pending save would undo it.
-    const headset = { ...hcfg().headset, surround: payload.config.headset.surround };
-    const config = { ...hcfg(), active: payload.config.active, headset, mic: { ...hcfg().mic, denoise: payload.config.mic.denoise } };
+    // (preset, noise suppression), or the pending save would undo it.
+    const config = { ...hcfg(), active: payload.config.active, mic: { ...hcfg().mic, denoise: payload.config.mic.denoise } };
     H = { ...payload, config };
   } else {
     H = payload;

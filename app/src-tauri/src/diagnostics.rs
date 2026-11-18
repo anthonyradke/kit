@@ -93,7 +93,6 @@ pub fn report(app: &AppHandle) -> String {
     let h = app.state::<headset::state::Shared>();
     section(&mut out, "Headset", &json(&*h.headset.lock().unwrap()));
     section(&mut out, "Audio (kit's view, with what its audio effects report)", &json(&*h.audio.lock().unwrap()));
-    section(&mut out, "Surround", &json(&*h.surround.lock().unwrap()));
     section(&mut out, "Windows audio endpoints", &endpoints());
 
     section(&mut out, "mouse.json (as kit runs it)", &json(&m.core.lock().unwrap().config));

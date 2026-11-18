@@ -179,12 +179,6 @@ pub fn ensure_7_1(id: &str) -> Result<Format> {
     mix_format(id)
 }
 
-/// VB-Audio Virtual Cable's speaker input, which kit's surround plays from.
-/// (The cable's 16 channel "CABLE In 16ch" input is a different endpoint.)
-pub fn find_cable() -> Result<Option<Endpoint>> {
-    Ok(endpoints(Flow::Output)?.into_iter().find(|e| e.name.starts_with("CABLE Input")))
-}
-
 /// The Nova 5's endpoints, matched by the USB device name.
 pub fn find_arctis(flow: Flow) -> Result<Option<Endpoint>> {
     Ok(endpoints(flow)?.into_iter().find(|e| e.device.contains("Arctis Nova 5")))

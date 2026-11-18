@@ -1,17 +1,15 @@
-//! The SteelSeries Arctis Nova 5: EQ (onboard or in kit's APO), mic noise suppression and the default-device keeper.
+//! The SteelSeries Arctis Nova 5: the EQ (in kit's APO, the headset's own kept flat), mic noise suppression and the default-device keeper.
 
 pub mod audio;
-mod chatmix;
 pub mod config;
 mod device;
 pub mod elevate;
 pub mod mic_test;
 pub mod state;
-pub mod surround;
 
 use tauri::{AppHandle, Manager};
 
-use config::{Band, Config};
+use config::{Band, Config, Tone};
 use state::{Shared, UiState};
 
 pub fn init(app: &AppHandle) -> tauri::Result<()> {
@@ -20,20 +18,6 @@ pub fn init(app: &AppHandle) -> tauri::Result<()> {
 
 pub fn on_window_destroyed(app: &AppHandle) {
     mic_test::clear(app);
-}
-
-/// Quitting: with surround on nothing would reach the headset without kit,
-/// so put the headset back as the Windows default.
-pub fn on_exit(app: &AppHandle) {
-    let shared = app.state::<Shared>();
-    // ChatMix: every app back to full volume.
-    let (tx, rx) = std::sync::mpsc::channel();
-    if shared.headset_tx.send(device::Cmd::Release(tx)).is_ok() {
-        let _ = rx.recv_timeout(std::time::Duration::from_millis(500));
-    }
-    if shared.core.lock().unwrap().headset.surround {
-        audio::restore_headset();
-    }
 }
 
 #[tauri::command]
@@ -54,8 +38,8 @@ pub fn activate_preset(app: AppHandle, id: String) -> UiState {
 }
 
 #[tauri::command]
-pub fn preview_eq(app: AppHandle, bands: Vec<Band>, bass: f32) {
-    state::preview_eq(&app, bands, bass);
+pub fn preview_eq(app: AppHandle, bands: Vec<Band>, tone: Tone) {
+    state::preview_eq(&app, bands, tone);
 }
 
 #[tauri::command]
@@ -126,21 +110,6 @@ pub fn set_eq_apo_installed(app: AppHandle, install: bool) -> Result<UiState, St
 #[tauri::command(async)]
 pub fn set_mic_test(app: AppHandle, mode: mic_test::Mode) {
     mic_test::set(&app, mode);
-}
-
-/// Play noise through each virtual surround speaker in turn.
-#[tauri::command]
-pub fn surround_test(app: AppHandle) {
-    let _ = app.state::<Shared>().surround_tx.send(surround::Cmd::Test);
-}
-
-/// VB-Audio's page for VB-CABLE, which surround needs.
-#[tauri::command]
-pub fn open_vbcable_page() {
-    use windows::core::{w, PCWSTR};
-    use windows::Win32::UI::Shell::ShellExecuteW;
-    use windows::Win32::UI::WindowsAndMessaging::SW_SHOWNORMAL;
-    unsafe { ShellExecuteW(None, w!("open"), w!("https://vb-audio.com/Cable/"), PCWSTR::null(), PCWSTR::null(), SW_SHOWNORMAL) };
 }
 
 #[tauri::command]

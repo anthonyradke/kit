@@ -6,7 +6,7 @@ let A = null; // app config: { setupDone, mouse, keyboard, headset }
 const PAGES = {
   mouse: { title: () => PRODUCTS.mouse.name, tabs: [["profiles", "Profiles"], ["macros", "Macros"], ["device", "Device"]] },
   keyboard: { title: () => keyboardName(), tabs: [["keys", "Keys"], ["lighting", "Lighting"], ["macros", "Macros"], ["device", "Device"]] },
-  headset: { title: () => PRODUCTS.headset.name, tabs: [["sound", "Sound"], ["surround", "Surround"], ["mic", "Mic"], ["device", "Device"]] },
+  headset: { title: () => PRODUCTS.headset.name, tabs: [["sound", "Sound"], ["mic", "Mic"], ["device", "Device"]] },
 };
 const DEVICE_ORDER = ["mouse", "keyboard", "headset"];
 const devices = () => DEVICE_ORDER.filter((d) => A[d]);
@@ -17,6 +17,8 @@ let settingsProblems = [];
 let upd = { current: "", available: null, notes: null, checking: false, checked: false, progress: null, error: null };
 // Which page is open; remembered across window closes (the webview is destroyed on close).
 const view = { page: "home", mouse: "profiles", keyboard: "keys", headset: "sound", ...JSON.parse(localStorage.getItem("kit.view") || "{}") };
+// A remembered tab that no longer exists (the headset's Surround) opens the first one.
+for (const [d, p] of Object.entries(PAGES)) if (!p.tabs.some(([id]) => id === view[d])) view[d] = p.tabs[0][0];
 
 function go(page, tab) {
   if (view.page === "mouse" && (page !== "mouse" || tab !== view.mouse)) leaveMouse();
@@ -59,7 +61,7 @@ function pageHtml() {
     case "keyboard":
       return view.keyboard === "macros" ? macrosPage() : view.keyboard === "lighting" ? lightingPage() : view.keyboard === "device" ? keyboardDevicePage() : keysPage();
     case "headset":
-      return view.headset === "mic" ? micPage() : view.headset === "surround" ? surroundPage() : view.headset === "device" ? headsetDevicePage() : soundPage();
+      return view.headset === "mic" ? micPage() : view.headset === "device" ? headsetDevicePage() : soundPage();
     case "settings":
       return settingsPage();
     default:
@@ -824,7 +826,6 @@ syncMaxButton();
   await listen("headset-state", hw(onHeadsetState));
   await listen("headset", hw((p) => (H.headset = p)));
   await listen("audio", hw((p) => (H.audio = p)));
-  await listen("surround", hw((p) => (H.surround = p)));
   await listen("mic-test", (e) => onMicTest(e.payload));
   await listen("update", (e) => {
     upd = e.payload;

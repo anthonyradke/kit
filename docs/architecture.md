@@ -37,23 +37,27 @@ Quit.
 
 Source: `crates/arctis`.
 
-The base station's vendor HID interface, the same one GG uses. Settings, including the EQ (unless it runs in
-kit, below), are stored on the headset.
+The base station's vendor HID interface, the same one GG uses. The headset's own settings (sidetone, mic volume,
+mute light, auto-off, volume limiter) are stored on it. Its own EQ is kept flat: the EQ runs in kit (below).
 
-The ChatMix dial comes with the status the worker polls, every 250 ms while ChatMix is on. There are no Game
-and Chat devices for it to balance, so kit sets each app's volume on the headset (and on VB-CABLE with surround
-on): apps on the chat list follow the dial's chat side, every other app its game side. Volumes are set outright
-rather than scaled, and every app kit changed goes back to full when ChatMix is turned off, the headset goes
-away or kit quits.
+The worker asks for the status once, when the base station appears and when the headset comes on, and then only
+listens: the base station pushes battery, charging and on/off on a second interface (usage page 0xFF00), which a
+thread of its own reads (seen on the user's headset: `b9 02` off, `b9 03` on, `bb 03` on battery, `b7 35` 53%). GG works
+the same way, asking only when the headset comes on; asking every few seconds, as kit used to, was measured by another
+Nova 5 tool to cause crackles.
 
-## EQ on the PC
+The Nova 5 has no ChatMix dial, only a volume wheel the headset handles itself: the status reply's dial bytes read 0
+and 0, and GG's ChatMix is a slider on screen.
+
+## EQ
 
 Source: `crates/eq`, `crates/apo`.
 
 The same DLL as noise suppression holds a second APO, installed as the endpoint effect on the Nova 5's output,
-after Windows mixes every app. The app writes the curve to the registry and the APO picks it up live. Filters
-are designed at twice the rate and matched at 48 kHz, which is how they come out the same as Sonar's (it runs
-its EQ at 96 kHz).
+after Windows mixes every app, the way Sonar ran its EQ but without a virtual device. The app writes the curve to the
+registry and the APO picks it up live. Filters are designed at twice the rate and matched at 48 kHz, which is how
+they come out the same as Sonar's (it runs its EQ at 96 kHz). Each preset has Sonar's Bass, Voice and Treble sliders,
+measured as one peak each (docs/sonar-eq.md). Without the APO installed no EQ plays.
 
 ## Noise suppression
 
@@ -73,19 +77,6 @@ Settings takes the effects off endpoints they no longer belong on (a driver upda
 endpoints under new ids), replaces a missing or older DLL, puts the effects back on the headset and restarts
 Windows audio. Removing an effect takes it off every endpoint that lists it, connected or not, and kit's
 uninstaller removes both (`kit.exe --remove-audio-effects`, run from `app/src-tauri/windows/hooks.nsh`).
-
-## Surround
-
-Source: `crates/spatial`, `src/headset/surround.rs`.
-
-Kit sets VB-CABLE's "CABLE Input" to 7.1 at 48 kHz and makes it the default device for everything but calls,
-then records it with WASAPI loopback. Each channel is convolved (uniformly partitioned FFT convolution,
-256-sample blocks) with a Neumann KU100 dummy head's response from that speaker's direction, plus the early
-reflections of a measured listening room from the nearest measured direction and a shared late reverb; the LFE
-channel is low passed into both ears. A lookahead limiter keeps the sum from clipping. The cable and the
-headset run on separate clocks, so the stereo result is resampled by a small, continuously adjusted ratio (at
-most ±0.2 %) that holds the headset's buffer at 20 ms. The renderer uses about 1.5 % of one CPU core; the
-whole path adds about 40 ms. Quitting kit, or installing an update, makes the headset the default again.
 
 ## Other modules
 

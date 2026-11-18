@@ -81,7 +81,8 @@ pub fn sweep_freq(t: f64) -> f64 {
     SWEEP_F1 * ((SWEEP_F2 / SWEEP_F1).ln() * t / SWEEP_SECONDS).exp()
 }
 
-fn sweep(amp: f64) -> Vec<f32> {
+/// The log sweep every measurement uses, 15 Hz to 22 kHz over 6 s, at `amp`.
+pub fn sweep(amp: f64) -> Vec<f32> {
     let n = (SWEEP_SECONDS * RATE as f64) as usize;
     let k = (SWEEP_F2 / SWEEP_F1).ln();
     (0..n)

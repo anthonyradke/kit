@@ -4,11 +4,6 @@
 //! recreated by a driver update) and "keep default" is on, they become the
 //! default output and input for every role. They are not forced back if you
 //! later pick another device yourself.
-//!
-//! With surround on, apps play to VB-CABLE instead (the default for
-//! everything but calls) and the surround thread passes it on to the headset;
-//! calls and the mic stay on the headset. Switching surround on or off moves
-//! the defaults right away.
 
 use std::sync::mpsc::{Receiver, RecvTimeoutError};
 use std::time::Duration;
@@ -33,11 +28,8 @@ pub struct Status {
     pub input: Option<String>,
     pub default_output: Option<String>,
     pub default_input: Option<String>,
-    /// kit's defaults are in place: the headset for both directions and all
-    /// roles, or with surround on, the cable for apps and the headset for calls.
+    /// The headset is the default for both directions and all roles.
     pub headset_is_default: bool,
-    /// With surround on: VB-CABLE's input, which apps play to.
-    pub cable: Option<String>,
     /// Noise suppression APO installed on the headset mic.
     pub apo_installed: bool,
     /// Installed, but an older DLL than the one this version of kit ships.
@@ -112,10 +104,7 @@ fn run(app: AppHandle, rx: Receiver<Cmd>) {
     sysaudio::com_init();
     let mut status = Status::default();
     // Endpoint ids seen last time; a new id means a device (re)appeared.
-    let mut seen: [Option<String>; 3] = [None, None, None];
-    let mut was_surround = None;
-    // Whether kit's EQ was on the headset output at the last successful scan.
-    let mut eq_seen = None;
+    let mut seen: [Option<String>; 2] = [None, None];
     loop {
         let mut force = false;
         match rx.recv_timeout(POLL_EVERY) {
@@ -123,38 +112,21 @@ fn run(app: AppHandle, rx: Receiver<Cmd>) {
             Ok(Cmd::Refresh) | Err(RecvTimeoutError::Timeout) => {}
             Err(RecvTimeoutError::Disconnected) => return,
         }
-        let (keep_default, surround) = {
-            let shared = app.state::<Shared>();
-            let core = shared.core.lock().unwrap();
-            (core.keep_default, core.headset.surround)
-        };
-        let switched = was_surround.is_some_and(|w| w != surround) || (was_surround.is_none() && surround);
-        was_surround = Some(surround);
-        let next = match scan(surround) {
+        let keep_default = app.state::<Shared>().core.lock().unwrap().keep_default;
+        let next = match scan() {
             Ok(eps) => {
-                let ids = [&eps.output, &eps.input, &eps.cable].map(|e| e.as_ref().map(|e| e.id.clone()));
+                let ids = [&eps.output, &eps.input].map(|e| e.as_ref().map(|e| e.id.clone()));
                 let appeared = ids.iter().zip(&seen).any(|(now, before)| now.is_some() && now != before);
                 seen = ids;
-                let error = if force || switched || ((keep_default || surround) && appeared) { apply(&eps) } else { None };
+                let error = if force || (keep_default && appeared) { apply(&eps) } else { None };
                 describe(eps, error)
             }
             Err(e) => Status { error: Some(e.to_string()), ..Status::default() },
         };
-        // kit's EQ appeared or went (installed, removed, or the endpoint was
-        // recreated by a driver update): move the EQ to match.
-        let mut eq_moved = false;
-        if next.scanned {
-            eq_moved = eq_seen.is_some_and(|was| was != next.eq_apo_installed);
-            eq_seen = Some(next.eq_apo_installed);
-        }
         if next != status {
             status = next;
             *app.state::<Shared>().audio.lock().unwrap() = status.clone();
             let _ = app.emit("audio", &status);
-            if eq_moved {
-                super::state::apply(&app);
-                super::state::emit_state(&app);
-            }
         }
     }
 }
@@ -162,84 +134,32 @@ fn run(app: AppHandle, rx: Receiver<Cmd>) {
 struct Endpoints {
     output: Option<Endpoint>,
     input: Option<Endpoint>,
-    /// Only looked for with surround on.
-    cable: Option<Endpoint>,
 }
 
-fn scan(surround: bool) -> sysaudio::Result<Endpoints> {
-    Ok(Endpoints {
-        output: sysaudio::find_arctis(Flow::Output)?,
-        input: sysaudio::find_arctis(Flow::Input)?,
-        cable: if surround { sysaudio::find_cable()? } else { None },
-    })
+fn scan() -> sysaudio::Result<Endpoints> {
+    Ok(Endpoints { output: sysaudio::find_arctis(Flow::Output)?, input: sysaudio::find_arctis(Flow::Input)? })
 }
 
 /// Set kit's defaults; returns what failed.
 fn apply(eps: &Endpoints) -> Option<String> {
     let mut error = None;
-    let mut check = |r: sysaudio::Result<()>, name: &str| {
-        if let Err(e) = r {
-            error = Some(format!("Couldn't set {name}: {e}"));
+    for ep in [&eps.output, &eps.input].into_iter().flatten() {
+        if let Err(e) = sysaudio::set_default(&ep.id) {
+            error = Some(format!("Couldn't set {}: {e}", ep.name));
         }
-    };
-    match (&eps.output, &eps.cable) {
-        (Some(out), Some(cable)) => {
-            check(sysaudio::set_main_default(&cable.id), &cable.name);
-            check(sysaudio::set_communications_default(&out.id), &out.name);
-        }
-        (Some(out), None) => check(sysaudio::set_default(&out.id), &out.name),
-        _ => {}
-    }
-    if let Some(inp) = &eps.input {
-        check(sysaudio::set_default(&inp.id), &inp.name);
     }
     error
 }
 
-/// Run `f` on a thread of its own in the multithreaded apartment. These are
-/// called from the main thread, which must stay free for the window's
-/// single-threaded COM: joining the MTA there first makes the window's
-/// OleInitialize fail, and kit panics at startup.
-fn in_mta<T: Send>(f: impl FnOnce() -> T + Send) -> T {
-    std::thread::scope(|s| {
-        s.spawn(|| {
-            sysaudio::com_init();
-            f()
-        })
-        .join()
-        .expect("audio endpoint lookup panicked")
-    })
-}
-
-/// kit's EQ is installed on the headset's output (looked up now, not from
-/// the last scan, so the first settings pushed at startup are right).
-pub fn eq_apo_installed() -> bool {
-    in_mta(|| {
-        let Ok(Some(out)) = sysaudio::find_arctis(Flow::Output) else { return false };
-        let s = sysaudio::apo::status(&out, sysaudio::apo::Effect::HeadsetEq);
-        s.registered && s.on_endpoint
-    })
-}
-
-/// Put the headset back as the default for everything (quitting with surround on).
-pub fn restore_headset() {
-    in_mta(|| {
-        if let Ok(Some(out)) = sysaudio::find_arctis(Flow::Output) {
-            let _ = sysaudio::set_default(&out.id);
-        }
-    })
-}
-
 fn describe(eps: Endpoints, error: Option<String>) -> Status {
-    let Endpoints { output: out, input: inp, cable } = eps;
+    let Endpoints { output: out, input: inp } = eps;
     let defaults = |flow| [false, true].map(|comm| sysaudio::default_endpoint(flow, comm).ok().flatten());
     let [out_def, out_comm] = defaults(Flow::Output);
     let [in_def, in_comm] = defaults(Flow::Input);
     let is = |ep: &Option<Endpoint>, d: &Option<Endpoint>| matches!((ep, d), (Some(a), Some(b)) if a.id == b.id);
-    let main_output = if cable.is_some() { &cable } else { &out };
     let headset_is_default = out.is_some()
         && inp.is_some()
-        && is(main_output, &out_def)
+        && is(&out, &out_def)
         && is(&out, &out_comm)
         && is(&inp, &in_def)
         && is(&inp, &in_comm);
@@ -262,7 +182,6 @@ fn describe(eps: Endpoints, error: Option<String>) -> Status {
         input: inp.map(|e| e.name),
         default_output: out_def.map(|e| e.name),
         default_input: in_def.map(|e| e.name),
-        cable: cable.map(|e| e.name),
         headset_is_default,
         error,
         scanned: true,

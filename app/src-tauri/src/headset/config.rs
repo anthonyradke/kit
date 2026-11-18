@@ -21,23 +21,6 @@ pub struct Config {
     /// `SEED_VERSION` the built-in presets in this file were last upgraded to.
     #[serde(default)]
     pub seeds: u32,
-    pub chatmix: ChatMix,
-}
-
-/// The headset's ChatMix dial (see `chatmix.rs`).
-#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
-#[serde(default, rename_all = "camelCase")]
-pub struct ChatMix {
-    /// kit sets app volumes from the dial.
-    pub enabled: bool,
-    /// Executable names of the apps on the dial's chat side.
-    pub chat_apps: Vec<String>,
-}
-
-impl Default for ChatMix {
-    fn default() -> Self {
-        ChatMix { enabled: false, chat_apps: super::chatmix::default_chat_apps() }
-    }
 }
 
 /// Settings stored on the headset. Defaults match what SteelSeries GG had set.
@@ -53,16 +36,10 @@ pub struct HeadsetSettings {
     pub volume_limiter: bool,
     /// Minutes of inactivity before the headset turns off; 0 = never.
     pub auto_off: u8,
-    /// dB added to every preset as a low shelf (see `Preset::to_eq`).
+    /// kit 0.9's bass slider, a 60 Hz low shelf on every preset. Only read,
+    /// to move it onto each preset's Bass (see `Config::normalize`).
+    #[serde(skip_serializing)]
     pub bass: f32,
-    /// Virtual 7.1 surround through VB-CABLE (see `surround.rs`).
-    pub surround: bool,
-    /// Surround's Room slider, 0..=100 (`spatial::room_level`).
-    pub room: u8,
-    /// Run the EQ in kit's APO on the headset's output, the way Sonar runs
-    /// it, instead of on the headset (whose own EQ is then kept flat). Only
-    /// takes effect once the APO is installed.
-    pub eq_in_kit: bool,
     /// How kit's EQ makes room for its boosts.
     pub preamp: Preamp,
 }
@@ -94,7 +71,39 @@ pub struct Preset {
     pub name: String,
     /// Always `arctis::BANDS` long.
     pub bands: Vec<Band>,
+    /// Sonar's Bass, Voice and Treble sliders, on top of the bands.
+    pub tone: Tone,
 }
+
+/// Sonar's three tone sliders, in dB, in Sonar's steps (0.1 dB) and range
+/// ([`TONE_MAX`]). Each is one peak filter with the slider's value as its
+/// gain, at [`TONE_FILTERS`]. On the headset's own EQ a slider is rounded to
+/// its 0.5 dB steps and ±10 dB.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Serialize, Deserialize)]
+#[serde(default)]
+pub struct Tone {
+    pub bass: f32,
+    pub voice: f32,
+    pub treble: f32,
+}
+
+impl Tone {
+    /// The sliders as (frequency, Q, gain), Bass first.
+    fn filters(&self) -> [(u16, f32, f32); 3] {
+        let [b, v, t] = TONE_FILTERS;
+        [(b.0, b.1, self.bass), (v.0, v.1, self.voice), (t.0, t.1, self.treble)]
+    }
+}
+
+/// (frequency, Q) of the Bass, Voice and Treble peaks. Measured on Sonar's
+/// Game output (2026-11-17): with the sliders at +2, +1.5 and +2.5 on top of
+/// its Deep Bass preset, these three peaks account for the difference to
+/// 0.03 dB rms. Sonar's older "Bass Boost" is the same 80 Hz peak.
+/// A second measurement (Main's bands with +3.3, +1.8 and +2.3) agreed to
+/// 0.09 dB rms, so the gain is the slider's value at any setting.
+pub const TONE_FILTERS: [(u16, f32); 3] = [(80, 0.707), (2000, 0.5), (8000, 0.707)];
+/// Sonar's slider range, in dB either way.
+pub const TONE_MAX: f32 = 12.0;
 
 #[derive(Clone, Copy, Debug, PartialEq, Serialize, Deserialize)]
 #[serde(default, rename_all = "camelCase")]
@@ -127,7 +136,6 @@ impl Default for Config {
             mic: MicSettings::default(),
             keep_default: true,
             seeds: SEED_VERSION,
-            chatmix: ChatMix::default(),
         }
     }
 }
@@ -141,9 +149,6 @@ impl Default for HeadsetSettings {
             volume_limiter: true,
             auto_off: 30,
             bass: 0.0,
-            surround: false,
-            room: 50,
-            eq_in_kit: false,
             preamp: Preamp::Auto,
         }
     }
@@ -158,7 +163,7 @@ impl Default for MicSettings {
 
 impl Default for Preset {
     fn default() -> Self {
-        Preset { id: new_id(), name: "New preset".into(), bands: flat_bands() }
+        Preset { id: new_id(), name: "New preset".into(), bands: flat_bands(), tone: Tone::default() }
     }
 }
 
@@ -183,30 +188,26 @@ fn shelf(filter: Filter, freq: u16, gain: f32) -> Band {
 }
 
 /// Bumped whenever the built-in presets change; see `Config::upgrade_presets`.
-const SEED_VERSION: u32 = 4;
+const SEED_VERSION: u32 = 5;
 
-/// Flat, the user's Sonar preset, an everyday correction and a bass one.
-///
-/// The Nova 5 is already bass heavy: reviews measure a ~+4.5 dB high-bass
-/// peak around 80 Hz with less below 60 Hz and a low-mid dip after it.
-/// Boosting that peak again is what makes bass boomy and muffled, so these
-/// cut 80-100 Hz and add their low end under 60 Hz instead, turning the peak
-/// into a clean shelf. The headset has no preamp; the summed boost stays at
-/// or under +6 dB, the most SteelSeries' own firmware presets use. Main is
-/// left as the user had it in Sonar.
+/// Flat and the user's two Sonar Game presets, as Sonar stores them and as
+/// measured on its output (docs/sonar-eq.md). Tony Preset is the user's own:
+/// the bands of their earlier Main with Bass +3.3, Voice +1.8 and Treble
+/// +2.3. Deep Bass is Sonar's built-in "Music: Deep Bass" with the sliders
+/// the user set. Neither has a preamp, as in Sonar: kit's preamp setting
+/// decides.
 fn seed_presets() -> Vec<Preset> {
     let pad = |mut bands: Vec<Band>| {
         bands.resize(arctis::BANDS, Band::default());
         bands
     };
+    let deep_bass =
+        [(31, 0.0), (60, 6.0), (150, 3.0), (350, -2.5), (500, 0.0), (1000, 0.0), (2000, 0.0), (4000, 0.0), (11000, 3.0), (16000, 0.0)];
     vec![
-        Preset { id: "flat".into(), name: "Flat".into(), bands: flat_bands() },
+        Preset { id: "flat".into(), name: "Flat".into(), bands: flat_bands(), tone: Tone::default() },
         Preset {
-            // The user's Sonar game preset exactly as it was in Sonar, punchy
-            // 50-160 Hz included. It is the one exception to the rules above:
-            // retuning it the same way made games sound flat.
-            id: "main".into(),
-            name: "Main".into(),
+            id: "tony".into(),
+            name: "Tony Preset".into(),
             bands: pad(vec![
                 peak(55, 4.0, 0.707),
                 peak(100, 3.0, 0.707),
@@ -214,37 +215,14 @@ fn seed_presets() -> Vec<Preset> {
                 peak(5000, 2.0, 0.707),
                 peak(8000, 3.0, 0.707),
                 peak(12000, 3.0, 0.707),
-                // Sonar's "bass boost" at 1.5: measured, a peak at 80 Hz with
-                // the slider's value as its gain, not a shelf.
-                peak(80, 1.5, 0.707),
             ]),
+            tone: Tone { bass: 3.3, voice: 1.8, treble: 2.3 },
         },
         Preset {
-            // Everyday listening: the 80 Hz boom flattened into an even
-            // +2.5 dB below 100 Hz, the low-mid dip filled, a little presence
-            // and air.
-            id: "balanced".into(),
-            name: "Balanced".into(),
-            bands: pad(vec![
-                shelf(Filter::LowShelf, 45, 3.5),
-                peak(85, -2.5, 1.0),
-                peak(300, 1.5, 1.0),
-                peak(3000, 1.5, 1.0),
-                shelf(Filter::HighShelf, 10000, 1.5),
-            ]),
-        },
-        Preset {
-            // Music and movies with a lot of clean low end: about +6 dB of
-            // sub bass falling to +2 dB at 100 Hz, no boom peak.
-            id: "bass-music".into(),
-            name: "Bass".into(),
-            bands: pad(vec![
-                shelf(Filter::LowShelf, 50, 6.0),
-                peak(95, -2.0, 1.0),
-                peak(300, 1.0, 1.0),
-                peak(3000, 1.5, 1.0),
-                shelf(Filter::HighShelf, 10000, 1.5),
-            ]),
+            id: "deep-bass".into(),
+            name: "Deep Bass".into(),
+            bands: deep_bass.iter().map(|&(f, g)| peak(f, g, 0.707)).collect(),
+            tone: Tone { bass: 2.0, voice: 1.5, treble: 2.5 },
         },
     ]
 }
@@ -253,7 +231,7 @@ fn seed_presets() -> Vec<Preset> {
 /// new ones without bringing back one the user deleted.
 fn seed_added_in(id: &str) -> u32 {
     match id {
-        "balanced" => 1,
+        "tony" | "deep-bass" => 5,
         _ => 0,
     }
 }
@@ -303,7 +281,16 @@ fn past_seed_bands(id: &str) -> Vec<Vec<Band>> {
                 peak(80, 1.5, 0.707),
             ],
         ],
-        "balanced" => vec![vec![shelf(Filter::LowShelf, 45, 2.5), peak(85, -3.0, 1.0), peak(300, 1.5, 1.0)]],
+        "balanced" => vec![
+            vec![shelf(Filter::LowShelf, 45, 2.5), peak(85, -3.0, 1.0), peak(300, 1.5, 1.0)],
+            vec![
+                shelf(Filter::LowShelf, 45, 3.5),
+                peak(85, -2.5, 1.0),
+                peak(300, 1.5, 1.0),
+                peak(3000, 1.5, 1.0),
+                shelf(Filter::HighShelf, 10000, 1.5),
+            ],
+        ],
         "opus" => vec![vec![
             peak(50, 2.5, 0.707),
             peak(120, 0.0, 1.0),
@@ -363,6 +350,13 @@ fn past_seed_bands(id: &str) -> Vec<Vec<Band>> {
                 peak(350, 1.0, 1.0),
                 peak(3000, 1.0, 1.0),
                 shelf(Filter::HighShelf, 10000, 1.0),
+            ],
+            vec![
+                shelf(Filter::LowShelf, 50, 6.0),
+                peak(95, -2.0, 1.0),
+                peak(300, 1.0, 1.0),
+                peak(3000, 1.5, 1.0),
+                shelf(Filter::HighShelf, 10000, 1.5),
             ],
         ],
         "cinema" => vec![
@@ -424,14 +418,15 @@ impl Config {
             return false;
         }
         let seeds = seed_presets();
-        let untouched = |p: &Preset| past_seed_bands(&p.id).contains(&p.bands);
+        // Every earlier built-in had its sliders at zero.
+        let untouched = |p: &Preset| p.tone == Tone::default() && past_seed_bands(&p.id).contains(&p.bands);
         let mut kept = Vec::new();
         let active = self.active.clone();
         let mut active_moved = None;
         self.presets.retain_mut(|p| {
             if let Some(seed) = seeds.iter().find(|s| s.id == p.id) {
-                if p.bands != seed.bands && !untouched(p) {
-                    let copy = Preset { id: new_id() + &p.id, name: format!("{} (yours)", p.name), bands: p.bands.clone() };
+                if (p.bands != seed.bands || p.tone != seed.tone) && !untouched(p) {
+                    let copy = Preset { id: new_id() + &p.id, name: format!("{} (yours)", p.name), bands: p.bands.clone(), tone: p.tone };
                     // The headset keeps sounding the way the user made it.
                     if p.id == active {
                         active_moved = Some(copy.id.clone());
@@ -439,6 +434,7 @@ impl Config {
                     kept.push(copy);
                 }
                 p.bands = seed.bands.clone();
+                p.tone = seed.tone;
                 if PAST_SEED_NAMES.contains(&(p.id.as_str(), p.name.as_str())) {
                     p.name = seed.name.clone();
                 }
@@ -487,6 +483,14 @@ impl Config {
                 b.q = (b.q * 1000.0).round() / 1000.0;
             }
         }
+        let step = |g: f32| if g.is_finite() { (g.clamp(-TONE_MAX, TONE_MAX) * 10.0).round() / 10.0 } else { 0.0 };
+        // kit 0.9's bass slider applied to every preset: move it onto each
+        // preset's Bass (an 80 Hz peak rather than a 60 Hz shelf, near enough).
+        let old_bass = if self.headset.bass.is_finite() { self.headset.bass } else { 0.0 };
+        self.headset.bass = 0.0;
+        for p in &mut self.presets {
+            p.tone = Tone { bass: step(p.tone.bass + old_bass), voice: step(p.tone.voice), treble: step(p.tone.treble) };
+        }
         if !self.presets.iter().any(|p| p.id == self.active) {
             self.active = self.presets[0].id.clone();
         }
@@ -494,14 +498,7 @@ impl Config {
         h.sidetone = h.sidetone.min(arctis::SIDETONE_MAX);
         h.mic_volume = h.mic_volume.min(arctis::MIC_VOLUME_MAX);
         h.mic_led = h.mic_led.min(3);
-        h.room = h.room.min(100);
-        h.bass = if h.bass.is_finite() { (h.bass.clamp(arctis::GAIN_MIN, arctis::GAIN_MAX) * 2.0).round() / 2.0 } else { 0.0 };
         self.mic.strength = self.mic.strength.min(100);
-        let mut apps: Vec<String> = self.chatmix.chat_apps.iter().filter_map(|a| super::chatmix::normalize_app(a)).collect();
-        let mut seen = std::collections::HashSet::new();
-        apps.retain(|a| seen.insert(a.clone()));
-        apps.truncate(50);
-        self.chatmix.chat_apps = apps;
     }
 
     pub fn active_preset(&self) -> &Preset {
@@ -512,80 +509,33 @@ impl Config {
 /// The headset output's rate, which kit's EQ is designed for.
 pub const EQ_RATE: f64 = 48000.0;
 
-/// Corner and slope of the bass slider's shelf. Below the headset's own
-/// 80 Hz peak, so more bass means more rumble rather than more boom.
-pub const BASS_FREQ: u16 = 60;
-const BASS_Q: f32 = 0.707;
-
 impl Preset {
-    /// The bands in the headset's format with the bass slider applied;
-    /// disabled bands become unused slots.
-    pub fn to_eq(&self, bass: f32) -> arctis::Eq {
-        let mut eq = [None; arctis::BANDS];
-        for (slot, b) in eq.iter_mut().zip(self.with_bass(bass)) {
-            if b.enabled {
-                *slot = Some(arctis::Band { filter: b.filter.into(), freq: b.freq, gain: b.gain, q: b.q });
-            }
-        }
-        eq
-    }
-
-    /// The bands with the bass slider applied, as kit's EQ APO runs them
-    /// (in Equalizer APO's text format through `kit_eq::Curve`).
-    pub fn to_curve(&self, bass: f32, preamp: Preamp) -> kit_eq::Curve {
-        let filters = self
-            .with_bass(bass)
+    /// The bands and the tone sliders as kit's EQ APO runs them (in
+    /// Equalizer APO's text format through `kit_eq::Curve`). Unlike the
+    /// headset, it has room for every slider.
+    pub fn to_curve(&self, preamp: Preamp) -> kit_eq::Curve {
+        let bands = self.bands.iter().filter(|b| b.enabled).map(|b| {
+            let kind = match b.filter {
+                Filter::Peaking => kit_eq::Kind::Peaking,
+                Filter::LowShelf => kit_eq::Kind::LowShelf,
+                Filter::HighShelf => kit_eq::Kind::HighShelf,
+                Filter::LowPass => kit_eq::Kind::LowPass,
+                Filter::HighPass => kit_eq::Kind::HighPass,
+            };
+            kit_eq::Filter::new(kind, b.freq as f64, b.gain as f64, b.q as f64)
+        });
+        let tone = self
+            .tone
+            .filters()
             .into_iter()
-            .filter(|b| b.enabled)
-            .map(|b| {
-                let kind = match b.filter {
-                    Filter::Peaking => kit_eq::Kind::Peaking,
-                    Filter::LowShelf => kit_eq::Kind::LowShelf,
-                    Filter::HighShelf => kit_eq::Kind::HighShelf,
-                    Filter::LowPass => kit_eq::Kind::LowPass,
-                    Filter::HighPass => kit_eq::Kind::HighPass,
-                };
-                kit_eq::Filter::new(kind, b.freq as f64, b.gain as f64, b.q as f64)
-            })
-            .collect();
-        let mut curve = kit_eq::Curve { preamp_db: 0.0, filters };
+            .filter(|t| t.2 != 0.0)
+            .map(|(f, q, g)| kit_eq::Filter::new(kit_eq::Kind::Peaking, f as f64, g as f64, q as f64));
+        let mut curve = kit_eq::Curve { preamp_db: 0.0, filters: bands.chain(tone).collect() };
         if preamp == Preamp::Auto {
             // The response the APO matches (see `kit_eq::Curve::design`).
             curve.preamp_db = -curve.max_boost_db(2.0 * EQ_RATE);
         }
         curve
-    }
-
-    /// The bands with the bass slider's low shelf added. It takes a band that
-    /// is off or does nothing (0 dB); with none free it is added to the
-    /// preset's own low shelf. A preset with neither gets no bass change.
-    /// `headset.js` (`withBass`) mirrors this for the graph.
-    pub fn with_bass(&self, bass: f32) -> Vec<Band> {
-        let mut bands = self.bands.clone();
-        if bass == 0.0 {
-            return bands;
-        }
-        let idle = |b: &Band| {
-            !b.enabled || (b.gain == 0.0 && matches!(b.filter, Filter::Peaking | Filter::LowShelf | Filter::HighShelf))
-        };
-        if let Some(b) = bands.iter_mut().find(|b| idle(b)) {
-            *b = Band { enabled: true, filter: Filter::LowShelf, freq: BASS_FREQ, gain: bass, q: BASS_Q };
-        } else if let Some(b) = bands.iter_mut().find(|b| b.filter == Filter::LowShelf) {
-            b.gain = (b.gain + bass).clamp(arctis::GAIN_MIN, arctis::GAIN_MAX);
-        }
-        bands
-    }
-}
-
-impl From<Filter> for arctis::Filter {
-    fn from(f: Filter) -> Self {
-        match f {
-            Filter::Peaking => arctis::Filter::Peaking,
-            Filter::LowShelf => arctis::Filter::LowShelf,
-            Filter::HighShelf => arctis::Filter::HighShelf,
-            Filter::LowPass => arctis::Filter::LowPass,
-            Filter::HighPass => arctis::Filter::HighPass,
-        }
     }
 }
 
@@ -594,7 +544,7 @@ mod tests {
     use super::*;
 
     #[test]
-    fn seeds_survive_normalize_and_fit_the_headset() {
+    fn seeds_survive_normalize() {
         let mut c = Config::default();
         let before = c.clone();
         c.normalize();
@@ -602,71 +552,71 @@ mod tests {
         for p in &c.presets {
             assert_eq!(p.bands.len(), arctis::BANDS);
         }
-        assert_eq!(c.active_preset().name, "Main");
+        assert_eq!(c.active_preset().name, "Tony Preset");
     }
 
-    /// The summed response of `bands` in dB at `f`, with the same RBJ
-    /// biquads the graph in `headset.js` draws.
-    fn response_db(bands: &[Band], f: f64) -> f64 {
-        let fs = 48000.0;
-        bands
-            .iter()
-            .filter(|b| b.enabled)
-            .map(|b| {
-                let w = 2.0 * std::f64::consts::PI * b.freq as f64 / fs;
-                let (cos, alpha, a) = (w.cos(), w.sin() / (2.0 * b.q as f64), 10f64.powf(b.gain as f64 / 40.0));
-                let sa = 2.0 * a.sqrt() * alpha;
-                let [b0, b1, b2, a0, a1, a2] = match b.filter {
-                    Filter::Peaking => [1.0 + alpha * a, -2.0 * cos, 1.0 - alpha * a, 1.0 + alpha / a, -2.0 * cos, 1.0 - alpha / a],
-                    Filter::LowShelf => [
-                        a * (a + 1.0 - (a - 1.0) * cos + sa),
-                        2.0 * a * (a - 1.0 - (a + 1.0) * cos),
-                        a * (a + 1.0 - (a - 1.0) * cos - sa),
-                        a + 1.0 + (a - 1.0) * cos + sa,
-                        -2.0 * (a - 1.0 + (a + 1.0) * cos),
-                        a + 1.0 + (a - 1.0) * cos - sa,
-                    ],
-                    Filter::HighShelf => [
-                        a * (a + 1.0 + (a - 1.0) * cos + sa),
-                        -2.0 * a * (a - 1.0 + (a + 1.0) * cos),
-                        a * (a + 1.0 + (a - 1.0) * cos - sa),
-                        a + 1.0 - (a - 1.0) * cos + sa,
-                        2.0 * (a - 1.0 - (a + 1.0) * cos),
-                        a + 1.0 - (a - 1.0) * cos - sa,
-                    ],
-                    Filter::LowPass => [(1.0 - cos) / 2.0, 1.0 - cos, (1.0 - cos) / 2.0, 1.0 + alpha, -2.0 * cos, 1.0 - alpha],
-                    Filter::HighPass => [(1.0 + cos) / 2.0, -(1.0 + cos), (1.0 + cos) / 2.0, 1.0 + alpha, -2.0 * cos, 1.0 - alpha],
-                };
-                let wf = 2.0 * std::f64::consts::PI * f / fs;
-                let (c1, s1, c2, s2) = (wf.cos(), wf.sin(), (2.0 * wf).cos(), (2.0 * wf).sin());
-                let (nr, ni) = (b0 + b1 * c1 + b2 * c2, -(b1 * s1 + b2 * s2));
-                let (dr, di) = (a0 + a1 * c1 + a2 * c2, -(a1 * s1 + a2 * s2));
-                10.0 * ((nr * nr + ni * ni) / (dr * dr + di * di)).log10()
-            })
-            .sum()
+    fn seed(id: &str) -> Preset {
+        seed_presets().into_iter().find(|p| p.id == id).unwrap()
+    }
+
+    /// kit's curve for `id` against Sonar's Game output, measured with
+    /// loopback on 2026-11-17 (docs/sonar-eq.md), as (Hz, dB) pairs.
+    fn matches_sonar(id: &str, measured: &[(f64, f64)], within: f64) {
+        let curve = seed(id).to_curve(Preamp::Off);
+        for &(f, db) in measured {
+            let ours = curve.response_db(f, 2.0 * EQ_RATE);
+            assert!((ours - db).abs() < within, "{id} at {f} Hz: {ours:.2} dB, Sonar {db:.2} dB");
+        }
     }
 
     #[test]
-    fn seeds_leave_headroom() {
-        // Without a preamp a boost is level on top of full-scale music, and
-        // overlapping bands add up.
-        // Main is the user's Sonar curve, kept as is on purpose.
-        let tuned = || seed_presets().into_iter().filter(|p| p.id != "main");
-        for p in tuned() {
-            for k in 0..=300 {
-                let f = 20.0 * 1000f64.powf(k as f64 / 300.0);
-                let db = response_db(&p.bands, f);
-                assert!(db <= 6.05, "{} boosts {db:.1} dB at {f:.0} Hz", p.name);
-            }
-        }
-        // And none of them stacks on the headset's own 80 Hz peak.
-        for p in tuned() {
-            assert!(response_db(&p.bands, 80.0) <= 0.0, "{} boosts the 80 Hz peak", p.name);
-        }
+    fn deep_bass_matches_what_sonar_played() {
+        let measured = [
+            (63.0, 8.62),
+            (80.0, 8.40),
+            (100.0, 7.48),
+            (150.0, 5.08),
+            (200.0, 2.96),
+            (400.0, -0.88),
+            (1000.0, 0.69),
+            (2000.0, 1.89),
+            (3000.0, 2.31),
+            (5000.0, 3.45),
+            (8000.0, 5.23),
+            (10000.0, 5.39),
+            (16000.0, 3.25),
+            (20000.0, 2.04),
+        ];
+        matches_sonar("deep-bass", &measured, 0.1);
+        // Auto takes off its biggest boost, about +8.7 dB near 70 Hz.
+        let auto = seed("deep-bass").to_curve(Preamp::Auto).preamp_db;
+        assert!((auto + 8.75).abs() < 0.1, "{auto}");
+    }
+
+    #[test]
+    fn tony_matches_what_sonar_played() {
+        // Only where nothing else was playing during the take (left and
+        // right within 0.1 dB of each other, coherence 0.97 or more).
+        let measured = [
+            (25.0, 2.68),
+            (30.0, 3.69),
+            (35.0, 4.83),
+            (90.0, 8.77),
+            (300.0, 1.76),
+            (600.0, 5.09),
+            (3000.0, 4.56),
+            (5000.0, 7.24),
+            (8000.0, 9.14),
+            (10000.0, 8.70),
+            (12000.0, 7.56),
+            (16000.0, 5.03),
+            (20000.0, 3.17),
+        ];
+        matches_sonar("tony", &measured, 0.15);
     }
 
     fn old(id: &str, version: usize) -> Preset {
-        Preset { id: id.into(), name: id.into(), bands: past_seed_bands(id)[version].clone() }
+        Preset { id: id.into(), name: id.into(), bands: past_seed_bands(id)[version].clone(), tone: Tone::default() }
     }
 
     #[test]
@@ -683,112 +633,76 @@ mod tests {
         };
         c.normalize();
         assert!(c.upgrade_presets());
-        let seeds = seed_presets();
         let ids: Vec<_> = c.presets.iter().map(|p| p.id.as_str()).collect();
-        // Warm is gone; Cinema stays because it's active; Balanced is added.
-        assert_eq!(&ids[..5], ["flat", "main", "balanced", "cinema", "bass-music"]);
-        assert_eq!(c.presets[1].bands, seeds[1].bands);
-        assert_eq!(c.presets[4].bands, seeds[3].bands);
-        assert_eq!(c.presets[4].name, "Bass");
-        assert_eq!(c.presets[5].name, "main (yours)");
-        assert_eq!(c.presets[5].bands, edited.bands);
-        assert_eq!(c.presets.len(), 6);
+        // Warm and Bass are gone; the edited Main is the user's now; Cinema
+        // stays because it's active; Tony Preset and Deep Bass are added.
+        assert_eq!(ids, ["flat", "tony", "deep-bass", "main", "cinema"]);
+        assert_eq!(c.presets[3], edited);
         assert!(!c.upgrade_presets());
     }
 
     #[test]
-    fn an_edited_active_preset_keeps_playing_after_an_upgrade() {
-        let mut edited = old("main", 0);
-        edited.bands[0].gain = 2.0;
-        let mut c = Config { presets: vec![old("flat", 0), edited.clone()], active: "main".into(), seeds: 0, ..Config::default() };
+    fn an_untouched_active_preset_keeps_playing_after_an_upgrade() {
+        let mut c = Config { presets: vec![old("flat", 0), old("main", 3)], active: "main".into(), seeds: 4, ..Config::default() };
         c.normalize();
         assert!(c.upgrade_presets());
-        assert_eq!(c.active_preset().bands, edited.bands);
-        assert_eq!(c.active_preset().name, "main (yours)");
+        assert_eq!(c.active_preset().bands, past_seed_bands("main")[3]);
     }
 
     #[test]
-    fn upgrade_from_second_release() {
-        let mut footsteps = old("footsteps", 1);
-        footsteps.bands[1].gain = -3.0;
+    fn upgrade_from_review_tuned_presets() {
+        // 0.9: Flat, Main, Balanced and Bass, on Balanced.
         let mut c = Config {
-            presets: vec![old("flat", 0), old("main", 1), old("opus", 0), footsteps.clone(), old("voice", 0)],
-            active: "main".into(),
-            seeds: 1,
+            presets: vec![old("flat", 0), old("main", 3), old("balanced", 1), old("bass-music", 2)],
+            active: "balanced".into(),
+            seeds: 4,
             ..Config::default()
         };
         c.normalize();
         assert!(c.upgrade_presets());
         let ids: Vec<_> = c.presets.iter().map(|p| p.id.as_str()).collect();
-        // The user deleted Balanced and Bass in this release: they stay deleted.
-        // Opus and Voice are unused built-ins; the edited Footsteps is theirs now.
-        assert_eq!(ids, ["flat", "main", "footsteps"]);
-        assert_eq!(c.presets[1].bands, seed_presets()[1].bands);
-        assert_eq!(c.presets[2], footsteps);
+        assert_eq!(ids, ["flat", "tony", "deep-bass", "balanced"], "unused, untouched built-ins go");
 
         let mut fresh = Config::default();
         assert!(!fresh.upgrade_presets());
     }
 
     #[test]
-    fn upgrade_brings_back_the_sonar_main() {
-        let mut c = Config {
-            presets: vec![old("flat", 0), old("main", 2), seed_presets()[2].clone()],
-            active: "main".into(),
-            seeds: 2,
-            ..Config::default()
-        };
+    fn the_old_bass_slider_moves_onto_every_preset() {
+        let mut c = Config::default();
+        c.headset.bass = 2.0;
         c.normalize();
-        assert!(c.upgrade_presets());
-        assert_eq!(c.presets.len(), 3);
-        assert_eq!(c.presets[1].bands, seed_presets()[1].bands);
-        assert_eq!(c.active_preset().id, "main");
+        assert_eq!(c.headset.bass, 0.0);
+        let bass: Vec<f32> = c.presets.iter().map(|p| p.tone.bass).collect();
+        assert_eq!(bass, [2.0, 5.3, 4.0]);
+        // It is never written back, so it moves only once.
+        let json = serde_json::to_value(&c).unwrap();
+        assert!(json["headset"].get("bass").is_none());
     }
 
     #[test]
-    fn upgrade_gives_main_sonars_bass_boost() {
-        let mut c = Config { presets: vec![old("flat", 0), old("main", 0)], active: "main".into(), seeds: 3, ..Config::default() };
-        c.normalize();
-        assert!(c.upgrade_presets());
-        assert_eq!(c.presets.len(), 2, "an untouched Main is replaced, not kept as a copy");
-        assert_eq!(c.presets[1].bands[6], peak(80, 1.5, 0.707));
-    }
-
-    #[test]
-    fn kit_curve_has_the_bands_bass_and_headroom() {
-        let c = Config::default();
-        let main = c.active_preset();
-        let curve = main.to_curve(0.0, Preamp::Auto);
-        assert_eq!(curve.filters.len(), 7);
-        // Sonar's Main peaks at +7.4 dB near 70 Hz; Auto takes exactly that off.
-        assert!((curve.preamp_db + 7.38).abs() < 0.05, "{}", curve.preamp_db);
-        assert_eq!(main.to_curve(0.0, Preamp::Off).preamp_db, 0.0);
-        // The bass slider is one more filter, and the text round-trips.
-        let with_bass = main.to_curve(2.0, Preamp::Off);
-        assert_eq!(with_bass.filters.len(), 8);
-        assert_eq!(kit_eq::Curve::parse(&with_bass.to_string()).unwrap().filters.len(), 8);
+    fn kit_curve_has_the_bands_tone_and_headroom() {
+        // All ten bands plus the three sliders, and the text round-trips.
+        let curve = seed("deep-bass").to_curve(Preamp::Off);
+        assert_eq!(curve.filters.len(), 13);
+        assert_eq!(curve.preamp_db, 0.0);
+        assert_eq!(kit_eq::Curve::parse(&curve.to_string()).unwrap().filters.len(), 13);
         // Flat stays flat: no filters with gain, no preamp.
-        let flat = c.presets[0].to_curve(0.0, Preamp::Auto);
+        let flat = seed("flat").to_curve(Preamp::Auto);
         assert_eq!(flat.preamp_db, 0.0);
         assert!(flat.max_boost_db(96000.0).abs() < 1e-9);
     }
 
     #[test]
-    fn bass_takes_a_free_band_or_joins_the_low_shelf() {
-        let c = Config::default();
-        let flat = &c.presets[0];
-        assert_eq!(flat.with_bass(0.0), flat.bands);
-        let bands = flat.with_bass(4.0);
-        assert_eq!(bands[0], Band { enabled: true, filter: Filter::LowShelf, freq: BASS_FREQ, gain: 4.0, q: BASS_Q });
-        assert_eq!(bands[1..], flat.bands[1..]);
-
-        let full = Preset {
-            bands: (0..arctis::BANDS as u16)
-                .map(|i| if i == 3 { shelf(Filter::LowShelf, 80, 8.0) } else { peak(200 + i * 100, 1.0, 1.0) })
-                .collect(),
-            ..Preset::default()
-        };
-        assert_eq!(full.with_bass(4.0)[3].gain, arctis::GAIN_MAX);
-        assert_eq!(full.with_bass(-4.0)[3].gain, 4.0);
+    fn tone_sliders_are_sonars_peaks() {
+        let p = Preset { tone: Tone { bass: 4.0, voice: -2.0, treble: 0.0 }, ..seed("flat") };
+        let filters = p.to_curve(Preamp::Off).filters;
+        assert_eq!(filters.len(), 12, "a slider at 0 adds nothing");
+        assert_eq!(filters[10], kit_eq::Filter::new(kit_eq::Kind::Peaking, 80.0, 4.0, 0.707f32 as f64));
+        assert_eq!(filters[11], kit_eq::Filter::new(kit_eq::Kind::Peaking, 2000.0, -2.0, 0.5));
+        // Sonar's steps and range.
+        let mut c = Config { presets: vec![Preset { tone: Tone { bass: 3.33, voice: 20.0, treble: f32::NAN }, ..seed("flat") }], ..Config::default() };
+        c.normalize();
+        assert_eq!(c.presets[0].tone, Tone { bass: 3.3, voice: TONE_MAX, treble: 0.0 });
     }
 }

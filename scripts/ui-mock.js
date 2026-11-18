@@ -5,10 +5,8 @@
   const color = q.get("color") || "white";
   // NK65 firmware: old (stock VIA v9), kit (kit's firmware) or restore (kit's, just flashed).
   const fw = q.get("fw") || "old";
-  // Surround: on (7.1 playing), stereo, off, nocable (VB-CABLE missing), error.
-  const sur = q.get("surround") || "on";
-  // kit's EQ: on (installed and running), installed (switched off), none (not installed).
-  const keq = q.get("kiteq") || "none";
+  // kit's EQ: on (installed and running), none (not installed).
+  const keq = q.get("kiteq") || "on";
   // What kit's APOs report: ok, drops (fell behind), failed, none (not loaded yet).
   const health = q.get("health") || "ok";
   const apoHealth =
@@ -43,22 +41,11 @@
   };
   const bands = [32, 64, 125, 250, 500, 1000, 2000, 4000, 8000, 16000].map((freq, i) => ({ enabled: true, filter: "peaking", freq, gain: [3, 2, 0, -1, 0, 0, 1, 2, 1, 0][i], q: 1.414 }));
   const H = {
-    config: { presets: [{ id: "h1", name: "Main", bands }, { id: "h2", name: "Footsteps", bands }], active: "h1", headset: { sidetone: 1, micVolume: 15, micLed: 3, volumeLimiter: true, autoOff: 30, bass: 0, surround: sur !== "off" && sur !== "nocable", room: 50, eqInKit: keq === "on", preamp: "auto" }, mic: { denoise: true, strength: 90 }, keepDefault: true, chatmix: { enabled: true, chatApps: ["discord.exe", "ts3client_win64.exe", "zoom.exe"] } },
-    headset: { present: true, connected: true, battery: 64, charging: false, chatmix: [100, 62], error: null },
+    config: { presets: [{ id: "h1", name: "Deep Bass", bands, tone: { bass: 2, voice: 1.5, treble: 2.5 } }, { id: "h2", name: "Footsteps", bands, tone: { bass: 0, voice: 0, treble: 0 } }], active: "h1", headset: { sidetone: 1, micVolume: 15, micLed: 3, volumeLimiter: true, autoOff: 30, preamp: "auto" }, mic: { denoise: true, strength: 90 }, keepDefault: true },
+    headset: { present: true, connected: true, battery: 64, charging: false, error: null },
     audio: { output: "Headphones (Arctis Nova 5)", input: "Headset Microphone (Arctis Nova 5)", defaultOutput: "Headphones (Arctis Nova 5)", defaultInput: "Headset Microphone (Arctis Nova 5)", headsetIsDefault: true, apoInstalled: true, apoOutdated: false, eqApoInstalled: keq !== "none", eqApoOutdated: false, apoHealth, error: null },
-    surround: {
-      cable: sur !== "nocable",
-      running: sur === "on" || sur === "stereo",
-      playing: sur === "stereo" ? "Stereo" : sur === "on" ? "7.1" : null,
-      latencyMs: 38,
-      testing: null,
-      error: sur === "error" ? "Waiting for the headset." : null,
-    },
     configPath: "C:\\Users\\you\\AppData\\Roaming\\com.anthonyradke.kit\\headset.json",
   };
-  if (H.config.headset.surround && H.surround.running) {
-    Object.assign(H.audio, { cable: "CABLE Input (VB-Audio Virtual Cable)", defaultOutput: "CABLE Input (VB-Audio Virtual Cable)" });
-  }
   // NK65 keymap: 4 layers x 5 rows x 15 cols.
   const km = new Array(4 * 75).fill(1);
   const set = (l, r, c, v) => (km[(l * 5 + r) * 15 + c] = v);
@@ -124,7 +111,7 @@
   };
   const handlers = {
     set_mic_test: setMicTest,
-    set_eq_apo_installed: ({ install }) => ((H.audio.eqApoInstalled = install), (H.config.headset.eqInKit = install), H),
+    set_eq_apo_installed: ({ install }) => ((H.audio.eqApoInstalled = install), H),
     mouse_state: () => M, headset_state: () => H, keyboard_state: () => K, app_config: () => A,
     get_autostart: () => false, set_autostart: ({ enabled }) => enabled,
     update_state: () => ({ current: "0.3.0", available: null, notes: null, checking: false, checked: true, progress: null, error: null }),
@@ -153,17 +140,6 @@
     diagnostics_export: ({ fileName }) => `C:\\Users\\you\\Documents\\${fileName}`,
     open_log_folder: () => {},
     settings_problems: () => (q.get("problems") ? ["mouse.json wasn't valid (expected value at line 1 column 1), so kit started with defaults. The old file is kept as mouse.json.1762900000.bak."] : []),
-    open_vbcable_page: () => {},
-    surround_test: () => {
-      const names = ["Front left", "Center", "Front right", "Side right", "Rear right", "Rear left", "Side left"];
-      let i = 0;
-      const step = () => {
-        H.surround = { ...H.surround, testing: names[i] || null };
-        emit("surround", H.surround);
-        if (i++ < names.length) setTimeout(step, 1000);
-      };
-      step();
-    },
   };
   window.__TAURI__ = {
     core: { invoke: async (cmd, args) => (handlers[cmd] ? structuredClone(await handlers[cmd](args || {})) : undefined) },

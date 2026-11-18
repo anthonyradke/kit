@@ -25,13 +25,20 @@ pub struct Take {
 /// Play `frames` to the endpoint `play` and record what the endpoint `record`
 /// outputs over the same time, from slightly before the first frame.
 pub fn play_and_record(play: &str, record: &str, frames: &[[f32; 2]]) -> Result<Take> {
+    let flat: Vec<f32> = frames.iter().flatten().copied().collect();
+    play_and_record_layout(play, record, &flat, 2, 0)
+}
+
+/// Like [`play_and_record`], playing `samples` interleaved `channels` wide
+/// with the speaker layout `mask` (0: Windows' default for the count).
+pub fn play_and_record_layout(play: &str, record: &str, samples: &[f32], channels: u16, mask: u32) -> Result<Take> {
     let lb = Loopback::open(record).context("open loopback")?;
     let fmt = lb.format();
     if fmt.rate != RATE as u32 || fmt.channels < 2 {
         bail!("the recorded endpoint runs at {} Hz with {} channels; 48 kHz stereo is needed", fmt.rate, fmt.channels);
     }
-    let out = Render::open_channels(play, 2, RENDER_BUFFER).context("open render")?;
-    let flat: Vec<f32> = frames.iter().flatten().copied().collect();
+    let out = Render::open_layout(play, channels, mask, RENDER_BUFFER).context("open render")?;
+    let flat = samples;
     let mut raw = Vec::new();
     // Let loopback run first so the recording starts in silence.
     let started = Instant::now();
@@ -41,11 +48,11 @@ pub fn play_and_record(play: &str, record: &str, frames: &[[f32; 2]]) -> Result<
     }
     raw.clear();
     let mut glitched = false;
-    let mut pos = out.write(&flat)?;
+    let mut pos = out.write(flat)?;
     out.start()?;
     let started = Instant::now();
     let mut done_at = None;
-    let silence = vec![0.0f32; 2 * RATE / 10];
+    let silence = vec![0.0f32; channels as usize * RATE / 10];
     loop {
         if pos < flat.len() {
             pos += out.write(&flat[pos..])?;

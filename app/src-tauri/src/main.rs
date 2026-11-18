@@ -66,7 +66,6 @@ pub fn before_exit(app: &AppHandle) {
     log::info!("exiting");
     mouse::exec::release_all(app);
     keyboard::state::release(app);
-    headset::on_exit(app);
 }
 
 #[tauri::command]
@@ -145,8 +144,6 @@ fn main() {
             headset::set_mic_test,
             headset::apo_log,
             headset::repair_audio_effects,
-            headset::surround_test,
-            headset::open_vbcable_page,
             keyboard::keyboard_state,
             keyboard::keyboard_save,
             keyboard::activate_lighting,

@@ -4,7 +4,7 @@
 //! the audio engine converting to and from the endpoint's own format. A mic
 //! capture here has been through the noise suppression APO. [`Loopback`]
 //! records what an output endpoint is playing, in that endpoint's own mix
-//! format (all its channels), for surround.
+//! format (all its channels), for measuring what it plays.
 
 use std::time::Duration;
 
@@ -12,7 +12,7 @@ use windows::core::GUID;
 use windows::Win32::Media::Audio::{
     IAudioCaptureClient, IAudioClient, IAudioRenderClient, AUDCLNT_BUFFERFLAGS_DATA_DISCONTINUITY,
     AUDCLNT_BUFFERFLAGS_SILENT, AUDCLNT_SHAREMODE_SHARED, AUDCLNT_STREAMFLAGS_AUTOCONVERTPCM, AUDCLNT_STREAMFLAGS_LOOPBACK,
-    AUDCLNT_STREAMFLAGS_SRC_DEFAULT_QUALITY, WAVEFORMATEX, WAVEFORMATEXTENSIBLE,
+    AUDCLNT_STREAMFLAGS_SRC_DEFAULT_QUALITY, WAVEFORMATEX, WAVEFORMATEXTENSIBLE, WAVEFORMATEXTENSIBLE_0,
 };
 use windows::Win32::Media::Multimedia::WAVE_FORMAT_IEEE_FLOAT;
 use windows::Win32::System::Com::CoTaskMemFree;
@@ -36,9 +36,11 @@ pub struct Format {
     pub mask: u32,
 }
 
-fn open(id: &str, channels: u16, buffer: Duration) -> Result<IAudioClient> {
+/// `mask` names the speaker of each channel (`dwChannelMask`); 0 leaves it to
+/// Windows' default for the channel count.
+fn open(id: &str, channels: u16, mask: u32, buffer: Duration) -> Result<IAudioClient> {
     let client = audio_client(id)?;
-    let format = WAVEFORMATEX {
+    let base = WAVEFORMATEX {
         wFormatTag: WAVE_FORMAT_IEEE_FLOAT as u16,
         nChannels: channels,
         nSamplesPerSec: RATE,
@@ -47,10 +49,17 @@ fn open(id: &str, channels: u16, buffer: Duration) -> Result<IAudioClient> {
         wBitsPerSample: SAMPLE_BYTES as u16 * 8,
         cbSize: 0,
     };
+    let extensible = WAVEFORMATEXTENSIBLE {
+        Format: WAVEFORMATEX { wFormatTag: WAVE_FORMAT_EXTENSIBLE, cbSize: 22, ..base },
+        Samples: WAVEFORMATEXTENSIBLE_0 { wValidBitsPerSample: SAMPLE_BYTES as u16 * 8 },
+        dwChannelMask: mask,
+        SubFormat: SUBTYPE_FLOAT,
+    };
+    let format: *const WAVEFORMATEX = if mask == 0 { &base } else { &extensible.Format };
     let flags = AUDCLNT_STREAMFLAGS_AUTOCONVERTPCM | AUDCLNT_STREAMFLAGS_SRC_DEFAULT_QUALITY;
     // The buffer is in 100 ns units.
     let buffer = buffer.as_nanos() as i64 / 100;
-    unsafe { client.Initialize(AUDCLNT_SHAREMODE_SHARED, flags, buffer, 0, &format, None)? };
+    unsafe { client.Initialize(AUDCLNT_SHAREMODE_SHARED, flags, buffer, 0, format, None)? };
     Ok(client)
 }
 
@@ -102,7 +111,7 @@ pub struct Capture {
 impl Capture {
     /// Start capturing from the endpoint `id`.
     pub fn open(id: &str) -> Result<Self> {
-        let client = open(id, 1, CAPTURE_BUFFER)?;
+        let client = open(id, 1, 0, CAPTURE_BUFFER)?;
         unsafe {
             let capture = client.GetService()?;
             client.Start()?;
@@ -186,7 +195,13 @@ impl Render {
 
     /// Like [`Render::open`] with `channels` interleaved channels.
     pub fn open_channels(id: &str, channels: u16, buffer: Duration) -> Result<Self> {
-        let client = open(id, channels, buffer)?;
+        Self::open_layout(id, channels, 0, buffer)
+    }
+
+    /// Like [`Render::open_channels`], with `mask` (`dwChannelMask`) saying
+    /// which speaker each channel is for, e.g. [`crate::MASK_7_1`].
+    pub fn open_layout(id: &str, channels: u16, mask: u32, buffer: Duration) -> Result<Self> {
+        let client = open(id, channels, mask, buffer)?;
         unsafe {
             let render = client.GetService()?;
             let size = client.GetBufferSize()?;

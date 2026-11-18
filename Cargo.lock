@@ -2276,7 +2276,6 @@ dependencies = [
  "rfd",
  "serde",
  "serde_json",
- "spatial",
  "sysaudio",
  "tauri",
  "tauri-build",
@@ -4177,14 +4176,6 @@ dependencies = [
  "gobject-sys",
  "libc",
  "system-deps",
-]
-
-[[package]]
-name = "spatial"
-version = "0.1.0"
-dependencies = [
- "realfft",
- "rubato",
 ]
 
 [[package]]

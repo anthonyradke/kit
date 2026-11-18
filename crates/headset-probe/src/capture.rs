@@ -59,7 +59,7 @@ impl Drop for Muted {
     }
 }
 
-fn volume_line(e: &sysaudio::Endpoint) -> String {
+pub(crate) fn volume_line(e: &sysaudio::Endpoint) -> String {
     match sysaudio::endpoint_volume(&e.id) {
         Ok((db, mute)) => format!("{}: volume {db:.1} dB{}", e.name, if mute { ", MUTED" } else { "" }),
         Err(err) => format!("{}: volume unknown ({err})", e.name),

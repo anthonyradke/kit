@@ -12,6 +12,8 @@
 //! - `headset-probe flat`: set the headset's own EQ flat
 //! - `headset-probe capture <dir> [game] [chat] [direct]`: measure Sonar (see `capture`)
 //! - `headset-probe analyze <dir>`: analyze an earlier capture again
+//! - `headset-probe fold <dir>` / `fold-analyze <dir>`: how Sonar's Game device folds 7.1 down to stereo (see `fold`)
+//! - `headset-probe read`: the 2.4 GHz and Bluetooth EQ slots and settings, read only
 //! - `headset-probe kit-dll <kit_apo.dll> <dir> [curve.txt]`: run kit's EQ APO offline, compare with Sonar (see `dll`)
 //! - `headset-probe ab <music> <curve.txt> [preamp dB]`: blind ABX of Sonar against kit (see `ab`)
 
@@ -21,6 +23,7 @@ mod capture;
 mod decode;
 mod dll;
 mod fit;
+mod fold;
 mod measure;
 mod model;
 mod signals;
@@ -114,6 +117,21 @@ fn main() -> Result<()> {
         }
         Some("capture") if args.len() >= 2 => capture::run(Path::new(&args[1]), &args[2..])?,
         Some("analyze") if args.len() == 2 => capture::analyze_dir(Path::new(&args[1]))?,
+        Some("fold") if args.len() == 2 => fold::run(Path::new(&args[1]))?,
+        Some("fold-analyze") if args.len() == 2 => fold::analyze_dir(Path::new(&args[1]))?,
+        Some("read") => {
+            let h = arctis::Headset::open()?;
+            // 0x22 is the Bluetooth slot's EQ (community reverse engineering).
+            for (op, slot) in [(0x20u8, "2.4 GHz"), (0x22, "Bluetooth")] {
+                let r = h.query(&[op])?;
+                println!("{slot} EQ:");
+                for (i, band) in arctis::decode_eq(r.get(1..61).context("short reply")?).iter().enumerate() {
+                    println!("  band {:2}: {band:?}", i + 1);
+                }
+            }
+            let st = h.settings()?;
+            println!("mic volume {}, sidetone {}, volume limiter {}", st.mic_volume, st.sidetone, st.volume_limiter);
+        }
         Some("kit-dll") if args.len() == 3 || args.len() == 4 => {
             dll::run_cmd(Path::new(&args[1]), Path::new(&args[2]), args.get(3).map(Path::new))?
         }
@@ -162,7 +180,7 @@ fn main() -> Result<()> {
         }
         _ => {
             if !args.is_empty() {
-                bail!("usage: probe [list | raw <hex> | devices | default <id> | install-apo <dll> | uninstall-apo | install-eq <dll> | uninstall-eq | mic <0|1> <pct> | eq <0|1> [curve.txt] | flat | capture <dir> [game] [chat] [direct] | analyze <dir> | kit-dll <dll> <dir> [curve.txt] | ab <music> <curve.txt> [preamp dB]]");
+                bail!("usage: probe [list | raw <hex> | devices | default <id> | install-apo <dll> | uninstall-apo | install-eq <dll> | uninstall-eq | mic <0|1> <pct> | eq <0|1> [curve.txt] | flat | capture <dir> [game] [chat] [direct] | analyze <dir> | fold <dir> | fold-analyze <dir> | read | kit-dll <dll> <dir> [curve.txt] | ab <music> <curve.txt> [preamp dB]]");
             }
             let h = arctis::Headset::open()?;
             println!("{:#?}", h.status()?);

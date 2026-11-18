@@ -25,7 +25,7 @@ process that uses about 6 MB of memory with its window closed.
 | Logitech PRO X Superlight | Lightspeed receiver | HID++ 2.0 | Profiles, DPI, polling rate, buttons, macros |
 | Logitech PRO X TKL LIGHTSPEED | Lightspeed receiver | HID++ 2.0 | Lighting, per-key color, key bindings, battery |
 | NovelKeys NK65 | USB | VIA raw HID | Keymaps, lighting, macros, firmware |
-| SteelSeries Arctis Nova 5 | Base station | Vendor HID | EQ, surround, microphone, sidetone, battery |
+| SteelSeries Arctis Nova 5 | Base station | Vendor HID | EQ, microphone, sidetone, battery |
 
 Other hardware isn't detected. On first run kit asks which of these are connected and shows only those.
 
@@ -49,15 +49,13 @@ Keyboard
 - NK65 lights go out while the PC is locked, asleep or has its displays off.
 
 Headset
-- A 10-band parametric EQ with a draggable curve, stored on the headset, so it applies to every app and keeps
-  working when kit isn't running.
-- Optionally the EQ runs on the PC instead, reproducing SteelSeries Sonar's filters to within 0.1 dB from 20 Hz to
-  20 kHz at 48 kHz without a virtual audio device. See [docs/sonar-eq.md](docs/sonar-eq.md).
-- Optional virtual 7.1 surround rendered from measured dummy-head and room responses.
+- A 10-band parametric EQ with a draggable curve and Sonar's Bass, Voice and Treble sliders. It runs in Windows on
+  the headset's own output, after every app is mixed, reproducing SteelSeries Sonar's filters to within 0.1 dB from
+  20 Hz to 20 kHz without a virtual audio device, and keeps working when kit isn't running. The presets are Sonar
+  ones, measured. See [docs/sonar-eq.md](docs/sonar-eq.md).
 - DeepFilterNet 3 noise suppression on the headset's microphone endpoint, so every app receives the clean signal.
 - A mic test with recorded or live playback, after noise suppression.
 - Mic volume, sidetone, mute light, auto-off, volume limiter and battery.
-- The ChatMix dial balances chat apps against everything else.
 - Settings shows how the audio effects run and repairs them after a driver update.
 - The headset is restored as the default playback and recording device whenever it reconnects.
 
@@ -77,14 +75,13 @@ App
 - At least one of the supported devices.
 - G HUB, SteelSeries GG and VIA closed or uninstalled. They use the same device channels and audio endpoints. The
   setup screen checks for G HUB and GG and reminds you about VIA.
-- For surround only: [VB-CABLE](https://vb-audio.com/Cable/).
 
 ## Install
 
 Download `kit_x.y.z_x64-setup.exe` from [Releases](https://github.com/anthonyradke/kit/releases) and run it. Pick the
 connected devices on first launch. Closing the window keeps kit in the tray; Quit in the tray menu exits.
 
-Noise suppression and the PC-side EQ install an audio processing object, which takes one administrator prompt.
+Noise suppression and the EQ install an audio processing object, which takes one administrator prompt.
 
 ## How it works
 
@@ -96,20 +93,17 @@ flowchart LR
   core -- "vendor HID" --> base["Nova 5 base station"]
   core -- "Core Audio" --> audio["Windows audio endpoints"]
   audio --> apo["kit_apo.dll<br/>EQ and noise suppression"]
-  cable["VB-CABLE 7.1"] -- "WASAPI loopback" --> spatial["Surround renderer"] --> audio
 ```
 
 Each device has a worker thread that owns its HID handle. The UI is plain HTML, CSS and JavaScript in the system
 WebView, with no build step.
 
-- Settings are stored on the device wherever it supports that (active keymap, headset EQ), so they hold without
-  kit running. The mouse runs in host mode; kit re-applies its DPI and rate when it wakes.
+- Settings are stored on the device wherever it supports that (active keymap, headset settings), so they hold
+  without kit running. The mouse runs in host mode; kit re-applies its DPI and rate when it wakes.
 - Effects that kit animates are streamed to the keyboard about 30 times a second without saving, so the EEPROM
   isn't worn and a power cut restores the stored lighting.
 - The EQ and noise suppression are Windows Audio Processing Objects in one DLL, loaded by the audio engine on the
   headset's own endpoints. Noise suppression adds about 50 ms of microphone latency.
-- Surround convolves each of the eight channels with a Neumann KU100 response for that speaker's direction. It
-  adds about 40 ms and uses about 1.5% of one CPU core.
 
 [docs/architecture.md](docs/architecture.md) covers each subsystem in detail.
 
@@ -135,7 +129,6 @@ hardware probe tools and the release process are described in [docs/development.
 | `crates/via` | VIA protocol, onboard macro format, key-code tables |
 | `crates/arctis` | Arctis Nova 5 protocol |
 | `crates/eq`, `crates/apo` | EQ filter design, and the APO DLL for EQ and noise suppression |
-| `crates/spatial` | Surround renderer and its filter data |
 | `crates/sysaudio` | Windows audio endpoints, default devices, streams |
 | `crates/mouse-probe`, `crates/headset-probe` | Command-line hardware test tools |
 | `app/src-tauri` | The app: device workers, input hooks, tray, updater |
@@ -148,14 +141,10 @@ hardware probe tools and the release process are described in [docs/development.
 - G HUB, GG and VIA can't run at the same time as kit.
 - Macros that click, repeat or toggle, kit's own lighting effects and PRO X TKL key bindings need kit running.
 - Per-key NK65 color needs RGB-matrix firmware (PCB rev B, or kit's firmware).
-- Surround routes audio through kit. If kit exits unexpectedly, select the headset in Windows sound settings.
-  Games must output 5.1 or 7.1 for rear channels.
 
 ## Credits
 
 - [DeepFilterNet](https://github.com/Rikorose/DeepFilterNet) for noise suppression (MIT or Apache-2.0).
-- [SADIE II database](https://www.york.ac.uk/sadie-project/database.html), University of York, for the surround
-  filters (Apache-2.0; see `crates/spatial/data/NOTICE`).
 - [HeadsetControl](https://github.com/Sapd/HeadsetControl), [Solaar](https://github.com/pwr-Solaar/Solaar) and
   [the-via/keyboards](https://github.com/the-via/keyboards) for protocol references.
 - Product photos belong to Logitech, SteelSeries and Oblotzky Industries. Archivo is under the SIL Open Font

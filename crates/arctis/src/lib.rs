@@ -10,6 +10,13 @@
 //! 10 EQ bands (6 bytes each) followed by mic volume, sidetone and the volume
 //! limiter. The mute LED and auto-off settings aren't in it. The base station
 //! answers it even while the headset is off.
+//!
+//! Status changes don't need asking for: the base station pushes them on a
+//! second interface (usage page 0xFF00, see [`Events`]), and SteelSeries GG
+//! relies on that, sending nothing while nothing changes. Asking for the
+//! status often is worth avoiding: another Nova 5 tool measured crackles in
+//! the audio about a second after each status request (Arctis-Sound-Manager
+//! issue #348), with requests every 2 s.
 
 use std::time::{Duration, Instant};
 
@@ -19,6 +26,8 @@ pub const STEELSERIES_VID: u16 = 0x1038;
 /// Nova 5 and Nova 5X base stations.
 pub const PRODUCT_IDS: [u16; 2] = [0x2232, 0x2253];
 pub const VENDOR_USAGE_PAGE: u16 = 0xFFC0;
+/// The interface the base station pushes status changes on.
+pub const EVENT_USAGE_PAGE: u16 = 0xFF00;
 const MSG_LEN: usize = 64;
 const READ_TIMEOUT: Duration = Duration::from_millis(500);
 
@@ -39,8 +48,10 @@ mod op {
     pub const GET_SETTINGS: u8 = 0x20;
     pub const SET_EQ: u8 = 0x33;
     pub const VOLUME_LIMITER: u8 = 0x27;
-    pub const SAVE_A: u8 = 0x09;
-    pub const SAVE_B: u8 = 0x35;
+    pub const SAVE: u8 = 0x09;
+    /// Wireless mode: 0 range, 1 speed. GG sends `35 01` after every
+    /// setting too, so kit does the same.
+    pub const WIRELESS_MODE: u8 = 0x35;
     pub const MIC_VOLUME: u8 = 0x37;
     pub const SIDETONE: u8 = 0x39;
     pub const INACTIVE_TIME: u8 = 0xA3;
@@ -67,8 +78,6 @@ pub struct Status {
     pub connected: bool,
     pub battery: u8,
     pub charging: bool,
-    /// Game / chat volume from the headset's ChatMix (0-100 each).
-    pub chatmix: (u8, u8),
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -167,6 +176,61 @@ pub struct Headset {
     pub product_id: u16,
 }
 
+/// A status change the base station pushed.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Event {
+    /// Battery percent.
+    Battery(u8),
+    /// The headset came on and linked to the base station (true), or went
+    /// off or out of range (false).
+    Connected(bool),
+    /// On the charging cable and charging.
+    Charging(bool),
+}
+
+impl Event {
+    /// One report from the event interface: the opcode, then its values
+    /// (`b7 47 02` is 71% battery). From the Linux driver
+    /// (hid-steelseries-arctis.c) and Linux-Arctis-Manager's Nova 5 config.
+    pub fn parse(report: &[u8]) -> Option<Event> {
+        match *report {
+            [0xB7, percent, ..] => Some(Event::Battery(percent.min(100))),
+            [0xB9, link, ..] => Some(Event::Connected(link == 0x03)),
+            // 01 charging, 02 on the cable but not charging, 03 on battery.
+            [0xBB, state, ..] => Some(Event::Charging(state == 0x01)),
+            _ => None,
+        }
+    }
+}
+
+/// The base station's event interface. Reading it sends nothing.
+pub struct Events {
+    dev: HidDevice,
+}
+
+impl Events {
+    pub fn open() -> Result<Self> {
+        let api = HidApi::new()?;
+        let info = api
+            .device_list()
+            .find(|d| {
+                d.vendor_id() == STEELSERIES_VID
+                    && PRODUCT_IDS.contains(&d.product_id())
+                    && d.usage_page() == EVENT_USAGE_PAGE
+            })
+            .ok_or(Error::NotFound)?;
+        Ok(Events { dev: api.open_path(info.path())? })
+    }
+
+    /// Wait up to `timeout` for the next event. `None` when nothing came, or
+    /// a report that isn't one of [`Event`]'s.
+    pub fn next(&self, timeout: Duration) -> Result<Option<Event>> {
+        let mut r = [0u8; 64];
+        let n = self.dev.read_timeout(&mut r, timeout.as_millis().min(i32::MAX as u128) as i32)?;
+        Ok(if n == 0 { None } else { Event::parse(&r[..n]) })
+    }
+}
+
 impl Headset {
     pub fn open() -> Result<Self> {
         let api = HidApi::new()?;
@@ -205,11 +269,12 @@ impl Headset {
         Err(Error::Timeout)
     }
 
-    /// Write a setting and make the headset persist it.
+    /// Write a setting and make the headset persist it, then send the
+    /// wireless mode (speed) as GG does after every setting.
     fn set(&self, cmd: &[u8]) -> Result<()> {
         self.send(cmd)?;
-        self.send(&[op::SAVE_A])?;
-        self.send(&[op::SAVE_B, 0x01])
+        self.send(&[op::SAVE])?;
+        self.send(&[op::WIRELESS_MODE, 0x01])
     }
 
     pub fn status(&self) -> Result<Status> {
@@ -221,7 +286,6 @@ impl Headset {
             connected: r[1] != 0x02,
             battery: r[3].min(100),
             charging: r[4] == 0x01,
-            chatmix: (r[5], r[6]),
         })
     }
 
@@ -276,5 +340,22 @@ impl Headset {
     /// Minutes of silence before the headset turns itself off (0 = never).
     pub fn set_inactive_time(&self, minutes: u8) -> Result<()> {
         self.set(&[op::INACTIVE_TIME, minutes])
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn events_parse_as_the_base_station_sends_them() {
+        // Frames from a usbmon capture of a Nova 5 (Arctis-Sound-Manager #348).
+        assert_eq!(Event::parse(&[0xB7, 0x47, 0x02]), Some(Event::Battery(71)));
+        assert_eq!(Event::parse(&[0xB9, 0x03, 0x02]), Some(Event::Connected(true)));
+        assert_eq!(Event::parse(&[0xB9, 0x02, 0x02]), Some(Event::Connected(false)));
+        assert_eq!(Event::parse(&[0xBB, 0x01, 0x02]), Some(Event::Charging(true)));
+        assert_eq!(Event::parse(&[0xBB, 0x03, 0x02]), Some(Event::Charging(false)));
+        assert_eq!(Event::parse(&[0x20, 0x01]), None);
+        assert_eq!(Event::parse(&[0xB7]), None);
     }
 }

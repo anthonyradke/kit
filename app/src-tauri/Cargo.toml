@@ -13,7 +13,6 @@ hidpp = { path = "../../crates/hidpp" }
 arctis = { path = "../../crates/arctis" }
 sysaudio = { path = "../../crates/sysaudio" }
 kit-eq = { path = "../../crates/eq" }
-spatial = { path = "../../crates/spatial" }
 via = { path = "../../crates/via" }
 tauri = { version = "2", features = ["tray-icon"] }
 tauri-plugin-global-shortcut = "2"
