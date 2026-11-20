@@ -57,7 +57,18 @@ pub fn resume(app: &AppHandle) {
 
 /// Re-register every hotkey from the current config, recording failures
 /// (bad syntax, already taken by another app) for the UI.
+///
+/// Always on the main thread (inline when already there). The plugin hands each call to the
+/// main thread and waits, so a caller elsewhere (settings import is an async command) holding
+/// `REGISTERED` would deadlock against a save on the main thread waiting for that lock.
 pub fn register(app: &AppHandle) {
+    let handle = app.clone();
+    if let Err(e) = app.run_on_main_thread(move || register_now(&handle)) {
+        log::warn!("hotkeys: can't reach the main thread: {e}");
+    }
+}
+
+fn register_now(app: &AppHandle) {
     if PAUSED.load(Ordering::SeqCst) {
         return;
     }
