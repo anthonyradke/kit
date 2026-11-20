@@ -890,7 +890,9 @@ impl Worker {
     }
 
     fn service_logi(&mut self) {
-        if Instant::now() >= self.next_battery && self.status.connected {
+        // Also while it seems gone: a wireless-status event may never come (or the feature may be
+        // missing), and an answer here is what brings it back (`with_logi` calls `on_wake`).
+        if Instant::now() >= self.next_battery {
             self.next_battery = Instant::now() + BATTERY_EVERY;
             if let Some((pct, charging)) = self.with_logi(|l| l.dev.battery()) {
                 self.status.battery = Some(pct);
