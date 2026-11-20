@@ -404,7 +404,11 @@ unsafe fn draw(hwnd: HWND, shown: &[Shown], dpi: u32, light: bool, height: i32) 
     // coverage as alpha (premultiplied, as UpdateLayeredWindow wants).
     let out_dc = CreateCompatibleDC(screen);
     let scratch_dc = CreateCompatibleDC(screen);
-    if let (Some((out_bmp, out)), Some((scratch_bmp, scratch))) = (dib(out_dc, width, height), dib(scratch_dc, width, height)) {
+    let out_dib = dib(out_dc, width, height);
+    let scratch_dib = dib(scratch_dc, width, height);
+    // A bitmap still selected into a DC can't be deleted, so the DCs go first (below).
+    let bitmaps = [out_dib.as_ref().map(|d| d.0), scratch_dib.as_ref().map(|d| d.0)];
+    if let (Some((_, out)), Some((_, scratch))) = (out_dib, scratch_dib) {
         out.fill(0);
         SetBkMode(scratch_dc, TRANSPARENT as i32);
         SetTextColor(scratch_dc, 0x00FF_FFFF);
@@ -431,12 +435,13 @@ unsafe fn draw(hwnd: HWND, shown: &[Shown], dpi: u32, light: bool, height: i32) 
         let size = SIZE { cx: width, cy: height };
         let origin = POINT { x: 0, y: 0 };
         UpdateLayeredWindow(hwnd, std::ptr::null_mut(), std::ptr::null(), &size, out_dc, &origin, 0, &blend, ULW_ALPHA);
-        DeleteObject(out_bmp as _);
-        DeleteObject(scratch_bmp as _);
     }
     DeleteDC(out_dc);
     DeleteDC(scratch_dc);
     DeleteDC(measure);
+    for bmp in bitmaps.into_iter().flatten() {
+        DeleteObject(bmp as _);
+    }
     ReleaseDC(std::ptr::null_mut(), screen);
     for f in [icons, text, bolt] {
         DeleteObject(f as _);
