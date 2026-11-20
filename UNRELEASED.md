@@ -5,3 +5,4 @@ this list into the release notes and empties it for the next batch. The notes sh
 Settings, so keep each line to one short sentence about what changed for the user.
 
 - The taskbar battery readout no longer leaks a little memory each time it changes, which over weeks could stop it drawing.
+- A headset that was already on when kit started no longer shows as off when the first status request goes unanswered.

@@ -50,6 +50,8 @@ const OPEN_RETRY: Duration = Duration::from_secs(2);
 /// Only when the event interface can't be opened: ask for the status this
 /// often instead.
 const FALLBACK_POLL: Duration = Duration::from_secs(30);
+/// While events arrive, how soon to ask again after a status request got no answer.
+const STATUS_RETRY: Duration = Duration::from_secs(5);
 /// How long the event thread waits per read, so it notices a new connection.
 const EVENT_WAIT: Duration = Duration::from_secs(2);
 /// Nothing scheduled: wait for a command this long at most.
@@ -70,8 +72,10 @@ struct Worker {
     /// What we last wrote (or verified) for each setting.
     written: Written,
     next_open: Instant,
-    /// When to ask for the status again; `None` while events arrive.
+    /// When to ask for the status again; `None` while events arrive and the last answer came.
     next_poll: Option<Instant>,
+    /// The base station pushes events, so the status is only asked for on connect.
+    listening: bool,
     /// Counts connections to the base station; an event thread runs while
     /// its connection is the current one.
     connection: Arc<AtomicU64>,
@@ -100,6 +104,7 @@ impl Worker {
             written: Written::default(),
             next_open: Instant::now(),
             next_poll: None,
+            listening: false,
             connection: Arc::new(AtomicU64::new(0)),
             status: Status::default(),
             published: Status::default(),
@@ -160,6 +165,7 @@ impl Worker {
                         false
                     }
                 };
+                self.listening = listening;
                 self.next_poll = (!listening).then(Instant::now);
                 if listening {
                     self.query_status();
@@ -198,12 +204,19 @@ impl Worker {
         }
     }
 
-    /// Ask the base station for the status once.
+    /// Ask the base station for the status once. Without events it's asked again every
+    /// FALLBACK_POLL; with them, only until one answer comes, since pushes only report changes
+    /// and a missed first answer would otherwise leave the headset shown off.
     fn query_status(&mut self) {
-        if self.next_poll.is_some() {
-            self.next_poll = Some(Instant::now() + FALLBACK_POLL);
+        let reply = self.with_dev(|h| h.status());
+        if self.dev.is_some() {
+            self.next_poll = match (self.listening, &reply) {
+                (false, _) => Some(Instant::now() + FALLBACK_POLL),
+                (true, Some(_)) => None,
+                (true, None) => Some(Instant::now() + STATUS_RETRY),
+            };
         }
-        let Some(st) = self.with_dev(|h| h.status()) else { return };
+        let Some(st) = reply else { return };
         if st.connected {
             self.status.battery = Some(st.battery);
             self.status.charging = st.charging;
@@ -217,7 +230,8 @@ impl Worker {
             // which the pushes only send when they change.
             arctis::Event::Connected(true) if !self.status.connected => self.query_status(),
             arctis::Event::Connected(on) => self.set_connected(on),
-            _ if !self.status.connected => {}
+            // Battery news while shown off may mean a missed connect. Asking is harmless if not.
+            _ if !self.status.connected => self.query_status(),
             arctis::Event::Battery(percent) => self.status.battery = Some(percent),
             arctis::Event::Charging(charging) => self.status.charging = charging,
         }
