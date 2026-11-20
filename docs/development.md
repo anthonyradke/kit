@@ -10,6 +10,7 @@ cargo build -p kit && target\debug\kit.exe  # run the app (debug)
 cd app/src-tauri && cargo tauri build       # release exe + installer (needs the updater signing key)
 cargo test                                  # unit tests (VIA codes and macros, EQ and lighting config, denoise)
 cargo clippy --workspace --all-targets      # lints; kept free of warnings
+cargo audit                                 # known vulnerabilities in dependencies (exceptions: .cargo/audit.toml)
 cargo run -p mouse-probe                    # mouse hardware test: device info
 cargo run -p mouse-probe -- dpi 800         # set DPI directly
 cargo run -p mouse-probe -- keyboard        # Logitech keyboard: features, lighting zones and effects

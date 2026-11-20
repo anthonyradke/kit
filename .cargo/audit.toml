@@ -1,0 +1,12 @@
+# Exceptions for `cargo audit` (run by .github/workflows/check.yml). Each one says why it doesn't
+# apply, and when to drop it.
+
+[advisories]
+ignore = [
+    # tract-nnef 0.21.4: integer overflow in the NNEF tensor parser on model load. kit-apo only loads
+    # DeepFilterNet's ONNX model, which is compiled into the DLL (DfParams::default), so the NNEF
+    # parser never sees outside input. The fix is in tract 0.21.16, but tract 0.21.5+ needs ndarray
+    # 0.16 and the pinned DeepFilterNet revision still builds against 0.15 (crates/apo/Cargo.toml).
+    # Drop this when DeepFilterNet moves to a patched tract.
+    "RUSTSEC-2026-0217",
+]

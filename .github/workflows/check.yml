@@ -1,5 +1,6 @@
-# Builds and tests every push to main on Windows, where the app and the APO run. The release
-# workflow runs this too, and only publishes when it passes on the tagged commit.
+# Builds and tests every push to main on Windows, where the app and the APO run, and checks the
+# dependencies against the RustSec advisory database. The release workflow runs this too, and only
+# publishes when it passes on the tagged commit.
 name: check
 
 on:
@@ -38,3 +39,18 @@ jobs:
 
       - name: Test
         run: cargo test --workspace --locked
+
+  audit:
+    # Checks Cargo.lock against the RustSec advisory database. Vulnerabilities fail the run;
+    # unmaintained, unsound and yanked crates are only listed. Exceptions, each with its reason,
+    # go in .cargo/audit.toml.
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          persist-credentials: false
+      - uses: taiki-e/install-action@c509219cf42fba86913069efd0ade2458c59337b # v2.90.1
+        with:
+          tool: cargo-audit
+      - name: Dependency advisories
+        run: cargo audit
