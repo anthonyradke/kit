@@ -8,3 +8,4 @@ Settings, so keep each line to one short sentence about what changed for the use
 - A headset that was already on when kit started no longer shows as off when the first status request goes unanswered.
 - The PRO X TKL comes back in kit after being off or out of range, instead of staying "not connected" until kit restarts.
 - Importing settings while a change is being saved can no longer freeze kit.
+- Clicking Update in Settings and the tray at once starts one download instead of two.

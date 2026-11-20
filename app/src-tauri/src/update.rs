@@ -57,25 +57,52 @@ pub fn status(app: &AppHandle) -> Status {
 }
 
 fn set(app: &AppHandle, f: impl FnOnce(&mut Status)) {
+    claim(app, |s| {
+        f(s);
+        true
+    });
+}
+
+/// Runs `f` under the status lock and tells the window when it returns true. Testing and setting a
+/// flag in one step keeps Settings and the tray, clicked together, from both starting a download.
+fn claim(app: &AppHandle, f: impl FnOnce(&mut Status) -> bool) -> bool {
     let status = {
         let shared = app.state::<Shared>();
         let mut s = shared.status.lock().unwrap();
-        f(&mut s);
+        if !f(&mut s) {
+            return false;
+        }
         s.clone()
     };
     let _ = app.emit("update", status);
+    true
+}
+
+impl Status {
+    /// Marks a check as running, unless one is already running or an update is installing.
+    fn start_check(&mut self) -> bool {
+        if self.checking || self.progress.is_some() {
+            return false;
+        }
+        self.checking = true;
+        true
+    }
+
+    /// Marks an install as running, unless one already is.
+    fn start_install(&mut self) -> bool {
+        if self.progress.is_some() {
+            return false;
+        }
+        self.progress = Some(0);
+        self.error = None;
+        true
+    }
 }
 
 pub async fn check(app: &AppHandle) {
-    let busy = {
-        let s = app.state::<Shared>();
-        let s = s.status.lock().unwrap();
-        s.checking || s.progress.is_some()
-    };
-    if busy {
+    if !claim(app, Status::start_check) {
         return;
     }
-    set(app, |s| s.checking = true);
     let h = app.clone();
     let updater = app
         .updater_builder()
@@ -123,13 +150,9 @@ pub async fn check(app: &AppHandle) {
 pub async fn install(app: &AppHandle) -> Result<(), String> {
     let mut update = app.state::<Shared>().pending.lock().unwrap().clone().ok_or("No update to install.")?;
     update.timeout = Some(DOWNLOAD_TIMEOUT);
-    if status(app).progress.is_some() {
+    if !claim(app, Status::start_install) {
         return Ok(());
     }
-    set(app, |s| {
-        s.progress = Some(0);
-        s.error = None;
-    });
     let mut done = 0u64;
     let result = update
         .download_and_install(
@@ -170,4 +193,29 @@ pub async fn check_update(app: AppHandle) -> Status {
 #[tauri::command]
 pub async fn install_update(app: AppHandle) -> Result<(), String> {
     install(&app).await
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn only_one_install_starts() {
+        let mut s = Status { error: Some("offline".into()), ..Status::default() };
+        assert!(s.start_install());
+        assert_eq!((s.progress, s.error.as_deref()), (Some(0), None));
+        assert!(!s.start_install());
+        s.progress = None;
+        assert!(s.start_install());
+    }
+
+    #[test]
+    fn no_check_while_checking_or_installing() {
+        let mut s = Status::default();
+        assert!(s.start_check());
+        assert!(!s.start_check());
+        let mut s = Status { progress: Some(40), ..Status::default() };
+        assert!(!s.start_check());
+        assert!(!s.checking);
+    }
 }
